@@ -13,28 +13,91 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { title, json, parseMessageRow } from "./service-support.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
 
-export function beginIterationArchiveOperation(service, user, threadId) {
+/** 一组行。 */
+type Row = Record<string, unknown>;
+
+/** 迭代域用到的 Service 视图。 */
+export type IterationService = {
+  db: Pool;
+  thread(
+    user: IterationUser,
+    threadId: string,
+    write?: boolean,
+    db?: Db,
+    options?: { display?: boolean },
+  ): Promise<Row>;
+  member(user: IterationUser, projectId: string, write?: boolean): Promise<unknown>;
+  assertDocumentScopeAvailable(
+    db: Db,
+    projectId: string,
+    folderId: string | null,
+  ): Promise<unknown>;
+  createIterationFolders(
+    db: Db,
+    projectId: string,
+    threadId: string,
+    title: string,
+  ): Promise<unknown>;
+};
+
+/** 发起操作的人。 */
+export type IterationUser = { id: string; kind?: string | null; [field: string]: unknown };
+
+/** 归档工作流需要的 Service 视图（转发给 iteration-archive）。 */
+export type ArchiveService = IterationService;
+
+export function beginIterationArchiveOperation(
+  service: ArchiveService,
+  user: IterationUser,
+  threadId: string,
+): Promise<unknown> {
   return beginIterationArchive(service, user, threadId);
 }
 
-export function readArchiveWorkflowOperation(service, user, threadId) {
+export function readArchiveWorkflowOperation(
+  service: ArchiveService,
+  user: IterationUser,
+  threadId: string,
+): Promise<unknown> {
   return readArchiveWorkflow(service, user, threadId);
 }
 
-export function cancelIterationArchiveOperation(service, user, threadId, input) {
+export function cancelIterationArchiveOperation(
+  service: ArchiveService,
+  user: IterationUser,
+  threadId: string,
+  input: unknown,
+): Promise<unknown> {
   return cancelIterationArchive(service, user, threadId, input);
 }
 
-export function retryIterationArchiveOperation(service, user, threadId, input) {
+export function retryIterationArchiveOperation(
+  service: ArchiveService,
+  user: IterationUser,
+  threadId: string,
+  input: unknown,
+): Promise<unknown> {
   return retryIterationArchive(service, user, threadId, input);
 }
 
-export function confirmIterationArchiveOperation(service, user, threadId, input) {
+export function confirmIterationArchiveOperation(
+  service: ArchiveService,
+  user: IterationUser,
+  threadId: string,
+  input: unknown,
+): Promise<unknown> {
   return confirmIterationArchive(service, user, threadId, input);
 }
 
-export async function listIterationContextChangesOperation(service, user, threadId, input = {}) {
+export async function listIterationContextChangesOperation(
+  service: IterationService,
+  user: IterationUser,
+  threadId: string,
+  input: unknown = {},
+) {
   const { page, pageSize, q, review } = z
     .object({
       page: z.coerce.number().int().min(1).max(1000000).default(1),
@@ -45,7 +108,7 @@ export async function listIterationContextChangesOperation(service, user, thread
     .parse(input);
   await service.thread(user, threadId);
   const filters = ["c.thread_id=?"];
-  const params = [threadId];
+  const params: unknown[] = [threadId];
   if (q) {
     const like = `%${q.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
     filters.push(
@@ -56,13 +119,18 @@ export async function listIterationContextChangesOperation(service, user, thread
   if (review === "reviewed") filters.push("c.reviewed_by IS NOT NULL");
   if (review === "pending") filters.push("c.reviewed_by IS NULL");
   const where = `FROM iteration_context_changes c LEFT JOIN users u ON u.id=c.changed_by LEFT JOIN users r ON r.id=c.reviewed_by WHERE ${filters.join(" AND ")}`;
-  const [count] = await query(service.db, `SELECT COUNT(*) total ${where}`, params);
-  const rows = await query(
+  const [count] = await query<{ total: unknown }>(
+    service.db,
+    `SELECT COUNT(*) total ${where}`,
+    params,
+  );
+  const rows = await query<Row>(
     service.db,
     `SELECT c.*,u.name initiator_name,r.name reviewer_name ${where} ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?`,
     [...params, pageSize, (page - 1) * pageSize],
   );
-  const context = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+  const context = (value: unknown): unknown =>
+    typeof value === "string" ? JSON.parse(value) : value;
   return {
     page,
     pageSize,
@@ -81,11 +149,11 @@ export async function listIterationContextChangesOperation(service, user, thread
 }
 
 export async function updateThreadOperation(
-  service,
-  user,
-  threadId,
-  input,
-  { source = "human" } = {},
+  service: IterationService,
+  user: IterationUser,
+  threadId: string,
+  input: unknown,
+  { source = "human" }: { source?: string } = {},
 ) {
   const data = z
     .object({
@@ -130,7 +198,12 @@ export async function updateThreadOperation(
   });
 }
 
-export async function createThreadOperation(service, user, projectId, input) {
+export async function createThreadOperation(
+  service: IterationService,
+  user: IterationUser,
+  projectId: string,
+  input: unknown,
+) {
   await service.member(user, projectId, true);
   const data = z
     .object({
@@ -155,10 +228,10 @@ export async function createThreadOperation(service, user, projectId, input) {
 }
 
 export async function contextOperation(
-  service,
-  user,
-  threadId,
-  db = service.db,
+  service: IterationService,
+  user: IterationUser,
+  threadId: string,
+  db: Db = service.db,
   {
     display = false,
     limit = 50,
@@ -168,6 +241,15 @@ export async function contextOperation(
     includeRunResults = true,
     sideState,
     sideRevision,
+  }: {
+    display?: boolean;
+    limit?: number;
+    before?: string | null;
+    after?: string | null;
+    includeConnectorResults?: boolean;
+    includeRunResults?: boolean;
+    sideState?: unknown;
+    sideRevision?: unknown;
   } = {},
 ) {
   const thread = await service.thread(user, threadId, false, db, { display });
@@ -177,7 +259,7 @@ export async function contextOperation(
   // Never inline base64 avatars or full tool I/O here — a busy thread can exceed
   // 30 MiB and arrive as HTTP 200 with a truncated/non-JSON body through the proxy.
   // Avatars stay on /members/:id/avatar; event payloads stay on /events/:eventId.
-  const messagesQuery = query(
+  const messagesQuery = query<Row>(
     db,
     `SELECT m.id,m.sequence,m.body,m.refs,m.folder_refs,m.source,m.execution_target,m.agent_task_id,m.turn_id,m.turn_usage,m.created_at,u.name author,u.id author_id,CASE WHEN m.source='assistant' THEN NULL ELSE CONCAT('/api/projects/',?,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END author_avatar,
       JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags, '$[0]')) author_role
@@ -186,7 +268,7 @@ export async function contextOperation(
   );
   const page = display ? await messagesQuery : null;
   const hasMore = !!page && page.length > pageSize;
-  const selected = page?.slice(0, pageSize);
+  const selected: Row[] = page?.slice(0, pageSize) ?? [];
   if (display && !after) selected.reverse();
   const eventFilter = display
     ? ` AND m.id IN (${selected.length ? selected.map(() => "?").join(",") : "NULL"})`
@@ -198,9 +280,9 @@ export async function contextOperation(
     String(thread.side_revision ?? 0) === String(sideRevision) &&
     typeof sideState === "string" &&
     sideState.startsWith("s1:");
-  const reviewsQuery = revisionMatched
+  const reviewsQuery: Promise<Row[]> = revisionMatched
     ? Promise.resolve([])
-    : query(
+    : query<Row>(
         db,
         `SELECT r.*,u.name reviewer FROM reviews r JOIN versions v ON v.id=r.version_id
       JOIN users u ON u.id=r.reviewer_id WHERE v.thread_id=? ORDER BY r.created_at,r.id`,
@@ -210,22 +292,22 @@ export async function contextOperation(
   const runResults = includeRunResults
     ? "output"
     : "CASE WHEN status IN ('failed','interrupted') THEN output ELSE NULL END output";
-  const runsQuery = revisionMatched
+  const runsQuery: Promise<Row[]> = revisionMatched
     ? Promise.resolve([])
-    : query(
+    : query<Row>(
         db,
         `SELECT id,kind,status,${runResults},progress,created_at,finished_at FROM sandbox_runs WHERE thread_id=? ORDER BY created_at DESC LIMIT 20`,
         [threadId],
       );
-  const repliesQuery = revisionMatched
+  const repliesQuery: Promise<Row[]> = revisionMatched
     ? Promise.resolve([])
-    : query(
+    : query<Row>(
         db,
         `SELECT r.message_id,m.author_id,m.created_at started_at,r.status,r.error,r.reply_id,r.progress,r.participation,r.parent_message_id,r.dispatch_ready,r.agent_slot,r.finished_at,r.first_response_at,r.usage_stats FROM assistant_replies r
       JOIN messages m ON m.id=r.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
         [threadId],
       );
-  const eventsQuery = query(
+  const eventsQuery = query<Row>(
     db,
     `SELECT e.id,e.message_id,e.tool,e.status,e.created_at,e.finished_at,
        CASE WHEN JSON_VALID(e.input) THEN JSON_OBJECT('action',JSON_EXTRACT(e.input,'$.action'),'scope',JSON_EXTRACT(e.input,'$.scope'),'name',JSON_EXTRACT(e.input,'$.name'),'artifactId',JSON_EXTRACT(e.input,'$.artifactId'),'folderId',JSON_EXTRACT(e.input,'$.folderId'),'threadId',JSON_EXTRACT(e.input,'$.threadId'),'versionId',JSON_EXTRACT(e.input,'$.versionId'),
@@ -233,22 +315,22 @@ export async function contextOperation(
        NULL output FROM agent_events e JOIN messages m ON m.id=e.message_id WHERE m.thread_id=?${eventFilter} ORDER BY e.id`,
     [threadId, ...(display ? selected.map((m) => m.id) : [])],
   );
-  const agentContextQuery = query(
+  const agentContextQuery = query<Row>(
     db,
     "SELECT context_stats,seen_sequence,compact_status,compact_error,compact_result FROM agent_sessions WHERE thread_id=?",
     [threadId],
   );
-  const updatesQuery = revisionMatched
+  const updatesQuery: Promise<Row[]> = revisionMatched
     ? Promise.resolve([])
-    : query(
+    : query<Row>(
         db,
         `SELECT u.message_id,u.task_message_id,u.delivered_at FROM agent_task_updates u
        JOIN messages m ON m.id=u.message_id WHERE m.thread_id=? ORDER BY m.sequence`,
         [threadId],
       );
-  const requestsQuery = revisionMatched
+  const requestsQuery: Promise<Row[]> = revisionMatched
     ? Promise.resolve([])
-    : query(
+    : query<Row>(
         db,
         `SELECT q.message_id,q.status,q.response_id,q.error,q.first_response_at,q.usage_stats FROM agent_requests q JOIN messages m ON m.id=q.message_id
        WHERE m.thread_id=? ORDER BY m.sequence`,
@@ -257,9 +339,9 @@ export async function contextOperation(
   const localExecutorTaskResults = includeConnectorResults
     ? "t.output,t.diff"
     : "NULL output,NULL diff";
-  const localExecutorTasksQuery = revisionMatched
+  const localExecutorTasksQuery: Promise<Row[]> = revisionMatched
     ? Promise.resolve([])
-    : query(
+    : query<Row>(
         db,
         `SELECT t.id,t.message_id,t.requested_by,t.assigned_to,t.status,t.policy,t.allow_git_push allowGitPush,t.progress,t.agent_kind agentKind,t.error,${localExecutorTaskResults},
       CASE WHEN ? IN (t.requested_by,t.assigned_to) THEN t.instruction ELSE NULL END instruction,
@@ -268,8 +350,8 @@ export async function contextOperation(
       WHERE t.thread_id=? ORDER BY t.created_at,t.id`,
         [user.id, threadId],
       );
-  const pendingQuery = display
-    ? query(
+  const pendingQuery: Promise<Row[] | null> = display
+    ? query<Row>(
         db,
         // A constant cursor lets MySQL range-scan (thread_id,sequence), rather
         // than checking the session join after reading the entire history.
@@ -277,7 +359,7 @@ export async function contextOperation(
         [threadId, threadId],
       )
     : Promise.resolve(null);
-  const toolDurationQuery = query(
+  const toolDurationQuery = query<Row>(
     db,
     `SELECT COALESCE(SUM(GREATEST(TIMESTAMPDIFF(MICROSECOND, e.created_at, e.finished_at),0)),0) ms
      FROM agent_events e JOIN messages m ON m.id=e.message_id
@@ -288,7 +370,7 @@ export async function contextOperation(
     [threadId],
   );
   // 轮次口径与轨迹一致：有事件（=小祥真的跑过）的触发消息数，排除子 Agent 会话。
-  const trajectoryRoundsQuery = query(
+  const trajectoryRoundsQuery = query<Row>(
     db,
     `SELECT COUNT(DISTINCT COALESCE(e.turn_id,e.message_id)) n
      FROM agent_events e JOIN messages m ON m.id=e.message_id
@@ -299,7 +381,7 @@ export async function contextOperation(
     [threadId],
   );
   // 每轮用量（含唤醒续报轮）：底部统计按轮汇总，没出现在 replies 里的轮也能算上。
-  const turnUsageQuery = query(
+  const turnUsageQuery = query<Row>(
     db,
     `SELECT COALESCE(m.turn_id,m.id) turn_id,m.turn_usage usage_stats,m.created_at finished_at
      FROM messages m WHERE m.thread_id=? AND m.turn_usage IS NOT NULL ORDER BY m.sequence`,
@@ -320,7 +402,7 @@ export async function contextOperation(
     [trajectoryRoundsRow],
     turnUsageRows,
   ] = await Promise.all([
-    display ? selected : messagesQuery,
+    display ? Promise.resolve(selected) : messagesQuery,
     reviewsQuery,
     runsQuery,
     repliesQuery,
@@ -334,11 +416,21 @@ export async function contextOperation(
     trajectoryRoundsQuery,
     turnUsageQuery,
   ]);
-  const withQuotes = await attachMessageQuotes(db, [
-    ...new Map([...(pending || []), ...messages].map((m) => [m.id, parseMessageRow(m)])).values(),
+  const parsedRows = [...(pending || []), ...messages].map(
+    (m) => parseMessageRow(m) as Row & { id: string },
+  );
+  const withQuotes = await attachMessageQuotes<Row & { id: string }>(db, [
+    ...new Map(parsedRows.map((m) => [m.id, m] as const)).values(),
   ]);
   const quotedById = new Map(withQuotes.map((m) => [m.id, m]));
-  const readState = await threadReadSummary(db, user.id, threadId);
+  const readState = (await threadReadSummary(db, user.id, threadId)) as {
+    lastReadSequence: unknown;
+    unreadCount: unknown;
+    unreadMention: unknown;
+    unreadMentionCount: unknown;
+    unreadChat: unknown;
+    unreadTask: unknown;
+  };
   const context = {
     ...thread,
     last_read_sequence: readState.lastReadSequence,
@@ -349,7 +441,7 @@ export async function contextOperation(
     unread_task: readState.unreadTask,
     contextUsage: contextUsage(
       agentContext,
-      (pending || messages).map((m) => quotedById.get(m.id)),
+      (pending || messages).map((m) => quotedById.get(m.id as string)),
       replies,
     ),
     archive_snapshot: thread.archive_snapshot ? json(thread.archive_snapshot) : null,
@@ -362,7 +454,7 @@ export async function contextOperation(
           },
         }
       : {}),
-    messages: messages.map((m) => quotedById.get(m.id)),
+    messages: messages.map((m) => quotedById.get(m.id as string)),
     reviews,
     runs,
     replies,

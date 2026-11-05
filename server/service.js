@@ -11,10 +11,10 @@ import {
 import { HttpError } from "./http-error.ts";
 import { DocumentsService } from "./documents/service.js";
 import * as accessDomain from "./service-access.ts";
-import * as membersDomain from "./service-members.js";
+import * as membersDomain from "./service-members.ts";
 import * as projectsDomain from "./service-projects.ts";
 import * as monitorDomain from "./service-monitor.js";
-import * as iterationsDomain from "./service-iterations.js";
+import * as iterationsDomain from "./service-iterations.ts";
 import * as messagesDomain from "./service-messages.js";
 import * as notificationsDomain from "./service-notification-operations.js";
 import { fail, id, title } from "./service-support.ts";

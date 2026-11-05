@@ -5,15 +5,60 @@ import { query, transaction } from "./db.ts";
 import { hashPassword } from "./auth.ts";
 
 import { fail, id, title } from "./service-support.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** UPDATE / INSERT 的写入结果头。 */
+type WriteHeader = { affectedRows?: number };
+
+/** 成员域用到的 Service 视图。 */
+export type MemberService = {
+  db: Pool;
+  projectManager(user: MemberUser, projectId: string, db?: Db): Promise<unknown>;
+  projectLeader(
+    user: MemberUser,
+    projectId: string,
+    db?: Db,
+    options?: { lock?: boolean },
+  ): Promise<unknown>;
+  systemAdmin(user: MemberUser, db?: Db): Promise<unknown>;
+  notify(
+    db: Db,
+    userId: string,
+    projectId: string,
+    kind: string,
+    text: string,
+    threadId: string | null,
+    messageId: string | null,
+    senderName: string,
+  ): Promise<void>;
+  projectChange(
+    db: Db,
+    projectId: string,
+    actorId: string,
+    action: string,
+    details?: Record<string, unknown>,
+  ): Promise<unknown>;
+  accountChange(
+    db: Db,
+    userId: string,
+    actorId: string,
+    action: string,
+    details?: Record<string, unknown>,
+  ): Promise<unknown>;
+};
+
+/** 发起操作的人。 */
+export type MemberUser = { id: string; kind?: string | null };
 
 export async function accountChangeOperation(
-  service,
-  db,
-  targetUserId,
-  actorUserId,
-  action,
-  details = {},
-) {
+  service: MemberService,
+  db: Db,
+  targetUserId: string,
+  actorUserId: string,
+  action: string,
+  details: Record<string, unknown> = {},
+): Promise<void> {
   await query(
     db,
     "INSERT INTO account_change_logs(id,target_user_id,actor_user_id,action,details) VALUES(?,?,?,?,?)",
@@ -21,7 +66,12 @@ export async function accountChangeOperation(
   );
 }
 
-export async function removeMemberOperation(service, user, projectId, userId) {
+export async function removeMemberOperation(
+  service: MemberService,
+  user: MemberUser,
+  projectId: string,
+  userId: string,
+) {
   if (user.kind !== "session") fail(403, "成员管理需要人工登录");
   return transaction(service.db, async (db) => {
     await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
@@ -31,7 +81,7 @@ export async function removeMemberOperation(service, user, projectId, userId) {
     if ([AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId))
       fail(409, "项目负责人和系统 Agent 不能被移出项目");
     id.parse(userId);
-    const [target] = await query(
+    const [target] = await query<{ name?: string; role?: string; project_leader_id?: string }>(
       db,
       `SELECT u.name,m.role,p.project_leader_id FROM members m
          JOIN users u ON u.id=m.user_id JOIN projects p ON p.id=m.project_id
@@ -44,12 +94,14 @@ export async function removeMemberOperation(service, user, projectId, userId) {
     )
       fail(409, "项目负责人和系统 Agent 不能被移出项目");
     if (target?.role === "project_admin") fail(409, "请先撤销项目管理员身份，再移出成员");
-    const result = await query(db, "DELETE FROM members WHERE project_id=? AND user_id=?", [
+    const result = (await query(db, "DELETE FROM members WHERE project_id=? AND user_id=?", [
       projectId,
       userId,
-    ]);
+    ])) as unknown as WriteHeader;
     if (!result.affectedRows) fail(409, "成员不存在或不能移除项目负责人");
-    const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    const [sender] = await query<{ name: string }>(db, "SELECT name FROM users WHERE id=?", [
+      user.id,
+    ]);
     await service.notify(
       db,
       userId,
@@ -58,7 +110,7 @@ export async function removeMemberOperation(service, user, projectId, userId) {
       "你已被移出该项目",
       null,
       null,
-      sender.name,
+      sender!.name,
     );
     await service.projectChange(db, projectId, user.id, "member_removed", {
       userId,
@@ -68,7 +120,12 @@ export async function removeMemberOperation(service, user, projectId, userId) {
   });
 }
 
-export async function transferProjectLeaderOperation(service, user, projectId, input) {
+export async function transferProjectLeaderOperation(
+  service: MemberService,
+  user: MemberUser,
+  projectId: string,
+  input: unknown,
+) {
   if (user.kind !== "session") fail(403, "请使用成员账号转移项目负责人");
   id.parse(projectId);
   const { userId } = z.object({ userId: id }).parse(input);
@@ -77,14 +134,16 @@ export async function transferProjectLeaderOperation(service, user, projectId, i
     fail(409, "项目负责人必须是人类成员");
   return transaction(service.db, async (db) => {
     await service.projectLeader(user, projectId, db, { lock: true });
-    const [target] = await query(
+    const [target] = await query<{ name?: string; disabled_at?: unknown; role?: string }>(
       db,
       "SELECT u.name,u.disabled_at,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? AND m.user_id=? FOR UPDATE",
       [projectId, userId],
     );
     if (!target) fail(409, "新负责人必须先加入项目");
     if (target.disabled_at) fail(409, "新负责人必须是正常状态的成员");
-    const [actor] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    const [actor] = await query<{ name?: string | null }>(db, "SELECT name FROM users WHERE id=?", [
+      user.id,
+    ]);
     await query(db, "UPDATE projects SET project_leader_id=? WHERE id=?", [userId, projectId]);
     await query(
       db,
@@ -129,7 +188,12 @@ export async function transferProjectLeaderOperation(service, user, projectId, i
   });
 }
 
-export async function addProjectAdminOperation(service, user, projectId, input) {
+export async function addProjectAdminOperation(
+  service: MemberService,
+  user: MemberUser,
+  projectId: string,
+  input: unknown,
+) {
   if (user.kind !== "session") fail(403, "请使用成员账号管理项目管理员");
   id.parse(projectId);
   const { userId } = z.object({ userId: id }).parse(input);
@@ -137,7 +201,7 @@ export async function addProjectAdminOperation(service, user, projectId, input) 
     fail(409, "项目管理员必须是人类成员");
   return transaction(service.db, async (db) => {
     await service.projectLeader(user, projectId, db, { lock: true });
-    const [target] = await query(
+    const [target] = await query<{ name?: string; disabled_at?: unknown; role?: string }>(
       db,
       "SELECT u.name,u.disabled_at,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? AND m.user_id=? FOR UPDATE",
       [projectId, userId],
@@ -152,7 +216,11 @@ export async function addProjectAdminOperation(service, user, projectId, input) 
       "UPDATE members SET role='project_admin',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
       [projectId, userId],
     );
-    const [adminSender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    const [adminSender] = await query<{ name?: string | null }>(
+      db,
+      "SELECT name FROM users WHERE id=?",
+      [user.id],
+    );
     await service.notify(
       db,
       userId,
@@ -173,13 +241,18 @@ export async function addProjectAdminOperation(service, user, projectId, input) 
   });
 }
 
-export async function removeProjectAdminOperation(service, user, projectId, userId) {
+export async function removeProjectAdminOperation(
+  service: MemberService,
+  user: MemberUser,
+  projectId: string,
+  userId: string,
+) {
   if (user.kind !== "session") fail(403, "请使用成员账号管理项目管理员");
   id.parse(projectId);
   id.parse(userId);
   return transaction(service.db, async (db) => {
     await service.projectLeader(user, projectId, db, { lock: true });
-    const [target] = await query(
+    const [target] = await query<{ name?: string; role?: string }>(
       db,
       "SELECT u.name,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? AND m.user_id=? FOR UPDATE",
       [projectId, userId],
@@ -190,7 +263,11 @@ export async function removeProjectAdminOperation(service, user, projectId, user
       "UPDATE members SET role='member',role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
       [projectId, userId],
     );
-    const [adminSender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    const [adminSender] = await query<{ name?: string | null }>(
+      db,
+      "SELECT name FROM users WHERE id=?",
+      [user.id],
+    );
     await service.notify(
       db,
       userId,
@@ -211,35 +288,40 @@ export async function removeProjectAdminOperation(service, user, projectId, user
   });
 }
 
-export async function recoverProjectLeaderOperation(service, user, projectId, input) {
+export async function recoverProjectLeaderOperation(
+  service: MemberService,
+  user: MemberUser,
+  projectId: string,
+  input: unknown,
+) {
   id.parse(projectId);
   const { userId } = z.object({ userId: id }).parse(input);
   if ([AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id].includes(userId))
     fail(409, "项目负责人必须是人类成员");
   return transaction(service.db, async (db) => {
     await service.systemAdmin(user, db);
-    const [project] = await query(
+    const [project] = await query<{ project_leader_id?: string | null }>(
       db,
       "SELECT project_leader_id FROM projects WHERE id=? FOR UPDATE",
       [projectId],
     );
     if (!project) fail(404, "项目不存在");
     if (project.project_leader_id) fail(409, "该项目已经设置项目负责人");
-    const [issue] = await query(
+    const [issue] = await query<{ issue_type?: string; candidate_user_ids: unknown }>(
       db,
       "SELECT issue_type,candidate_user_ids FROM project_role_migration_issues WHERE project_id=? FOR UPDATE",
       [projectId],
     );
     if (!issue) fail(409, "该项目没有待处理的历史角色迁移问题");
     if (issue.issue_type === "multiple_legacy_owners") {
-      const candidateIds =
+      const candidateIds: unknown =
         typeof issue.candidate_user_ids === "string"
           ? JSON.parse(issue.candidate_user_ids)
           : issue.candidate_user_ids;
       if (!Array.isArray(candidateIds) || !candidateIds.includes(userId))
         fail(409, "负责人应从历史负责人候选中选择");
     }
-    const [target] = await query(
+    const [target] = await query<{ name?: string; role?: string; disabled_at?: unknown }>(
       db,
       "SELECT u.name,m.role,u.disabled_at FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? AND m.user_id=? FOR UPDATE",
       [projectId, userId],
@@ -262,7 +344,12 @@ export async function recoverProjectLeaderOperation(service, user, projectId, in
   });
 }
 
-export async function addMemberOperation(service, user, projectId, input) {
+export async function addMemberOperation(
+  service: MemberService,
+  user: MemberUser,
+  projectId: string,
+  input: Record<string, unknown>,
+) {
   if (user.kind !== "session") fail(403, "成员管理需要人工登录");
   await service.projectManager(user, projectId);
   if (input.userId) {
@@ -272,7 +359,7 @@ export async function addMemberOperation(service, user, projectId, input) {
         role: z.enum(["member", "viewer"]).default("member"),
       })
       .parse(input);
-    const [account] = await query(
+    const [account] = await query<{ id: string; name?: string }>(
       service.db,
       "SELECT id,name FROM users WHERE id=? AND disabled_at IS NULL",
       [data.userId],
@@ -290,7 +377,9 @@ export async function addMemberOperation(service, user, projectId, input) {
           "INSERT INTO thread_reads(thread_id, user_id, last_read_sequence, read_at) SELECT id, ?, COALESCE((SELECT MAX(sequence) FROM messages WHERE thread_id=threads.id), 0), UTC_TIMESTAMP(3) FROM threads WHERE project_id=? ON DUPLICATE KEY UPDATE thread_id=thread_reads.thread_id",
           [data.userId, projectId],
         );
-        const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+        const [sender] = await query<{ name: string }>(db, "SELECT name FROM users WHERE id=?", [
+          user.id,
+        ]);
         await service.notify(
           db,
           data.userId,
@@ -299,7 +388,7 @@ export async function addMemberOperation(service, user, projectId, input) {
           "你已被加入该项目",
           null,
           null,
-          sender.name,
+          sender!.name,
         );
         await service.projectChange(db, projectId, user.id, "member_added", {
           userId: data.userId,
@@ -308,7 +397,8 @@ export async function addMemberOperation(service, user, projectId, input) {
         });
       });
     } catch (error) {
-      if (error.code === "ER_DUP_ENTRY") fail(409, "该账号已经是项目成员");
+      if ((error as { code?: unknown } | null)?.code === "ER_DUP_ENTRY")
+        fail(409, "该账号已经是项目成员");
       throw error;
     }
     return { id: data.userId, role: data.role };
@@ -324,17 +414,20 @@ export async function addMemberOperation(service, user, projectId, input) {
     .transform((value) => ({ ...value, username: value.username || value.email || "" }))
     .parse(input);
   return transaction(service.db, async (db) => {
-    const [existing] = await query(db, "SELECT id,name FROM users WHERE username=? OR email=?", [
-      data.username,
-      data.username,
-    ]);
+    const [existing] = await query<{ id: string; name?: string }>(
+      db,
+      "SELECT id,name FROM users WHERE username=? OR email=?",
+      [data.username, data.username],
+    );
     const userId = existing?.id || randomUUID();
     if (!existing) {
-      if (!data.password) fail(400, "新成员需设置至少 8 位初始密码");
+      const initialPassword = data.password;
+      // `fail` 抛错后不会返回；类型层面用断言把它当作已校验。
+      if (!initialPassword) fail(400, "新成员需设置至少 8 位初始密码");
       await query(
         db,
         "INSERT INTO users(id,username,email,name,password_hash) VALUES(?,?,NULL,?,?)",
-        [userId, data.username, data.name, await hashPassword(data.password)],
+        [userId, data.username, data.name, await hashPassword(initialPassword as string)],
       );
       await service.accountChange(db, userId, user.id, "created", {
         name: data.name,
@@ -346,7 +439,9 @@ export async function addMemberOperation(service, user, projectId, input) {
       "INSERT INTO members(project_id,user_id,role,joined_at,role_changed_at) VALUES(?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
       [projectId, userId, data.role],
     );
-    const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    const [sender] = await query<{ name: string }>(db, "SELECT name FROM users WHERE id=?", [
+      user.id,
+    ]);
     await service.notify(
       db,
       userId,
@@ -355,7 +450,7 @@ export async function addMemberOperation(service, user, projectId, input) {
       "你已被加入该项目",
       null,
       null,
-      sender.name,
+      sender!.name,
     );
     await service.projectChange(db, projectId, user.id, "member_added", {
       userId,
@@ -366,7 +461,13 @@ export async function addMemberOperation(service, user, projectId, input) {
   });
 }
 
-export async function updateMemberRoleOperation(service, user, projectId, userId, input) {
+export async function updateMemberRoleOperation(
+  service: MemberService,
+  user: MemberUser,
+  projectId: string,
+  userId: string,
+  input: unknown,
+) {
   if (user.kind !== "session") fail(403, "成员管理需要人工登录");
   id.parse(projectId);
   id.parse(userId);
@@ -376,7 +477,7 @@ export async function updateMemberRoleOperation(service, user, projectId, userId
   return transaction(service.db, async (db) => {
     await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
     await service.projectManager(user, projectId, db);
-    const [target] = await query(
+    const [target] = await query<{ name?: string; role?: string; project_leader_id?: string }>(
       db,
       `SELECT u.name,m.role,p.project_leader_id FROM members m
          JOIN users u ON u.id=m.user_id JOIN projects p ON p.id=m.project_id
@@ -392,14 +493,18 @@ export async function updateMemberRoleOperation(service, user, projectId, userId
       "UPDATE members SET role=?,role_changed_at=UTC_TIMESTAMP(6) WHERE project_id=? AND user_id=?",
       [role, projectId, userId],
     );
-    const [roleSender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
-    const roleLabel = { member: "成员", viewer: "只读" };
+    const [roleSender] = await query<{ name?: string | null }>(
+      db,
+      "SELECT name FROM users WHERE id=?",
+      [user.id],
+    );
+    const roleLabel: Record<string, string> = { member: "成员", viewer: "只读" };
     await service.notify(
       db,
       userId,
       projectId,
       "role_changed",
-      `你的项目角色已从${roleLabel[target.role] || target.role}改为${roleLabel[role] || role}`,
+      `你的项目角色已从${roleLabel[target.role as string] || target.role}改为${roleLabel[role] || role}`,
       null,
       null,
       roleSender?.name || "系统通知",

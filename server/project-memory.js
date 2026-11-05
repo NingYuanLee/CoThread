@@ -11,7 +11,7 @@ import { archiveJson, archivePlanDraftSchema, archivePlanSchema } from "./iterat
 import { lockIteration } from "./iteration-state.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
 import { executorLabel, formatDuration } from "./task-memory.js";
-import { linkDiscussionParticipants } from "./discussion-memory.js";
+import { linkDiscussionParticipants } from "./discussion-memory.ts";
 import { upsertUtteranceMemory } from "./utterance-memory.ts";
 import { MEMORY_JOB_KEYS } from "../shared/memory-jobs.js";
 import { isMemorySubtype } from "../shared/memory-taxonomy.js";

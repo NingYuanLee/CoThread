@@ -314,12 +314,18 @@ npm test            # 集成测试需要测试库
 
 `cloudbase-hosting` 与 `http-app` 本轮改名后**回退**：前者发布链路依赖 CloudBase manager 的动态形状，后者卡在 `Service` 类的推断不完整（方法在 JS 里动态挂载，类型里没有）。两者都要等 `service.js` / `cloudbase.js` 转换后再做。
 
-剩余 65 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第二十七批：`discussion-memory.ts`(237)、`memory-backfill.ts`(177)。
+
+**小文件已经全部转完**：剩余 63 个 `.js` 都在 168 行以上，最小的也是 `laoweng-context`(168) 一档。后续每批只能拣中等体量、彼此不互相引用的文件。
+
+`wiki-pages` 本轮改名后**回退**：它的 `mapPage` / `getWikiPage` / `insertCompiled` 之间互相递归引用，需要先定返回类型才能标内部（TS7023/TS7024）。回退时把 10 个文件的引用改回 `.js`——这次是**说明符检查脚本直接列出**要改哪 10 个，不用猜。
+
+剩余 63 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                            | 文件数            |
 | ---- | ------------------------------------------------------------------------------- | ----------------- |
-| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 12                |
-| 4    | 被 2–4 个文件引用                                                               | 17                |
+| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 11                |
+| 4    | 被 2–4 个文件引用                                                               | 16                |
 | 5    | 被 5–9 个文件引用                                                               | 18                |
 | 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 18                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）          | 1（已计入批次 3） |

@@ -5,12 +5,24 @@ import { syncDocumentMemory } from "./document-memory.js";
 import { queueConversationThread } from "./conversation-memory-store.js";
 import { folderRootKind } from "./documents/index.ts";
 import { ensureFileIndexRoots } from "./file-index-roots.ts";
+import type { Db } from "./types.ts";
+
+/** 回填结果计数。 */
+type BackfillResult = {
+  inferredSubjects: number;
+  utterancePages: number;
+  documentPages: number;
+  taskPages: number;
+  discussionPages: number;
+  discussionQueuedThreads: number;
+  notes: string[];
+};
 
 /**
  * 存量回填：把历史摘要表与未分类条目折算成五类记忆的基础条目。
  * 幂等：已有条目不重复建；每次只补缺。
  */
-async function inferSubjects(db, projectId) {
+async function inferSubjects(db: Db, projectId: string): Promise<number> {
   const pages = await query(
     db,
     "SELECT id FROM wiki_pages WHERE project_id=? AND subject_type IS NULL",
@@ -40,9 +52,12 @@ async function inferSubjects(db, projectId) {
   return inferred;
 }
 
-export async function backfillProjectMemory(db, { projectId, createdBy = null } = {}) {
+export async function backfillProjectMemory(
+  db: Db,
+  { projectId, createdBy = null }: { projectId?: string | null; createdBy?: string | null } = {},
+): Promise<BackfillResult | null> {
   if (!projectId) return null;
-  const result = {
+  const result: BackfillResult = {
     inferredSubjects: 0,
     utterancePages: 0,
     documentPages: 0,
@@ -137,7 +152,7 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
  * 找出尚未完成一次存量回填的项目。回填状态单独持久化，避免维护任务每轮
  * 都重新扫描所有项目，同时允许失败项目在下一轮自动重试。
  */
-export async function claimProjectMemoryBackfill(db) {
+export async function claimProjectMemoryBackfill(db: Db): Promise<string | null> {
   const [project] = await query(
     db,
     `SELECT p.id
@@ -160,7 +175,11 @@ export async function claimProjectMemoryBackfill(db) {
   return project.id;
 }
 
-export async function completeProjectMemoryBackfill(db, projectId, error = null) {
+export async function completeProjectMemoryBackfill(
+  db: Db,
+  projectId: string,
+  error: unknown = null,
+): Promise<void> {
   await query(
     db,
     `INSERT INTO project_memory_backfills(project_id,status,attempts,last_error,completed_at,updated_at)

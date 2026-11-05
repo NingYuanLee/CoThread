@@ -10,7 +10,7 @@ import {
   syncThreadDiscussionMemory,
   upsertDiscussionMemory,
   discussionMemoryMarkdown,
-} from "../server/discussion-memory.js";
+} from "../server/discussion-memory.ts";
 import { applyProjectMemoryResult } from "../server/project-memory.js";
 
 async function setup() {

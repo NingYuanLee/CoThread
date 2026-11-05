@@ -401,7 +401,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   app.post("/api/projects/:id/memory/backfill", async (req, res) => {
     await service.member(req.user, req.params.id, true);
     const { backfillProjectMemory, completeProjectMemoryBackfill } =
-      await import("../memory-backfill.js");
+      await import("../memory-backfill.ts");
     const result = await backfillProjectMemory(service.db, {
       projectId: req.params.id,
       createdBy: req.user.id,

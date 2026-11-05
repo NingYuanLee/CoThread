@@ -15,7 +15,7 @@ import {
   backfillProjectMemory,
   claimProjectMemoryBackfill,
   completeProjectMemoryBackfill,
-} from "./memory-backfill.js";
+} from "./memory-backfill.ts";
 import { scanNextProjectMemoryProject, scanProjectMemorySignals } from "./project-memory-scan.js";
 
 export function assertMemoryMaintenanceAuth(authorizationHeader: unknown): void {

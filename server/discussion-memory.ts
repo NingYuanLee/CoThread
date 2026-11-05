@@ -2,9 +2,17 @@ import { randomUUID } from "node:crypto";
 import { query } from "./db.ts";
 import { createMemoryRelation } from "./memory-graph.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
+import type { Db } from "./types.ts";
+
+/** 议题记忆的输入。 */
+type DiscussionMemoryInput = {
+  topic?: unknown;
+  createdBy?: string | null;
+  [field: string]: unknown;
+};
 
 /** 话题归一键：标题去空白与标点后小写，用于跨迭代合并同一议题。 */
-export function discussionTopicKey(title) {
+export function discussionTopicKey(title: unknown): string {
   return String(title || "")
     .replace(/\s+/g, "")
     .replace(/[，。！？、：；\u201c\u201d\u2018\u2019（）()《》【】\[\]、,.!?:;"']/g, "")
@@ -13,8 +21,8 @@ export function discussionTopicKey(title) {
 }
 
 /** 讨论记忆正文骨架；没有的信息留空，不编造。 */
-export function discussionMemoryMarkdown(topic = {}) {
-  const list = (items) =>
+export function discussionMemoryMarkdown(topic: DiscussionMemoryInput = {}): string {
+  const list = (items: unknown): string =>
     Array.isArray(items) && items.length
       ? items.map((item) => "- " + item).join("\n")
       : "- 暂无记录";
@@ -43,7 +51,12 @@ export function discussionMemoryMarkdown(topic = {}) {
  * 讨论记忆是群体记忆：从消息出处反查参与者，把各自的发言记忆用 relates 连到这条讨论。
  * 幂等：关系已存在时走唯一键更新，不重复建边。
  */
-export async function linkDiscussionParticipants(db, projectId, pageId, { createdBy = null } = {}) {
+export async function linkDiscussionParticipants(
+  db: Db,
+  projectId: string,
+  pageId: string,
+  { createdBy = null }: { createdBy?: string | null } = {},
+) {
   const [page] = await query(
     db,
     "SELECT id,subject_type subjectType FROM wiki_pages WHERE project_id=? AND id=?",
@@ -86,10 +99,22 @@ export async function linkDiscussionParticipants(db, projectId, pageId, { create
  * 返回 { pageId, created }，供结算和归档复用。
  */
 export async function upsertDiscussionMemory(
-  db,
-  projectId,
-  { title, body, sources = [], createdBy, status = "current" } = {},
-) {
+  db: Db,
+  projectId: string,
+  {
+    title,
+    body,
+    sources = [],
+    createdBy,
+    status = "current",
+  }: {
+    title?: unknown;
+    body?: unknown;
+    sources?: Array<{ kind?: string | null; id?: string | null; label?: unknown }>;
+    createdBy?: string | null;
+    status?: string;
+  } = {},
+): Promise<{ pageId: string; created: boolean; linked: number }> {
   const cleanTitle = String(title || "")
     .trim()
     .slice(0, 160);
@@ -147,7 +172,7 @@ export async function upsertDiscussionMemory(
   return { pageId, created, linked: link.linked };
 }
 
-function parseSnapshot(value) {
+function parseSnapshot(value: unknown): unknown {
   if (!value) return {};
   if (typeof value === "object") return value;
   try {
@@ -162,7 +187,14 @@ function parseSnapshot(value) {
  * 与结算候选（≤40 条）不同，它扫整轮，用于归档时把讨论沉淀下来。
  * 话题聚类仍由 topicKey 保证同一迭代不重复建条；参与者用消息出处连发言记忆。
  */
-export async function syncThreadDiscussionMemory(db, { projectId, threadId, createdBy } = {}) {
+export async function syncThreadDiscussionMemory(
+  db: Db,
+  {
+    projectId,
+    threadId,
+    createdBy,
+  }: { projectId?: string | null; threadId?: string | null; createdBy?: string | null } = {},
+) {
   if (!projectId || !threadId) return null;
   const [thread] = await query(
     db,
@@ -194,7 +226,10 @@ export async function syncThreadDiscussionMemory(db, { projectId, threadId, crea
     byAuthor.set(message.authorId, entry);
   }
   const participants = [...byAuthor.values()];
-  const snapshot = parseSnapshot(thread.archiveSnapshot);
+  const snapshot = parseSnapshot(thread.archiveSnapshot) as {
+    conclusion?: unknown;
+    [field: string]: unknown;
+  };
   const conclusion = String(snapshot.conclusion || "")
     .trim()
     .slice(0, 300);

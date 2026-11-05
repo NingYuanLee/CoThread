@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { backfillProjectMemory } from "../server/memory-backfill.js";
+import { backfillProjectMemory } from "../server/memory-backfill.ts";
 
 async function setup() {
   const database = await testDatabase();

@@ -181,7 +181,7 @@ export function registerAdminRoutes(app, { db, service }) {
   app.post("/api/admin/projects/:id/memory/backfill", async (req, res) => {
     await service.adminPermission(req.user, "projects.update");
     const { backfillProjectMemory, completeProjectMemoryBackfill } =
-      await import("../memory-backfill.js");
+      await import("../memory-backfill.ts");
     const result = await backfillProjectMemory(service.db, {
       projectId: req.params.id,
       createdBy: req.user.id,

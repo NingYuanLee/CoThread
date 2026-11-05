@@ -437,6 +437,26 @@ export type AccessService = {
 
 `server/service-notification-operations.js` 是后一种：它只是把 `service-notifications.js` 的四个函数接到 Service 方法上，参数含义完全由被调方决定。强行转换只能得到 `unknown`，所以**保留 `.js`**，等 `service-notifications.js` 转完再一起转。
 
+**同批文件要彼此独立。** 迁移工具按**扫描时的磁盘状态**改写说明符：同批把 `a.js` 和 `b.js` 一起改名时，处理 `a` 的那一刻 `b` 还是 `.js`，改完的 `a.ts` 里会留下 `./b.js`。这类失效说明符 `tsc` 发现不了（TS 把 `.js` 映射到同名 `.ts`），只有 Node 运行期才报 `ERR_MODULE_NOT_FOUND`。要么同批文件互不引用，要么提交前跑 `node scripts/server-ts-specifiers.mjs`。
+
+**每批的行数与错误数要匹配可复核的注意力。** 实践下来的经验值：一批 3 个文件、合计 60–120 个错是可完成的；超过 150 个错时，修改之间开始互相干扰，正确率明显下降。宁可少转几个。
+
+## 未完成部分与后续做法
+
+本文件记录的是当前进度。若还有 `.js` 未转完，按下面的做法接手即可，不必重新摸索：
+
+1. **先跑 `npm run typecheck:server` 与 `node scripts/server-ts-specifiers.mjs`**，确认起点是干净的（0 错、无失效说明符）。
+2. **从行数最小的 `.js` 开始**，但先按「选文件的顺序」那节检查依赖。
+3. 用 `node scripts/server-ts-migrate.mjs <文件…>` 改名并改写说明符；**目标文件已存在同名 `.ts` 时不要再对 `.js` 跑这个工具**，它会覆盖 `.ts`（踩过一次）。
+4. 标类型时优先用「推导」而不是「手抄」：
+   - 门面方法：`OperationRest<typeof domain.fn>` / `ParamAt<typeof fn, N>`
+   - 领域视图：按实际调用点显式声明所需方法，**不要用索引签名**（会让属性类型退化成 `unknown`）
+   - 第三方库：优先用官方类型（`import("vite").ViteDevServer`），没有才写局部形状，且只声明真正调用的方法
+5. 一批做完跑 `npm run lint`（含 typecheck）、`node scripts/server-ts-specifiers.mjs`、`npm test`。**测试数量变少**（例如 1096 → 1087）说明有测试文件加载失败，比测试失败更危险，必须查明。
+6. 改不动就回退：`git checkout HEAD -- <文件>.js` + 删 `.ts`，再用说明符脚本把引用改回 `.js`，确认零残留后继续下一批。**留下半成品比少转几个坏得多。**
+
+几个已知的大件，转换时预期较高成本：`project-memory.js`（3262 行）、`coordinator.js`（1643 行）、`service-monitor.js`（1056 行）、`local-sandbox.js`。它们各自需要专门的轮次，不适合与其他文件同批。
+
 ## 几个具体写法
 
 **事务回调要标类型。** `transaction()` 还在未转换的 `db.js` 里，回调参数推断成 `any`，`strict` 下直接报错，必须显式标注：

@@ -10,7 +10,7 @@ import { registerDevServerUpgrade, stopCoThreadPreviewServers } from "./miniprog
 import { startReplyWorker } from "./replies.js";
 import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";
 import { createShutdown } from "./shutdown.ts";
-import { stopLiveOutputStreams } from "./agent-live-output.js";
+import { stopLiveOutputStreams } from "./agent-live-output.ts";
 import { endSseStreams } from "./sse-streams.ts";
 import { migrate } from "../scripts/migrate.js";
 import { loadPlatformModelSettings, platformModelSettingsView } from "./platform-model-settings.js";

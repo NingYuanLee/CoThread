@@ -2,7 +2,7 @@
  * 项目运行期资源：迭代读写与回复动作、版本与来源、项目图片与成员头像、文件夹下载。
  * 注册点与原先内联时一致：在鉴权中间件之后、末尾 404 之前。
  */
-import { streamLiveOutput } from "../agent-live-output.js";
+import { streamLiveOutput } from "../agent-live-output.ts";
 import { draftMouthpiece } from "../mouthpiece.js";
 import { queueContextCompression } from "../queue-context.js";
 import { queueChildContextCompression } from "../child-agent-context.js";

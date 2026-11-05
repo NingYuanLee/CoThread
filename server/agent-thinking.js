@@ -1,6 +1,6 @@
 import { finishAgentEvent } from "./thread-activity.ts";
 import { query } from "./db.ts";
-import { trackLiveOutput } from "./agent-live-output.js";
+import { trackLiveOutput } from "./agent-live-output.ts";
 import { logAgentTiming } from "./agent-timing-log.ts";
 
 // All model phases share the same event sequence as actual tool calls.

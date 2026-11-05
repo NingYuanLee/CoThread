@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { extractIndexText } from "../server/file-index-extract.js";
-import { extractLegacyOfficeDocument, sniffBinaryFormat } from "../server/legacy-office-extract.js";
+import { extractLegacyOfficeDocument, sniffBinaryFormat } from "../server/legacy-office-extract.ts";
 import { buildEncryptedOfficeFile, buildLegacyWordFile } from "./legacy-doc-fixture.js";
 
 test("WPS 导出的 docx 后缀实为 Word 97 二进制时按文件头识别并取出正文", () => {

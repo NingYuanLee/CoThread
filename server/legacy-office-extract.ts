@@ -22,8 +22,8 @@ const FATSECT = 0xfffffffd;
 const DIFSECT = 0xfffffffc;
 
 /** 按文件头判断真实容器格式，不信任扩展名。 */
-export function sniffBinaryFormat(content) {
-  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content || "");
+export function sniffBinaryFormat(content: unknown): string {
+  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ""), "utf8");
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(CFB_MAGIC)) return "cfb";
   if (bytes.length >= 4 && bytes.subarray(0, 2).equals(ZIP_MAGIC)) return "zip";
   if (bytes.length >= 5 && bytes.subarray(0, 5).toString("latin1") === "{\\rtf") return "rtf";
@@ -31,8 +31,21 @@ export function sniffBinaryFormat(content) {
   return "unknown";
 }
 
+/** 目录项：CFB 目录流里的一条记录。 */
+type DirectoryEntry = { name: string; type: number; start: number; size: number };
+
 class CompoundFile {
-  constructor(raw) {
+  bytes: Buffer;
+  truncatedBy: number;
+  sectorSize: number;
+  miniSectorSize: number;
+  miniCutoff: number;
+  sectorCount: number;
+  fat!: number[];
+  entries!: DirectoryEntry[];
+  miniFat!: number[];
+
+  constructor(raw: unknown) {
     if (!Buffer.isBuffer(raw) || raw.length < SECTOR) throw new Error("文件短于复合文档头");
     const pad = (SECTOR - (raw.length % SECTOR)) % SECTOR;
     this.bytes = pad ? Buffer.concat([raw, Buffer.alloc(pad)]) : raw;
@@ -46,17 +59,17 @@ class CompoundFile {
     this._readMiniFat();
   }
 
-  _sectorOffset(sector) {
+  _sectorOffset(sector: number): number {
     return SECTOR + sector * this.sectorSize;
   }
 
-  _sectorSlice(sector) {
+  _sectorSlice(sector: number): Buffer | null {
     const offset = this._sectorOffset(sector);
     if (offset >= this.bytes.length) return null;
     return this.bytes.subarray(offset, Math.min(offset + this.sectorSize, this.bytes.length));
   }
 
-  _readFat() {
+  _readFat(): void {
     const difat = [];
     for (let index = 0; index < 109; index += 1) {
       const sector = this.bytes.readUInt32LE(76 + index * 4);
@@ -84,8 +97,8 @@ class CompoundFile {
     }
   }
 
-  _chain(start) {
-    const out = [];
+  _chain(start: number): number[] {
+    const out: number[] = [];
     let current = start;
     while (
       current !== END_OF_CHAIN &&
@@ -100,7 +113,7 @@ class CompoundFile {
     return out;
   }
 
-  _readDirectory() {
+  _readDirectory(): void {
     const first = this.bytes.readUInt32LE(48);
     const parts = [];
     for (const sector of this._chain(first)) {
@@ -126,7 +139,7 @@ class CompoundFile {
     }
   }
 
-  _readMiniFat() {
+  _readMiniFat(): void {
     this.miniFat = [];
     const first = this.bytes.readUInt32LE(60);
     if (first === END_OF_CHAIN || first === FREE_SECT) return;
@@ -141,15 +154,15 @@ class CompoundFile {
     }
   }
 
-  rootEntry() {
+  rootEntry(): DirectoryEntry | null {
     return this.entries.find((entry) => entry.type === 5) || null;
   }
 
-  names() {
+  names(): string[] {
     return this.entries.map((entry) => entry.name);
   }
 
-  read(name) {
+  read(name: string): Buffer | null {
     const entry = this.entries.find((item) => item.name === name);
     if (!entry) return null;
     if (entry.size === 0) return Buffer.alloc(0);
@@ -157,7 +170,7 @@ class CompoundFile {
     return this._readChainStream(entry);
   }
 
-  _readChainStream(entry) {
+  _readChainStream(entry: DirectoryEntry): Buffer {
     const parts = [];
     let collected = 0;
     for (const sector of this._chain(entry.start)) {
@@ -170,7 +183,7 @@ class CompoundFile {
     return Buffer.concat(parts).subarray(0, entry.size);
   }
 
-  _readMiniStream(entry) {
+  _readMiniStream(entry: DirectoryEntry): Buffer {
     const root = this.rootEntry();
     if (!root) return Buffer.alloc(0);
     const miniStream = this._readChainStream(root);
@@ -197,12 +210,12 @@ class CompoundFile {
   }
 }
 
-function whichTableStream(wordDocument) {
+function whichTableStream(wordDocument: Buffer): string {
   const flags = wordDocument.readUInt16LE(10);
   return (flags >> 9) & 1 ? "1Table" : "0Table";
 }
 
-function decodePiece(wordDocument, fcRaw, chars) {
+function decodePiece(wordDocument: Buffer, fcRaw: number, chars: number): string {
   const compressed = (fcRaw & 0x40000000) !== 0;
   const fc = (fcRaw & 0x3fffffff) >>> 0;
   if (compressed) {
@@ -213,7 +226,7 @@ function decodePiece(wordDocument, fcRaw, chars) {
 }
 
 /** 从 piece table 取正文；非复杂文档回退到 fcMin..fcMac。 */
-export function readWord97Text(wordDocument, table, ccpText) {
+export function readWord97Text(wordDocument: Buffer, table: Buffer, ccpText: number): string {
   const fcClx = wordDocument.readUInt32LE(0x01a2);
   const lcbClx = wordDocument.readUInt32LE(0x01a6);
   const flags = wordDocument.readUInt16LE(10);
@@ -261,7 +274,7 @@ export function readWord97Text(wordDocument, table, ccpText) {
  * Word 控制字符清理：域代码（\x13 指令 \x14 结果 \x15）只保留结果，
  * 图片/对象锚点（\x01、\x08）替换为占位符，段落与换行归一。
  */
-export function cleanWordText(raw) {
+export function cleanWordText(raw: string): { text: string; anchors: number } {
   const anchors = (raw.match(/[\u0001\u0008]/g) || []).length;
   let phase = "body";
   let out = "";
@@ -298,12 +311,12 @@ export function cleanWordText(raw) {
   return { text: out, anchors };
 }
 
-function describeStreams(cfb) {
+function describeStreams(cfb: CompoundFile): string[] {
   return cfb
     .names()
     .filter((name) => name && !/^\u0005/.test(name))
     .map((name) => {
-      const entry = cfb.entries.find((item) => item.name === name);
+      const entry = cfb.entries.find((item) => item.name === name) as DirectoryEntry;
       return `${name}(${entry.size}B)`;
     });
 }
@@ -312,8 +325,13 @@ function describeStreams(cfb) {
  * 提取旧版 Office 二进制正文。
  * 返回 { text, reason, encrypted, truncatedBy, anchors, streams }，永不抛错。
  */
-export function extractLegacyOfficeDocument({ filename = "", content } = {}) {
-  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content || []);
+export function extractLegacyOfficeDocument({
+  filename = "",
+  content,
+}: { filename?: string; content?: unknown } = {}) {
+  const bytes = Buffer.isBuffer(content)
+    ? content
+    : Buffer.from((content || "") as string | Uint8Array);
   const name = String(filename || "").toLowerCase();
   if (!bytes.length) return { text: "", reason: "文件为空" };
   if (sniffBinaryFormat(bytes) !== "cfb") {
@@ -323,7 +341,7 @@ export function extractLegacyOfficeDocument({ filename = "", content } = {}) {
   try {
     cfb = new CompoundFile(bytes);
   } catch (error) {
-    return { text: "", reason: `复合文档结构无法解析：${error.message}` };
+    return { text: "", reason: `复合文档结构无法解析：${(error as Error).message}` };
   }
   const names = cfb.names();
   const prefix = [];
@@ -375,7 +393,7 @@ export function extractLegacyOfficeDocument({ filename = "", content } = {}) {
   try {
     raw = readWord97Text(wordDocument, table, ccpText);
   } catch (error) {
-    return { text: "", streams, reason: `${lead}Word 正文解析失败：${error.message}` };
+    return { text: "", streams, reason: `${lead}Word 正文解析失败：${(error as Error).message}` };
   }
   const { text, anchors } = cleanWordText(raw);
   const trimmed = text.replace(/\n{3,}/g, "\n\n").trim();

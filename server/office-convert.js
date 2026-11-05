@@ -15,7 +15,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { extractLegacyOfficeDocument, sniffBinaryFormat } from "./legacy-office-extract.js";
+import { extractLegacyOfficeDocument, sniffBinaryFormat } from "./legacy-office-extract.ts";
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = Math.max(

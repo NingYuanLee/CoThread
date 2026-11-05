@@ -1,6 +1,6 @@
 import { processNextProjectMemory } from "./project-memory.js";
 import { processNextLaowengContextCompression } from "./laoweng-context.js";
-import { processNextChildContextCompression } from "./child-agent-context.js";
+import { processNextChildContextCompression } from "./child-agent-context.ts";
 import { query } from "./db.ts";
 import {
   closeStaleFileIndexScanBatches,

@@ -6,7 +6,7 @@ import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { hashPassword, issueCredential, verifyPassword } from "../server/auth.ts";
 import { createApp } from "../server/http-app.js";
-import { listAccountChanges, listAccountLogins } from "../server/account-audit.js";
+import { listAccountChanges, listAccountLogins } from "../server/account-audit.ts";
 
 test("super administrators manage projects and accounts without storing reset passwords", async () => {
   const database = await testDatabase();

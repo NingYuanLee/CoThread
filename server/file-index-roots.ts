@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import { query } from "./db.ts";
 import { folderRootKindInList } from "./documents/index.js";
 import { visibleFileIndexSql } from "./file-index-visibility.ts";
+import type { Db } from "./types.ts";
 
-const ROOTS = {
+/** 索引根：标题 + 用途说明。 */
+const ROOTS: Record<string, [string, string]> = {
   project_official: [
     "正式文件索引",
     "按主题查找正式资料；是否适用及替代关系以文件内容和明确记录为准。",
@@ -13,7 +15,34 @@ const ROOTS = {
   project_miniprogram: ["小程序文件索引", "区分小程序源文件、Web 产物、PC 管理后台和云函数。"],
 };
 
-function rootPageId(projectId, kind) {
+/** 一个可渲染的 wiki 页面。 */
+type IndexPage = { id: string; title?: unknown; body?: string; [column: string]: unknown };
+
+/** 文件夹行。 */
+type FolderRow = { id: string; parent_id?: string | null; folder_kind?: string | null };
+
+/** 参与导航生成的文件条目。 */
+type IndexFileRow = {
+  pageId: string;
+  topics?: unknown;
+  folderId: string;
+  title?: unknown;
+  mime?: unknown;
+  filename?: unknown;
+};
+
+/** 文件组合条目。 */
+type IndexGroupRow = { id: string; title?: unknown; folderId: string };
+
+/** 小程序分区标签。 */
+const MINIPROGRAM_LABELS: Record<string, string> = {
+  miniprogram_source: "小程序源文件",
+  miniprogram_web: "小程序 Web 产物",
+  miniprogram_admin: "PC 管理后台",
+  miniprogram_server: "云函数",
+};
+
+function rootPageId(projectId: string, kind: string): string {
   const hash = createHash("sha256")
     .update(`cothread:file-index-root:${projectId}:${kind}`)
     .digest("hex");
@@ -21,7 +50,11 @@ function rootPageId(projectId, kind) {
 }
 
 /** Called inside the file-index transaction; stable IDs make concurrent creation idempotent. */
-export async function ensureFileIndexRoots(db, projectId, createdBy) {
+export async function ensureFileIndexRoots(
+  db: Db,
+  projectId: string,
+  createdBy: string | null | undefined,
+): Promise<void> {
   if (!createdBy) return;
   for (const [kind, [title, introduction]] of Object.entries(ROOTS)) {
     const id = rootPageId(projectId, kind);
@@ -47,12 +80,12 @@ export async function ensureFileIndexRoots(db, projectId, createdBy) {
   }
 }
 
-function parseTopics(value) {
+function parseTopics(value: unknown): string[] {
   try {
     const topics = typeof value === "string" ? JSON.parse(value) : value;
     return Array.isArray(topics)
-      ? topics
-          .filter((t) => typeof t === "string" && t.trim())
+      ? (topics as unknown[])
+          .filter((t): t is string => typeof t === "string" && Boolean(t.trim()))
           .map((t) => t.trim().slice(0, 60))
           .slice(0, 5)
       : [];
@@ -61,45 +94,45 @@ function parseTopics(value) {
   }
 }
 
-function miniprogramSection(folderId, folders) {
-  const labels = {
-    miniprogram_source: "小程序源文件",
-    miniprogram_web: "小程序 Web 产物",
-    miniprogram_admin: "PC 管理后台",
-    miniprogram_server: "云函数",
-  };
-  let node = folders.find((folder) => folder.id === folderId);
-  const seen = new Set();
+function miniprogramSection(folderId: string, folders: FolderRow[]): string {
+  let node: FolderRow | undefined = folders.find((folder) => folder.id === folderId);
+  const seen = new Set<string>();
   while (node && !seen.has(node.id)) {
-    if (labels[node.folder_kind]) return labels[node.folder_kind];
+    const label = MINIPROGRAM_LABELS[node.folder_kind as string];
+    if (label) return label;
     seen.add(node.id);
-    node = folders.find((folder) => folder.id === node.parent_id);
+    const parentId = node.parent_id;
+    node = parentId ? folders.find((folder) => folder.id === parentId) : undefined;
   }
   return "其他小程序文件";
 }
 
-function plainText(value) {
+function plainText(value: unknown): string {
   return String(value || "")
     .replace(/[\r\n]+/g, " ")
     .replace(/[\\`*_\[\]<>#]/g, "\\$&");
 }
 
 /** Root Markdown is assembled at read time so deleted or replaced files never persist in its body. */
-export async function hydrateFileIndexRoots(db, projectId, pages) {
+export async function hydrateFileIndexRoots(
+  db: Db,
+  projectId: string,
+  pages: IndexPage[],
+): Promise<IndexPage[]> {
   if (!pages.length) return pages;
-  const roots = await query(
+  const roots = await query<{ pageId: string; rootKind: string }>(
     db,
     `SELECT page_id pageId,root_kind rootKind FROM file_index_roots
     WHERE project_id=? AND page_id IN (${pages.map(() => "?").join(",")})`,
     [projectId, ...pages.map((p) => p.id)],
   );
   if (!roots.length) return pages;
-  const folders = await query(
+  const folders = await query<FolderRow>(
     db,
     "SELECT id,parent_id,folder_kind FROM document_folders WHERE project_id=?",
     [projectId],
   );
-  const files = await query(
+  const files = await query<IndexFileRow>(
     db,
     `SELECT fi.page_id pageId,fi.topics,a.folder_id folderId,p.title,v.mime,v.filename
     FROM file_index_entries fi JOIN wiki_pages p ON p.id=fi.page_id
@@ -109,7 +142,7 @@ export async function hydrateFileIndexRoots(db, projectId, pages) {
     ORDER BY p.title,p.id LIMIT 5001`,
     [projectId],
   );
-  const groups = await query(
+  const groups = await query<IndexGroupRow>(
     db,
     `SELECT DISTINCT p.id,p.title,a.folder_id folderId
     FROM file_index_groups g JOIN wiki_pages p ON p.id=g.page_id
@@ -123,7 +156,7 @@ export async function hydrateFileIndexRoots(db, projectId, pages) {
   return pages.map((page) => {
     const kind = rootByPage.get(page.id);
     if (!kind) return page;
-    const grouped = new Map();
+    const grouped = new Map<string, IndexFileRow[]>();
     for (const file of files) {
       if (folderRootKindInList(file.folderId, folders) !== kind) continue;
       const topics = parseTopics(file.topics);
@@ -154,7 +187,7 @@ export async function hydrateFileIndexRoots(db, projectId, pages) {
     if (!grouped.size) lines.push("- 当前没有可访问的文件索引。");
     if (omitted || files.length > 5000)
       lines.push("", "部分文件未在导航中展开，请按主题或文件名搜索。");
-    const associated = new Map();
+    const associated = new Map<string, IndexGroupRow>();
     for (const group of groups) {
       if (folderRootKindInList(group.folderId, folders) === kind) associated.set(group.id, group);
     }

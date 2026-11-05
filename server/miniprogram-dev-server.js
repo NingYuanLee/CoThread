@@ -12,7 +12,7 @@ import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import {
   injectAdminRuntimeHtml,
   resolveMiniprogramRuntime,
-} from "./miniprogram-runtime-environment.js";
+} from "./miniprogram-runtime-environment.ts";
 import { CLOUD_BROWSER_SDK_ASSET, readCloudBrowserSdk } from "./cloud-backend.js";
 
 /**

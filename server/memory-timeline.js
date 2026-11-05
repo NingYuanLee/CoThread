@@ -5,7 +5,7 @@ import { HttpError } from "./http-error.ts";
 import { assertCanSupersedeMemory, resolveMemorySourceFamily } from "./memory-policy.ts";
 import { intactConversationMemorySql } from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.ts";
-import { hydrateFileIndexRoots } from "./file-index-roots.js";
+import { hydrateFileIndexRoots } from "./file-index-roots.ts";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
 import { hydrateFileIndexPaths } from "./file-index-path.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";

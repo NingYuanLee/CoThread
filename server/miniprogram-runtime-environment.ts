@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { HttpError } from "./service.js";
 
-export const MINIPROGRAM_RUNTIME_CHANNELS = Object.freeze({
+/** 渠道 → 默认环境。 */
+export const MINIPROGRAM_RUNTIME_CHANNELS: Readonly<Record<string, string>> = Object.freeze({
   dimina: "development",
   wechat_preview: "development",
   wechat_upload: "production",
@@ -10,7 +11,7 @@ export const MINIPROGRAM_RUNTIME_CHANNELS = Object.freeze({
   admin_publish: "production",
 });
 
-const ENVIRONMENT_LABELS = {
+const ENVIRONMENT_LABELS: Record<string, string> = {
   development: "开发环境",
   production: "生产环境",
 };
@@ -18,8 +19,31 @@ const ENVIRONMENT_LABELS = {
 /** Admin 预览、Admin 发布必须有 CloudBase。Dimina 和微信上传可以是纯前端。 */
 const CLOUD_REQUIRED_CHANNELS = new Set(["admin_preview", "admin_development", "admin_publish"]);
 
+/** 一个环境的 CloudBase 配置。 */
+type CloudbaseEnv = { envId?: string };
+
+/** 一个环境的公开鉴权配置。 */
+type AuthConfig = {
+  miniprogram?: {
+    publishableKey?: string | null;
+    silentLogin?: boolean;
+    wechatPhoneAuthorization?: boolean;
+  };
+  admin?: { publishableKey?: string | null; passwordLogin?: boolean };
+};
+
+/** 生成运行配置时读到的项目配置。 */
+export type MiniprogramRuntimeConfig = {
+  cloudbaseEnvs?: Record<string, CloudbaseEnv | undefined>;
+  authConfigs?: Record<string, AuthConfig | undefined>;
+};
+
 /** Resolve one delivery channel to a configured, non-secret CloudBase runtime. */
-export function resolveMiniprogramRuntime(runtime, channel, environmentOverride = null) {
+export function resolveMiniprogramRuntime(
+  runtime: MiniprogramRuntimeConfig | null | undefined,
+  channel: string,
+  environmentOverride: string | null = null,
+): Readonly<Record<string, unknown>> {
   const defaultEnvironment = MINIPROGRAM_RUNTIME_CHANNELS[channel];
   if (!defaultEnvironment) throw new HttpError(400, `未知的运行渠道：${channel}`);
   const environment = environmentOverride || defaultEnvironment;
@@ -72,7 +96,7 @@ export function resolveMiniprogramRuntime(runtime, channel, environmentOverride 
   });
 }
 
-export function runtimeBuildHash(sourceHash, runtimeConfig) {
+export function runtimeBuildHash(sourceHash: unknown, runtimeConfig: unknown): string {
   return createHash("sha256")
     .update(String(sourceHash || ""))
     .update("\0")
@@ -80,7 +104,7 @@ export function runtimeBuildHash(sourceHash, runtimeConfig) {
     .digest("hex");
 }
 
-function jsonForInlineScript(value) {
+function jsonForInlineScript(value: unknown): string {
   return JSON.stringify(value)
     .replaceAll("<", "\\u003c")
     .replaceAll("\u2028", "\\u2028")
@@ -88,7 +112,11 @@ function jsonForInlineScript(value) {
 }
 
 /** Prepend environment selection before App()/Game() executes. */
-export function injectMiniprogramRuntimeSource(source, path, runtimeConfig) {
+export function injectMiniprogramRuntimeSource(
+  source: unknown,
+  path: unknown,
+  runtimeConfig: unknown,
+): Buffer {
   const filename = String(path || "").toLowerCase();
   const typescript = filename.endsWith(".ts");
   const rootParameter = typescript ? "root: any" : "root";
@@ -102,12 +130,15 @@ export function injectMiniprogramRuntimeSource(source, path, runtimeConfig) {
     `    cloud.init({ env: runtime.cloudbase.envId, traceUser: true });\n` +
     `  }\n` +
     `})(typeof globalThis !== "undefined" ? globalThis : this);\n`;
-  return Buffer.concat([Buffer.from(bootstrap, "utf8"), Buffer.from(source)]);
+  return Buffer.concat([Buffer.from(bootstrap, "utf8"), Buffer.from(source as string)]);
 }
 
 /** Expose the same environment contract to a browser Admin application. */
-export function injectAdminRuntimeHtml(source, runtimeConfig) {
-  const html = Buffer.from(source).toString("utf8");
+export function injectAdminRuntimeHtml(
+  source: unknown,
+  runtimeConfig: { channel?: string },
+): Buffer {
+  const html = Buffer.from(source as string).toString("utf8");
   const script = `<script>window.__COTHREAD_RUNTIME__=Object.freeze(${jsonForInlineScript(runtimeConfig)});</script>`;
   if (runtimeConfig.channel === "admin_preview" && /<head\b[^>]*>/i.test(html)) {
     return Buffer.from(

@@ -239,7 +239,7 @@ export async function createProjectOperation(
       [projectId, data.name, data.description, image, user.id, user.id],
     );
     await ensureProjectLibraryRoots(db, projectId);
-    const { ensureFileIndexRoots } = await import("./file-index-roots.js");
+    const { ensureFileIndexRoots } = await import("./file-index-roots.ts");
     await ensureFileIndexRoots(db, projectId, user.id);
     await query(
       db,

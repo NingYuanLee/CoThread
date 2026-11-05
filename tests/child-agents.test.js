@@ -13,7 +13,7 @@ import { agentSession } from "../server/agent-session.ts";
 import {
   processNextChildContextCompression,
   queueChildContextCompression,
-} from "../server/child-agent-context.js";
+} from "../server/child-agent-context.ts";
 import { deliverTaskUpdates } from "../server/agent-updates.ts";
 import { pendingMessages } from "../shared/context.js";
 import { processNextCoordinator } from "../server/coordinator.js";

@@ -14,7 +14,7 @@ import {
   saveAdminRole,
 } from "../admin-rbac.js";
 import { adminTaskDetail, listAdminWork, updateAdminWork } from "../admin-work.js";
-import { listAccountChanges, listAccountLogins } from "../account-audit.js";
+import { listAccountChanges, listAccountLogins } from "../account-audit.ts";
 import {
   listMyProjects,
   listMyWork,

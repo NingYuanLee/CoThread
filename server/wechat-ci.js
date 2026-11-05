@@ -11,7 +11,7 @@ import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import {
   injectMiniprogramRuntimeSource,
   resolveMiniprogramRuntime,
-} from "./miniprogram-runtime-environment.js";
+} from "./miniprogram-runtime-environment.ts";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";
 
 /**

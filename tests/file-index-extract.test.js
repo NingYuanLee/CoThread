@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import JSZip from "jszip";
 import XLSX from "xlsx";
-import { extractIndexText } from "../server/file-index-extract.js";
+import { extractIndexText } from "../server/file-index-extract.ts";
 
 test("Office 正文可供检索，同时明确尚未覆盖的图表与图片", async () => {
   const zip = new JSZip();

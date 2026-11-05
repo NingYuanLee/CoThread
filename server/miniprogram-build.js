@@ -14,7 +14,7 @@ import {
   injectMiniprogramRuntimeSource,
   resolveMiniprogramRuntime,
   runtimeBuildHash,
-} from "./miniprogram-runtime-environment.js";
+} from "./miniprogram-runtime-environment.ts";
 import {
   createArtifact,
   createVersion,

@@ -25,7 +25,7 @@ import {
 } from "./file-index-discovery.js";
 import { processNextContextCompression, refreshNextContextStats } from "./context-compression.js";
 import { processNextLaowengContextCompression } from "./laoweng-context.js";
-import { processNextChildContextCompression } from "./child-agent-context.js";
+import { processNextChildContextCompression } from "./child-agent-context.ts";
 import { redactSecrets } from "./model-config.js";
 import { logAgentTiming } from "./agent-timing-log.ts";
 import {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractIndexText } from "../server/file-index-extract.js";
+import { extractIndexText } from "../server/file-index-extract.ts";
 import { extractLegacyOfficeDocument, sniffBinaryFormat } from "../server/legacy-office-extract.ts";
 import { buildEncryptedOfficeFile, buildLegacyWordFile } from "./legacy-doc-fixture.js";
 

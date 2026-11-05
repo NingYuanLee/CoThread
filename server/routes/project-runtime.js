@@ -5,7 +5,7 @@
 import { streamLiveOutput } from "../agent-live-output.ts";
 import { draftMouthpiece } from "../mouthpiece.js";
 import { queueContextCompression } from "../queue-context.ts";
-import { queueChildContextCompression } from "../child-agent-context.js";
+import { queueChildContextCompression } from "../child-agent-context.ts";
 import { appendChildTaskSession, readChildTaskSession } from "../child-agent-session.js";
 import {
   kickArchiveDraft,

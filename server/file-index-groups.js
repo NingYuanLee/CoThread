@@ -307,7 +307,7 @@ export async function discoverWaitingFileReferences(
         AND LOCATE(LOWER(?),LOWER(m.mention))>0)`,
     [projectId, artifactId, filename],
   );
-  const { extractIndexText } = await import("./file-index-extract.js");
+  const { extractIndexText } = await import("./file-index-extract.ts");
   for (const source of sources) {
     const [count] = await query(
       db,
@@ -376,7 +376,7 @@ export async function recheckGroupsForTarget(
       AND g.evidence_artifact_id<>? AND NOT (g.evidence_target_version_id <=> ?) AND ${visibleFileIndexSql("source_page")}`,
     [artifactId, projectId, artifactId, versionId],
   );
-  const { extractIndexText } = await import("./file-index-extract.js");
+  const { extractIndexText } = await import("./file-index-extract.ts");
   for (const row of rows) {
     const [count] = await query(
       db,

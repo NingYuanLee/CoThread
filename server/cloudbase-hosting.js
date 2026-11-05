@@ -10,7 +10,7 @@ import { getCloudbaseManager } from "./cloudbase.js";
 import {
   injectAdminRuntimeHtml,
   resolveMiniprogramRuntime,
-} from "./miniprogram-runtime-environment.js";
+} from "./miniprogram-runtime-environment.ts";
 
 /**
  * PC 管理后台的 CloudBase 静态托管发布。

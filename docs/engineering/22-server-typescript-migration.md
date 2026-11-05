@@ -258,13 +258,20 @@ npm test            # 集成测试需要测试库
 - `agent-sandbox` 里 `provider.connect` 是可选方法（单次执行的适配器只需要 `create`），但恢复持久工作区时必须能连。用一个局部 `ConnectableProvider` 类型在调用处收窄，不做全局放宽。
 - `task-pool-activity` 的 `recordTaskStatusChange` 之前靠 JSDoc 提示 `reason` 类型，转成 `.ts` 后改成真正的参数类型，`agent-task-sync` 的两处报错随之消失。
 
-剩余 92 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第十九批（5 个模块，886 行）：`file-index-roots`(202)、`child-agent-context`(184)、`account-audit`(177)、`file-index-extract`(168)、`miniprogram-runtime-environment`(155)。
+
+本批两个类型推断坑：
+
+- `transaction(db, cb)` 的泛型在回调可能返回 `null` 时会被推成 `{}`，属性访问全部报错。显式写 `transaction<Job | null>(pool, cb)` 才正确。
+- `new Service(db)` / `acquireSessionLock(db, …)` 要的是 `Pool`，而函数签名收的是 `Db = Pool | PoolConnection`。在函数入口取一次 `const pool = db as Pool`，只在需要池的地方用。
+
+剩余 87 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                            | 文件数 |
 | ---- | ------------------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）                  | 12     |
-| 4    | 被 2–4 个文件引用                                                               | 28     |
-| 5    | 被 5–9 个文件引用                                                               | 28     |
+| 4    | 被 2–4 个文件引用                                                               | 26     |
+| 5    | 被 5–9 个文件引用                                                               | 25     |
 | 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 24     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径           | 1      |
 

@@ -84,7 +84,7 @@ async function readOfficeDocumentText(service, user, meta, { offset, limit }) {
   const byteSize = Number(meta.byte_size) || 0;
   if (byteSize > OFFICE_EXTRACT_MAX_BYTES) return null;
   const full = await service.version(user, meta.id);
-  const { extractIndexText } = await import("./file-index-extract.js");
+  const { extractIndexText } = await import("./file-index-extract.ts");
   const extraction = await extractIndexText({
     mime: full.mime,
     filename: full.filename,

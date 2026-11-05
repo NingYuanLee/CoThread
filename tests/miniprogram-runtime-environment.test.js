@@ -5,7 +5,7 @@ import {
   injectMiniprogramRuntimeSource,
   resolveMiniprogramRuntime,
   runtimeBuildHash,
-} from "../server/miniprogram-runtime-environment.js";
+} from "../server/miniprogram-runtime-environment.ts";
 
 const runtime = {
   cloudbaseEnvs: {

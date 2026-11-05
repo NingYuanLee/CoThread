@@ -4,7 +4,7 @@ import { syncTaskMemory } from "./task-memory.js";
 import { syncDocumentMemory } from "./document-memory.js";
 import { queueConversationThread } from "./conversation-memory-store.js";
 import { folderRootKind } from "./documents/index.js";
-import { ensureFileIndexRoots } from "./file-index-roots.js";
+import { ensureFileIndexRoots } from "./file-index-roots.ts";
 
 /**
  * 存量回填：把历史摘要表与未分类条目折算成五类记忆的基础条目。

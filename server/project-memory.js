@@ -1103,7 +1103,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
         byteSize: current.content.length,
       };
     }
-    const { extractIndexText } = await import("./file-index-extract.js");
+    const { extractIndexText } = await import("./file-index-extract.ts");
     const extraction = await extractIndexText({
       mime: current.mime,
       filename: current.filename,

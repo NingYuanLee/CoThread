@@ -1,15 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
+import type { Db } from "./types.ts";
 
 const MAX_BODY = 20000;
 const MAX_SOURCES = 20;
+
+/** 发言记忆的写入内容。 */
+export type UtteranceMemoryInput = {
+  understanding?: unknown;
+  statementSummary?: unknown;
+};
 
 /**
  * 发言记忆正文：只记他说过什么、主张什么，不评价人。
  * 骨架对齐 shared/memory-kinds.js 的 utterance：要点、立场与主张、承诺与待办、引用提示。
  */
-export function utteranceMemoryMarkdown({ understanding, statementSummary } = {}) {
+export function utteranceMemoryMarkdown({
+  understanding,
+  statementSummary,
+}: UtteranceMemoryInput = {}): string {
   const lines = ["## 要点", String(understanding || "").trim() || "- 暂无记录"];
   if (String(statementSummary || "").trim())
     lines.push("", "## 立场与主张", String(statementSummary).trim());
@@ -24,7 +34,7 @@ export function utteranceMemoryMarkdown({ understanding, statementSummary } = {}
   return lines.join("\n").slice(0, MAX_BODY);
 }
 
-async function attachSources(db, pageId, messageIds) {
+async function attachSources(db: Db, pageId: string, messageIds: unknown[]): Promise<void> {
   const ids = [...new Set((messageIds || []).filter(Boolean))];
   for (const messageId of ids) {
     const [dup] = await query(
@@ -41,17 +51,34 @@ async function attachSources(db, pageId, messageIds) {
   }
 }
 
+/** `upsertUtteranceMemory` 的入参。 */
+export type UpsertUtteranceMemoryInput = {
+  memberId?: string | null;
+  memberName?: unknown;
+  understanding?: unknown;
+  statementSummary?: unknown;
+  messageIds?: unknown[];
+  createdBy?: string | null;
+};
+
 /**
  * 发言记忆落 wiki：每个项目成员只有一条 utterance 页面（about_user_id 唯一），滚动更新。
  * 旧表 agent_member_summaries 保留为读取缓存，不再是唯一事实。
  */
 export async function upsertUtteranceMemory(
-  db,
-  projectId,
-  { memberId, memberName, understanding, statementSummary, messageIds = [], createdBy } = {},
-) {
+  db: Db,
+  projectId: string,
+  {
+    memberId,
+    memberName,
+    understanding,
+    statementSummary,
+    messageIds = [],
+    createdBy,
+  }: UpsertUtteranceMemoryInput = {},
+): Promise<{ pageId: string; created: boolean }> {
   if (!memberId) throw new Error("发言记忆需要成员");
-  const [existing] = await query(
+  const [existing] = await query<{ id: string }>(
     db,
     `SELECT id FROM wiki_pages p
      WHERE project_id=? AND subject_type='utterance' AND about_user_id=? AND status<>'superseded'
@@ -61,7 +88,7 @@ export async function upsertUtteranceMemory(
   );
   const title = String(memberName || "成员").slice(0, 120) + " 的发言";
   const body = utteranceMemoryMarkdown({ understanding, statementSummary });
-  let pageId = existing?.id || null;
+  let pageId: string | null = existing?.id || null;
   const created = !pageId;
   if (!pageId) {
     pageId = randomUUID();

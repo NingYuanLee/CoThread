@@ -14,13 +14,13 @@ import {
   assertFolderRefs,
   documentsForTaskInstruction,
   stripDocumentRefsCoveredByFolders,
-} from "./task-documents.js";
+} from "./task-documents.ts";
 import {
   assertTarget,
   currentThreadXiaoxiangSession,
   assertHumanMemberAuthorization,
   assertXiaoxiangCanOperateTask,
-} from "./task-access.js";
+} from "./task-access.ts";
 import { getTask } from "./task-queries.ts";
 import { createTask } from "./task-commands.js";
 import { notifyTaskAssigned } from "./inbox-task.ts";

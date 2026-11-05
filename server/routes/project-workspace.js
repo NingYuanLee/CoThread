@@ -755,7 +755,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     const task = await getTask(db, req.params.id);
     if (!task) throw new HttpError(404, "任务不存在");
     await service.member(req.user, task.project_id, false);
-    const { readTaskDecisionEvidence } = await import("../memory-decisions.js");
+    const { readTaskDecisionEvidence } = await import("../memory-decisions.ts");
     res.json({ decisions: await readTaskDecisionEvidence(db, task.project_id, task.id) });
   });
   app.post("/api/task-questions/:id/answer", async (req, res) => {

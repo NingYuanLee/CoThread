@@ -247,12 +247,16 @@ npm test            # 集成测试需要测试库
 
 本批新增 `@types/js-yaml`。另外修了一处跨文件类型不一致：`document-organization-run.ts` 原来自己声明了一份 `OrganizationDocument`，与 `document-organization.ts` 导出的同名类型结构不同（`title` 是否含 `null`），改为直接 import 共享那一个。
 
-剩余 103 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第十七批（6 个中等模块，788 行）：`task-access`(146)、`memory-decisions`(141)、`task-documents`(138)、`deepseek-web`(132)、`utterance-memory`(122)、`memory-pages`(109)。
+
+至此 `server/` 已过半：**102 个 `.ts` / 97 个 `.js`**。
+
+剩余 97 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                            | 文件数 |
 | ---- | ------------------------------------------------------------------------------- | ------ |
-| 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）                  | 11     |
-| 4    | 被 2–4 个文件引用                                                               | 37     |
+| 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）                  | 12     |
+| 4    | 被 2–4 个文件引用                                                               | 31     |
 | 5    | 被 5–9 个文件引用                                                               | 30     |
 | 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 24     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径           | 1      |

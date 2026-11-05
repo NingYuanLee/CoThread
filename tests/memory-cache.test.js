@@ -4,13 +4,13 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { upsertUtteranceMemory } from "../server/utterance-memory.js";
+import { upsertUtteranceMemory } from "../server/utterance-memory.ts";
 import {
   loadMemberUnderstanding,
   loadProjectSummary,
   loadProjectWikiIndexes,
 } from "../server/project-memory.js";
-import { upsertMemoryPage } from "../server/memory-pages.js";
+import { upsertMemoryPage } from "../server/memory-pages.ts";
 import { refreshProjectGuideCache } from "../server/memory-cache.ts";
 import { createVersion } from "../server/documents/versions.js";
 

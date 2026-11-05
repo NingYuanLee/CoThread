@@ -3,7 +3,7 @@ import { finishAgentEvent } from "./thread-activity.ts";
 import { documentTool } from "./documents/index.js";
 import { z } from "zod/v3";
 import { redactSecrets } from "./model-config.js";
-import { deepseekFetch, deepseekSearch } from "./deepseek-web.js";
+import { deepseekFetch, deepseekSearch } from "./deepseek-web.ts";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
 import { query } from "./db.ts";

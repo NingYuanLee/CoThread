@@ -26,7 +26,7 @@ import {
   MAX_DISTINCT_EXECUTORS,
   CHILD_STALE_HEARTBEAT_SECONDS,
 } from "./task-policy.ts";
-import { adoptCurrentIterationXiaoxiang } from "./task-access.js";
+import { adoptCurrentIterationXiaoxiang } from "./task-access.ts";
 import { getTask } from "./task-queries.ts";
 import { childDispatchSnapshot } from "./task-dispatch.js";
 export async function touchChildRunHeartbeat(db, executorId, { progress } = {}) {

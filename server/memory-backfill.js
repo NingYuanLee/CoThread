@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { upsertUtteranceMemory } from "./utterance-memory.js";
+import { upsertUtteranceMemory } from "./utterance-memory.ts";
 import { syncTaskMemory } from "./task-memory.js";
 import { syncDocumentMemory } from "./document-memory.js";
 import { queueConversationThread } from "./conversation-memory-store.js";

@@ -9,7 +9,7 @@ import { latestVersionsByFolderRoots } from "./documents/index.js";
 import { HttpError } from "./http-error.ts";
 import { modelResponse, responseText } from "./model-config.js";
 import { describeMouthpieceAttachment } from "./mouthpiece.js";
-import { assertDocumentRefs, assertFolderRefs } from "./task-documents.js";
+import { assertDocumentRefs, assertFolderRefs } from "./task-documents.ts";
 
 const GAP_MS = 5000;
 const FILE_LIMIT = 12;

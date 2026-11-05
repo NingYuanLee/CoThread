@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deepseekFetch, deepseekSearch, publicPageUrl } from "../server/deepseek-web.js";
+import { deepseekFetch, deepseekSearch, publicPageUrl } from "../server/deepseek-web.ts";
 
 function jsonResponse(body, status = 200) {
   return {

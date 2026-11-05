@@ -641,7 +641,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         statusHistory,
         executionRuns,
         decisionEvidence: await (
-          await import("./memory-decisions.js")
+          await import("./memory-decisions.ts")
         ).readTaskDecisionEvidence(service.db, task.project_id, task.id),
         activity: mergeTaskActivity({ updates, statusHistory, executionRuns }),
         folder_contents: folderContents,

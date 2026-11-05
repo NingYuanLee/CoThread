@@ -1,26 +1,41 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
+import type { Db } from "./types.ts";
+
+/** 记忆页的一条出处。 */
+export type MemorySource = { id?: string | null; kind?: string | null; label?: unknown };
+
+/** `upsertMemoryPage` 的入参。 */
+export type UpsertMemoryPageInput = {
+  subject?: string | null;
+  subtype?: string | null;
+  title?: unknown;
+  body?: unknown;
+  createdBy?: string | null;
+  sources?: MemorySource[];
+  sourceFamily?: string | null;
+};
 
 /**
  * 记忆条目的统一落页：按「对象类型 + 标题」找现行条目，有就更新、没有就新建，
  * 出处按 (page,kind,id) 去重。各记忆写入者共用，避免各自复制一份 upsert。
  */
 export async function upsertMemoryPage(
-  db,
-  projectId,
+  db: Db,
+  projectId: string,
   {
     subject,
-    subtype = DEFAULT_MEMORY_SUBTYPES[subject] || null,
+    subtype = (DEFAULT_MEMORY_SUBTYPES as Record<string, string | null>)[subject as string] || null,
     title,
     body,
     createdBy,
     sources = [],
     sourceFamily = null,
-  } = {},
-) {
-  if (typeof db.getConnection === "function")
-    return transaction(db, (conn) =>
+  }: UpsertMemoryPageInput = {},
+): Promise<string | null> {
+  if (typeof (db as { getConnection?: unknown }).getConnection === "function")
+    return transaction(db as never, (conn) =>
       upsertMemoryPage(conn, projectId, {
         subject,
         subtype,
@@ -38,21 +53,15 @@ export async function upsertMemoryPage(
   // Serialize identity lookup and insertion, including simultaneous first writes.
   const [project] = await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
   if (!project) return null;
-  const [existing] = await query(
+  const taskSourceId = sources.find((s) => s.kind === "task")?.id || null;
+  const [existing] = await query<{ id: string }>(
     db,
     `SELECT p.id FROM wiki_pages p
      WHERE p.project_id=? AND p.subject_type=? AND p.status='current' AND
        (? IS NOT NULL AND EXISTS(SELECT 1 FROM wiki_page_sources s WHERE s.page_id=p.id AND s.source_kind='task' AND s.source_id=?)
         OR ? IS NULL AND p.title=?)
      ORDER BY updated_at DESC LIMIT 1`,
-    [
-      projectId,
-      subject,
-      sources.find((s) => s.kind === "task")?.id || null,
-      sources.find((s) => s.kind === "task")?.id || null,
-      sources.find((s) => s.kind === "task")?.id || null,
-      clean,
-    ],
+    [projectId, subject, taskSourceId, taskSourceId, taskSourceId, clean],
   );
   const pageId = existing?.id || randomUUID();
   const text = String(body || "").slice(0, 60000);

@@ -18,17 +18,17 @@ import {
   assertDocumentRefs,
   assertFolderRefs,
   stripDocumentRefsCoveredByFolders,
-} from "./task-documents.js";
+} from "./task-documents.ts";
 import {
   assertTarget,
   assertActorCanUpdateTask,
   currentThreadXiaoxiangSession,
   assertHumanMemberAuthorization,
   assertXiaoxiangCanOperateTask,
-} from "./task-access.js";
+} from "./task-access.ts";
 import { getTask } from "./task-queries.ts";
 import { idleChildCount } from "./task-dispatch.js";
-import { recordTaskCreationDecision } from "./memory-decisions.js";
+import { recordTaskCreationDecision } from "./memory-decisions.ts";
 import { DEFAULT_PERSONA_KEY, personaByKey } from "../shared/agent-personas.js";
 export async function createTask(db, input) {
   const id = input.id || randomUUID();

@@ -8,24 +8,52 @@ import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { isXiaoxiangOwnResponsibility } from "./task-pool-helpers.ts";
 
 import { targetTypes, FOREIGN_TASK_AUTH } from "./task-policy.ts";
-export function assertTarget(type, id) {
-  if (!targetTypes.has(type) || typeof id !== "string" || !id)
+import type { Db } from "./types.ts";
+
+/** 任务行里本文件会读的字段。 */
+export type AccessTask = {
+  id: string;
+  execution_agent_type?: string | null;
+  execution_agent_id?: string | null;
+  target_type?: string | null;
+  target_id?: string | null;
+  origin_thread_id?: string | null;
+  project_id?: string | null;
+  [column: string]: unknown;
+};
+
+/** 发起或操作任务的主体。 */
+export type TaskActor = {
+  type?: string | null;
+  id?: string | null;
+  authorizedByUserId?: string | null;
+};
+
+export function assertTarget(type: unknown, id: unknown): void {
+  if (!targetTypes.has(type as string) || typeof id !== "string" || !id)
     throw new HttpError(400, "任务目标无效");
 }
 
-export function assertActorCanUpdateTask(task, actor) {
+export function assertActorCanUpdateTask(
+  task: AccessTask,
+  actor: TaskActor | null | undefined,
+): void {
   if (actor?.type === "child_agent") {
     if (task.execution_agent_type !== "child_agent" || task.execution_agent_id !== actor.id)
       throw new HttpError(403, "只有当前任务目标可以更新任务");
     return;
   }
-  if (task.target_type !== actor.type || task.target_id !== actor.id)
+  if (task.target_type !== actor?.type || task.target_id !== actor?.id)
     throw new HttpError(403, "只有当前任务目标可以更新任务");
 }
 
-export async function currentThreadXiaoxiangSession(conn, threadId, projectId) {
+export async function currentThreadXiaoxiangSession(
+  conn: Db,
+  threadId: string | null | undefined,
+  projectId?: string | null,
+): Promise<Record<string, unknown> | null> {
   if (!threadId) return null;
-  const [row] = await query(
+  const [row] = await query<Record<string, unknown>>(
     conn,
     `SELECT s.session_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
     WHERE t.id=? AND (? IS NULL OR t.project_id=?)`,
@@ -34,12 +62,18 @@ export async function currentThreadXiaoxiangSession(conn, threadId, projectId) {
   return row || null;
 }
 
-export async function adoptCurrentIterationXiaoxiang(conn, task, xiaoxiangSessionId) {
+export async function adoptCurrentIterationXiaoxiang<T extends AccessTask>(
+  conn: Db,
+  task: T | null | undefined,
+  xiaoxiangSessionId: string,
+): Promise<T | AccessTask | null | undefined> {
   if (!task || task.target_type !== "xiaoxiang") return task;
   if (task.target_id === xiaoxiangSessionId) return task;
-  const [session] = await query(conn, "SELECT thread_id FROM agent_sessions WHERE session_id=?", [
-    xiaoxiangSessionId,
-  ]);
+  const [session] = await query<{ thread_id?: string | null }>(
+    conn,
+    "SELECT thread_id FROM agent_sessions WHERE session_id=?",
+    [xiaoxiangSessionId],
+  );
   if (!session || !task.origin_thread_id || task.origin_thread_id !== session.thread_id)
     throw new HttpError(404, "当前 小祥 没有这个可委派任务");
   await query(
@@ -55,7 +89,11 @@ export async function adoptCurrentIterationXiaoxiang(conn, task, xiaoxiangSessio
   };
 }
 
-export async function hasHumanMemberAuthorization(conn, projectId, actor) {
+export async function hasHumanMemberAuthorization(
+  conn: Db,
+  projectId: string,
+  actor: TaskActor | null | undefined,
+): Promise<boolean> {
   const userId = actor?.authorizedByUserId;
   if (!userId || userId === AGENT_MEMBER.id) return false;
   const [member] = await query(
@@ -67,18 +105,22 @@ export async function hasHumanMemberAuthorization(conn, projectId, actor) {
 }
 
 export async function assertHumanMemberAuthorization(
-  conn,
-  projectId,
-  actor,
-  message = FOREIGN_TASK_AUTH,
-) {
+  conn: Db,
+  projectId: string,
+  actor: TaskActor | null | undefined,
+  message: string = FOREIGN_TASK_AUTH,
+): Promise<void> {
   if (await hasHumanMemberAuthorization(conn, projectId, actor)) return;
   throw new HttpError(403, message);
 }
 
-export async function assertXiaoxiangCanOperateTask(conn, actor, task) {
+export async function assertXiaoxiangCanOperateTask(
+  conn: Db,
+  actor: TaskActor | null | undefined,
+  task: AccessTask,
+): Promise<void> {
   if (actor?.type !== "xiaoxiang") throw new HttpError(403, "只有当前迭代的 小祥 可以跨任务安排");
-  const [session] = await query(
+  const [session] = await query<{ thread_id?: string | null; project_id?: string | null }>(
     conn,
     `SELECT s.thread_id, t.project_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
     WHERE s.session_id=?`,
@@ -100,5 +142,5 @@ export async function assertXiaoxiangCanOperateTask(conn, actor, task) {
   if (!task.origin_thread_id || task.origin_thread_id !== session.thread_id)
     throw new HttpError(403, "当前 小祥 只能安排本迭代锁定的任务");
   if (!isXiaoxiangOwnResponsibility(task))
-    await assertHumanMemberAuthorization(conn, task.project_id, actor);
+    await assertHumanMemberAuthorization(conn, task.project_id as string, actor);
 }

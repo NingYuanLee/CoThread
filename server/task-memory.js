@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { upsertMemoryPage } from "./memory-pages.js";
+import { upsertMemoryPage } from "./memory-pages.ts";
 
 const DONE = new Set(["completed", "failed", "cancelled", "superseded"]);
 const HUMAN_EXECUTORS = new Set(["human_self", "human_local_executor"]);

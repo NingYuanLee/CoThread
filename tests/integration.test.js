@@ -1398,7 +1398,7 @@ test("project memory job routes: settings, retry, discussion and permissions", a
     }),
     verifySupport: async () => true,
   });
-  const { upsertMemoryPage } = await import("../server/memory-pages.js");
+  const { upsertMemoryPage } = await import("../server/memory-pages.ts");
   await upsertMemoryPage(db, projectId, {
     subject: "project",
     title: "项目进程入口",

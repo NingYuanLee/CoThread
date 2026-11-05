@@ -15,7 +15,7 @@ import {
   MAX_DISTINCT_EXECUTORS,
   arrangeableStatuses,
 } from "./task-policy.ts";
-import { adoptCurrentIterationXiaoxiang, assertXiaoxiangCanOperateTask } from "./task-access.js";
+import { adoptCurrentIterationXiaoxiang, assertXiaoxiangCanOperateTask } from "./task-access.ts";
 import { getTask } from "./task-queries.ts";
 import { idleChildCount } from "./task-dispatch.js";
 export async function rejectionReviewActor(db, taskId, conn = db) {

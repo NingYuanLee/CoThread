@@ -2,7 +2,7 @@
 import { createDatabase, query, transaction } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { randomUUID } from "node:crypto";
-import { assertProductionWriteAllowed } from "../server/database-policy.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 
 assertProductionWriteAllowed();
 const db = await createDatabase();

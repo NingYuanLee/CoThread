@@ -17,7 +17,7 @@ import {
 import { deliverTaskUpdates } from "../server/agent-updates.js";
 import { pendingMessages } from "../shared/context.js";
 import { processNextCoordinator } from "../server/coordinator.js";
-import { subscribeWork } from "../server/work-events.js";
+import { subscribeWork } from "../server/work-events.ts";
 
 let database, db, service;
 before(async () => {

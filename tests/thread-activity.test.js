@@ -10,7 +10,7 @@ import {
   insertCompletedAgentEvent,
   interruptRunningAgentEvents,
   interruptRunningSandboxRuns,
-} from "../server/thread-activity.js";
+} from "../server/thread-activity.ts";
 let database, db, service;
 before(async () => {
   database = await testDatabase();

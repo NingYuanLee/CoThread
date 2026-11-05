@@ -17,7 +17,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDatabase, query } from "../server/db.ts";
-import { assertProductionWriteAllowed } from "../server/database-policy.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 import { legacyMigrationChecksums, migrationChecksum } from "./migrate.js";
 
 const directory = fileURLToPath(new URL("../migrations/", import.meta.url));

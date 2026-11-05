@@ -152,7 +152,7 @@ export async function retryFileIndexJob(service, user, projectId, artifactId) {
   } finally {
     await lock.release();
   }
-  const { publishWork } = await import("./work-events.js");
+  const { publishWork } = await import("./work-events.ts");
   publishWork(service.db);
   return result;
 }
@@ -182,7 +182,7 @@ export async function requestFileIndexScan(service, user, projectId) {
     return { queued: true, batchId };
   });
   if (result.queued) {
-    const { publishWork } = await import("./work-events.js");
+    const { publishWork } = await import("./work-events.ts");
     publishWork(service.db);
   }
   return result;

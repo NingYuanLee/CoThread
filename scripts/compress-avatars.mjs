@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createDatabase, query } from "../server/db.ts";
-import { assertProductionWriteAllowed } from "../server/database-policy.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 
 // Preview by default. --apply backs up originals before optimistic updates.
 const apply = process.argv.includes("--apply");

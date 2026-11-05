@@ -1,6 +1,6 @@
 import { validDocumentSummarySql } from "./file-index-visibility.js";
 import { createHash } from "node:crypto";
-import { finishAgentEvent } from "./thread-activity.js";
+import { finishAgentEvent } from "./thread-activity.ts";
 import { query, transaction } from "./db.ts";
 import { clearPromptState, readPromptState, writePromptState } from "./thread-prompt-state.ts";
 import { Service } from "./service.js";

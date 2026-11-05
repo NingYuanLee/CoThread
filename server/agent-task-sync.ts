@@ -1,6 +1,6 @@
 import { query, transaction } from "./db.ts";
 import { recordTaskStatusChange } from "./task-pool.js";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 import { lockTaskIteration } from "./iteration-state.ts";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import type { Db } from "./types.ts";

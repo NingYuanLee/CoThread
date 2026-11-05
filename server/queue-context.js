@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { transaction, query } from "./db.ts";
 import { HttpError } from "./service.js";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 
 export async function queueContextCompression(service, user, threadId) {
   if (user.kind !== "session") throw new HttpError(403, "需要登录后操作");

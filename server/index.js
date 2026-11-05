@@ -1,4 +1,4 @@
-import { interruptRunningSandboxRuns } from "./thread-activity.js";
+import { interruptRunningSandboxRuns } from "./thread-activity.ts";
 import { miaowenSkillLabel } from "./miaowen-skill.js";
 import express from "express";
 import { createServer as createHttpServer } from "node:http";
@@ -20,7 +20,7 @@ import {
   resolveDatabasePolicy,
   resolveDatabaseTarget,
   resolveTargetDatabaseUrl,
-} from "./database-policy.js";
+} from "./database-policy.ts";
 import {
   APP_ORIGIN,
   LISTEN_PORT,

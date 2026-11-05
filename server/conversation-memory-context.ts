@@ -4,14 +4,70 @@ import {
   intactConversationMemorySql,
   readableConversationMemorySql,
 } from "./conversation-memory-integrity.ts";
+import type { Db } from "./types.ts";
 
+/** 来源在读取窗口后被改动或删除，需要重新核对。 */
 export class ConversationSourceChangedError extends Error {}
+
+/** 联合分析窗口及其所属项目/迭代。 */
+type WindowRow = {
+  id: string;
+  projectId: string;
+  threadId: string;
+  firstSequence: number;
+  lastSequence: number;
+  threadTitle?: string | null;
+  projectName?: string | null;
+  projectDescription?: string | null;
+  projectOwner?: string | null;
+};
+
+/** 窗口内的一条消息。 */
+type MessageRow = {
+  id: string;
+  sequence: number;
+  authorId: string;
+  author?: string | null;
+  body: string;
+  createdAt?: unknown;
+  threadId: string;
+};
+
+/** 冻结快照：消息 id 与正文哈希。 */
+type FrozenRow = { id: string; hash: string };
+
+/** 引用消息；超过字符上限时正文被抹掉并标记。 */
+type QuoteRow = {
+  messageId: string;
+  quotedMessageId?: string | null;
+  authorId?: string | null;
+  author?: string | null;
+  body: string | null;
+  threadId?: string | null;
+  sequence?: number;
+  createdAt?: unknown;
+  contentOmitted?: boolean;
+};
+
+/** 记忆页面的索引行（`body` 只用于截摘要）。 */
+type MemoryPageRow = {
+  id: string;
+  title?: string | null;
+  body?: string | null;
+  status?: string | null;
+  subjectType?: string | null;
+  aboutUserId?: string | null;
+  subtype?: string | null;
+  updatedAt?: unknown;
+  excerpt?: string;
+  sourceNeedsReview?: boolean;
+};
 
 /** Load a fixed window and the immediately preceding discussion. The returned
  * snapshots are kept server-side for optimistic concurrency; only summaries
  * should be sent to the model. */
-export async function loadConversationContext(db, windowId) {
-  const [window] = await query(
+export async function loadConversationContext(db: Db, windowId: string) {
+  const [window] = await query<WindowRow>(
     db,
     `SELECT w.id,w.project_id projectId,w.thread_id threadId,
     w.first_sequence firstSequence,w.last_sequence lastSequence,t.title threadTitle,
@@ -22,7 +78,7 @@ export async function loadConversationContext(db, windowId) {
   );
   if (!window) throw new Error("联合分析窗口不存在");
   const columns = `m.id,m.sequence,m.author_id authorId,u.name author,m.body,m.created_at createdAt,m.thread_id threadId`;
-  const messages = await query(
+  const messages = await query<MessageRow>(
     db,
     `SELECT ${columns} FROM conversation_window_messages wm
     JOIN messages m ON m.id=wm.message_id JOIN users u ON u.id=m.author_id
@@ -32,7 +88,7 @@ export async function loadConversationContext(db, windowId) {
   );
   if (!messages.length)
     throw new ConversationSourceChangedError("窗口消息已不可读取，需要重新核对");
-  const frozen = await query(
+  const frozen = await query<FrozenRow>(
     db,
     "SELECT message_id id,body_sha256 hash FROM conversation_window_messages WHERE window_id=? ORDER BY sequence",
     [windowId],
@@ -46,14 +102,14 @@ export async function loadConversationContext(db, windowId) {
     )
   )
     throw new ConversationSourceChangedError("窗口消息已被修改或删除，需要重新核对");
-  const previous = await query(
+  const previous = await query<MessageRow>(
     db,
     `SELECT ${columns} FROM messages m JOIN users u ON u.id=m.author_id
     WHERE m.thread_id=? AND m.sequence<? AND m.source<>'system' AND m.body<>''
     ORDER BY m.sequence DESC LIMIT 12`,
     [window.threadId, window.firstSequence],
   );
-  const background = [];
+  const background: MessageRow[] = [];
   let chars = 0;
   for (const message of previous) {
     if (background.length && chars + message.body.length > 10000) break;
@@ -62,7 +118,7 @@ export async function loadConversationContext(db, windowId) {
   }
   background.reverse();
   const all = [...background, ...messages];
-  const quotes = await query(
+  const quotes = await query<QuoteRow>(
     db,
     `SELECT q.message_id messageId,q.quoted_message_id quotedMessageId,
     m.author_id authorId,u.name author,m.body,m.thread_id threadId,m.sequence,m.created_at createdAt
@@ -80,7 +136,7 @@ export async function loadConversationContext(db, windowId) {
     } else quoteChars += length;
   }
   const members = [...new Set(messages.map((message) => message.authorId))];
-  const pages = await query(
+  const pages = await query<MemoryPageRow>(
     db,
     `SELECT id,title,body,status,subject_type subjectType,
     about_user_id aboutUserId,memory_subtype subtype,updated_at updatedAt
@@ -89,7 +145,7 @@ export async function loadConversationContext(db, windowId) {
     ORDER BY updated_at DESC LIMIT 60`,
     [window.projectId, ...members],
   );
-  const stalePages = await query(
+  const stalePages = await query<MemoryPageRow>(
     db,
     `SELECT DISTINCT p.id,p.title,p.body,p.status,p.subject_type subjectType,
     p.about_user_id aboutUserId,p.memory_subtype subtype,p.updated_at updatedAt
@@ -108,7 +164,7 @@ export async function loadConversationContext(db, windowId) {
     excerpt: String(body || "").slice(0, 250),
     sourceNeedsReview: true,
   }));
-  const observations = await query(
+  const observations = await query<Record<string, unknown>>(
     db,
     `SELECT id,thread_id threadId,question,source_ids sourceIds,
     review_after reviewAfter FROM conversation_memory_observations

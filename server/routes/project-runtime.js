@@ -205,7 +205,7 @@ export function registerProjectRuntimeRoutes(
         message: String(error?.message || error).slice(0, 300),
       });
     });
-    const { publishWork } = await import("../work-events.js");
+    const { publishWork } = await import("../work-events.ts");
     publishWork(service.db);
     const { syncTaskMemory } = await import("../task-memory.js");
     await syncTaskMemory(service.db, {
@@ -229,7 +229,7 @@ export function registerProjectRuntimeRoutes(
         message: String(error?.message || error).slice(0, 300),
       });
     });
-    const { publishWork } = await import("../work-events.js");
+    const { publishWork } = await import("../work-events.ts");
     publishWork(service.db);
     // 梳理不依赖进程内唤醒与 60s 兜底轮询，请求一返回就踢起来。
     await startArchiveDraft(service, thread.project_id);

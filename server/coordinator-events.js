@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db.ts";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 
 export async function enqueueCoordinatorEvent(
   db,

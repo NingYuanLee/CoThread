@@ -1,7 +1,7 @@
 import mysql from "mysql2/promise";
 import { readFile, readdir } from "node:fs/promises";
 import { createDatabase } from "../server/db.ts";
-import { resolveConfiguredTestDatabaseUrl } from "../server/database-policy.js";
+import { resolveConfiguredTestDatabaseUrl } from "../server/database-policy.ts";
 import { migrate, migrationChecksum } from "../scripts/migrate.js";
 
 function quoteIdentifier(value) {

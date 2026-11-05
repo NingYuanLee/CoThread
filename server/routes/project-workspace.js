@@ -407,7 +407,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
       createdBy: req.user.id,
     });
     await completeProjectMemoryBackfill(service.db, req.params.id);
-    const { publishWork } = await import("../work-events.js");
+    const { publishWork } = await import("../work-events.ts");
     publishWork(service.db);
     res.json(result);
   });
@@ -513,7 +513,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
         throw new HttpError(409, String(error.message));
       throw error;
     }
-    const { publishWork } = await import("../work-events.js");
+    const { publishWork } = await import("../work-events.ts");
     publishWork(service.db);
     res.status(202).json(queued);
   });
@@ -523,7 +523,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     const queued = await queueConversationThread(service.db, req.params.id, req.params.threadId, {
       backfill: true,
     });
-    const { publishWork } = await import("../work-events.js");
+    const { publishWork } = await import("../work-events.ts");
     publishWork(service.db);
     res.status(202).json(queued);
   });
@@ -555,7 +555,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   });
   app.get("/api/projects/:id/memory/facts", async (req, res) => {
     await service.member(req.user, req.params.id, false);
-    const { readProjectFacts } = await import("../project-facts.js");
+    const { readProjectFacts } = await import("../project-facts.ts");
     res.json(await readProjectFacts(service.db, req.params.id, req.query));
   });
   app.get("/api/memory-revisions/:revisionId", async (req, res) => {

@@ -3,7 +3,7 @@ import { rename, mkdir } from "node:fs/promises";
 import { createDatabase, query } from "../server/db.ts";
 import { releaseSandbox } from "../server/agent-sandbox.js";
 import { digest } from "../server/auth.js";
-import { assertProductionWriteAllowed } from "../server/database-policy.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 assertProductionWriteAllowed();
 const db = await createDatabase();
 try {

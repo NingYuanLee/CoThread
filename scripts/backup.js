@@ -3,7 +3,7 @@ import { mkdir, readdir, stat, rename, unlink } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { basename, resolve, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { resolveDatabaseTarget, resolveTargetDatabaseUrl } from "../server/database-policy.js";
+import { resolveDatabaseTarget, resolveTargetDatabaseUrl } from "../server/database-policy.ts";
 const targetName = resolveDatabaseTarget();
 const url = new URL(resolveTargetDatabaseUrl());
 console.log(

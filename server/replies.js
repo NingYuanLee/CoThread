@@ -1,4 +1,4 @@
-import { interruptRunningAgentEvents } from "./thread-activity.js";
+import { interruptRunningAgentEvents } from "./thread-activity.ts";
 import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
 import { createExecutorDatabase } from "./executor-access.ts";
@@ -15,7 +15,7 @@ import { pendingTaskUpdates } from "./agent-updates.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";
-import { publishWork, subscribeWork, startWakeWorker } from "./work-events.js";
+import { publishWork, subscribeWork, startWakeWorker } from "./work-events.ts";
 import { processNextProjectMemory } from "./project-memory.js";
 import {
   discoverNextFileIndexChange,

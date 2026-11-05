@@ -17,7 +17,7 @@
  * - 正文读取：isDocumentText / readDocumentContent（不写库，不返回二进制字节）
  */
 export * from "./library.js";
-export * from "./read-text.js";
+export * from "./read-text.ts";
 export * from "./project-library.js";
 export * from "./document-tools.js";
 export * from "./document-audit.js";

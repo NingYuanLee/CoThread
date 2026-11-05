@@ -304,7 +304,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     },
     async ({ projectId, ...filters }) => {
       await service.member(user, projectId, false);
-      const { readProjectFacts } = await import("./project-facts.js");
+      const { readProjectFacts } = await import("./project-facts.ts");
       return readProjectFacts(service.db, projectId, filters);
     },
   );

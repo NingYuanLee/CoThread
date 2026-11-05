@@ -5,7 +5,7 @@ import { acquireNamedLock } from "./named-lock.ts";
 import {
   loadConversationContext,
   ConversationSourceChangedError,
-} from "./conversation-memory-context.js";
+} from "./conversation-memory-context.ts";
 import { startConversationToolBridge } from "./conversation-memory-tools.js";
 import {
   MEMORY_AUTO_RETRY_LIMIT,

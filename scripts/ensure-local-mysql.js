@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveConfiguredDevDatabaseUrl } from "../server/database-policy.js";
+import { resolveConfiguredDevDatabaseUrl } from "../server/database-policy.ts";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 

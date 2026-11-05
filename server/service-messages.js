@@ -1,4 +1,4 @@
-import { recordMessageActivity } from "./thread-activity.js";
+import { recordMessageActivity } from "./thread-activity.ts";
 import { attachMessageQuotes } from "./message-quotes.ts";
 import { markThreadRead as saveThreadRead, threadReadSummary } from "./thread-reads.js";
 import { isViewingThread } from "./thread-presence.ts";
@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import * as iterationState from "./iteration-state.ts";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 import { queueConversationMessage } from "./conversation-memory-store.js";
 
 import { fail, id, title, body, parseMessageRow } from "./service-support.ts";

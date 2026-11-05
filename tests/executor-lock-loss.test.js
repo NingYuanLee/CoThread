@@ -7,7 +7,7 @@ import { createExecutorDatabase } from "../server/executor-access.ts";
 import { Service } from "../server/service.js";
 import { acquireNamedLock } from "../server/named-lock.ts";
 import { startReplyWorker } from "../server/replies.js";
-import { publishWork } from "../server/work-events.js";
+import { publishWork } from "../server/work-events.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 test(

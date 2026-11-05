@@ -9,7 +9,7 @@ import {
   resolveDatabasePolicy,
   resolveDatabaseTarget,
   resolveTargetDatabaseUrl,
-} from "../server/database-policy.js";
+} from "../server/database-policy.ts";
 import {
   attachChildOutput,
   createDevProgress,

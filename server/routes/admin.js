@@ -187,7 +187,7 @@ export function registerAdminRoutes(app, { db, service }) {
       createdBy: req.user.id,
     });
     await completeProjectMemoryBackfill(service.db, req.params.id);
-    const { publishWork } = await import("../work-events.js");
+    const { publishWork } = await import("../work-events.ts");
     publishWork(service.db);
     res.json(result);
   });

@@ -14,7 +14,22 @@ const TEXT_MIME = new Set([
   "image/svg+xml",
 ]);
 
-export function isDocumentText(mime, filename) {
+/** 版本行里本文件会用到的列。 */
+type DocumentVersionRow = {
+  id: string;
+  artifact_id?: string;
+  project_id?: string;
+  title?: string;
+  filename?: string;
+  version?: number;
+  mime?: string;
+  sha256?: string;
+  byte_size?: number | string;
+  folder_id?: string | null;
+  content?: Buffer | string | null;
+};
+
+export function isDocumentText(mime: unknown, filename: unknown): boolean {
   const type = String(mime || "")
     .split(";")[0]
     .trim()
@@ -24,7 +39,7 @@ export function isDocumentText(mime, filename) {
   return TEXT_EXTENSION.test(String(filename || ""));
 }
 
-function metaOf(version) {
+function metaOf(version: DocumentVersionRow) {
   return {
     id: version.id,
     artifactId: version.artifact_id,
@@ -39,8 +54,23 @@ function metaOf(version) {
   };
 }
 
+/** 分页结果；`afterEnd` 只在偏移超过正文长度时为真。 */
+export type PaginatedText = {
+  offset: number;
+  limit: number;
+  returned: number;
+  totalChars: number;
+  truncated: boolean;
+  nextOffset: number | null;
+  content: string;
+  afterEnd: boolean;
+};
+
 /** 按字符偏移切分正文，供文本文件与提取出的 Office 正文共用。 */
-export function paginateText(body, { offset = 0, limit = DOCUMENT_TEXT_READ_DEFAULT } = {}) {
+export function paginateText(
+  body: string,
+  { offset = 0, limit = DOCUMENT_TEXT_READ_DEFAULT }: { offset?: number; limit?: number } = {},
+): PaginatedText {
   const start = Math.max(0, Math.trunc(Number(offset) || 0));
   const size = Math.min(
     DOCUMENT_TEXT_READ_MAX,
@@ -74,8 +104,8 @@ export function paginateText(body, { offset = 0, limit = DOCUMENT_TEXT_READ_DEFA
 }
 
 export function readDocumentContent(
-  version,
-  { offset = 0, limit = DOCUMENT_TEXT_READ_DEFAULT } = {},
+  version: DocumentVersionRow,
+  { offset = 0, limit = DOCUMENT_TEXT_READ_DEFAULT }: { offset?: number; limit?: number } = {},
 ) {
   const meta = metaOf(version);
   if (!isDocumentText(version.mime, version.filename)) {

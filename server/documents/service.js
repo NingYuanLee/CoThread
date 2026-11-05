@@ -17,7 +17,7 @@ import { HttpError } from "../http-error.ts";
 import { AGENT_MEMBER } from "../../shared/agent-member.js";
 import { decodeUploadedBytes, verifyBytes } from "./file-bytes.js";
 import { INLINE_FILE_MAX_BYTES } from "../../shared/upload-limits.js";
-import { publishWork } from "../work-events.js";
+import { publishWork } from "../work-events.ts";
 import {
   DOCUMENT_LIBRARY_FOLDER_SQL,
   OUTPUT_LIBRARY_FOLDER_SQL,

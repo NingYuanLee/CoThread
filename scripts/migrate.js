@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createDatabase, query } from "../server/db.ts";
 import { seedInitialAdmin } from "./seed.js";
-import { assertProductionWriteAllowed } from "../server/database-policy.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 
 /**
  * 迁移 checksum 必须与检出时的行尾无关：CI / ECS 检出得到 LF，Windows 在

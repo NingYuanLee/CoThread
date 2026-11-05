@@ -15,7 +15,7 @@ import { agentSession } from "./agent-session.ts";
 import { deliverTaskUpdates } from "./agent-updates.js";
 import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 import {
   capturedModelUsage,
   coordinatorReuseDecision,

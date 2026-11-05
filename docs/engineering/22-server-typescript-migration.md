@@ -166,14 +166,25 @@ npm test            # 集成测试需要测试库
 | `server/request-timing.ts`       | 79   | 请求耗时归并（并发区间去重）                   |
 | `server/task-pool-failures.ts`   | 108  | 失败分类、指纹与重试预算计数                   |
 
-剩余 150 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第七批（依赖干净但被引用多的模块，6 个）：
+
+| 文件                                    | 行数 | 说明                                       |
+| --------------------------------------- | ---- | ------------------------------------------ |
+| `server/database-policy.ts`             | 334  | 内外网选择、URL 拼装与「拒绝连远端库」判定 |
+| `server/work-events.ts`                 | 116  | 进程内唤醒表与带退化轮询的唤醒循环         |
+| `server/thread-activity.ts`             | 183  | 迭代活跃时间、Agent 事件收尾、沙箱保存点   |
+| `server/project-facts.ts`               | 119  | 项目事实快照（一致性读事务）               |
+| `server/documents/read-text.ts`         | 136  | 文本正文分页与二进制拒读                   |
+| `server/conversation-memory-context.ts` | 186  | 联合分析窗口装填与来源完整性校验           |
+
+剩余 144 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                  | 文件数 |
 | ---- | --------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 17     |
-| 4    | 被 2–4 个文件引用                                                     | 63     |
+| 4    | 被 2–4 个文件引用                                                     | 60     |
 | 5    | 被 5–9 个文件引用                                                     | 39     |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 30     |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 27     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
 
 入口最后转：`package.json` 的 `start` / `dev:static`、systemd `ExecStart`、`scripts/ecs-*` 都写着 `server/index.js`，改名要同步改这些地方。

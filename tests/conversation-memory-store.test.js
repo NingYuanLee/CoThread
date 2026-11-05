@@ -6,7 +6,7 @@ import { z } from "zod/v3";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { testDatabase } from "./database.js";
-import { loadConversationContext } from "../server/conversation-memory-context.js";
+import { loadConversationContext } from "../server/conversation-memory-context.ts";
 import {
   processConversationWindow,
   processNextConversationMemory,

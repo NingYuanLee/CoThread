@@ -19,7 +19,7 @@ import {
   canSupersedeMemory,
 } from "../server/memory-policy.js";
 import { upsertMemoryPage } from "../server/memory-pages.js";
-import { readProjectFacts } from "../server/project-facts.js";
+import { readProjectFacts } from "../server/project-facts.ts";
 import { syncDocumentMemory } from "../server/document-memory.js";
 import { createVersion, replaceVersionContent } from "../server/documents/versions.js";
 import { loadTaskMemoryStats } from "../server/task-memory.js";

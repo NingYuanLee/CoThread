@@ -12,7 +12,7 @@ import {
   assertProductionWriteAllowed,
   resolveDatabaseTarget,
   resolveTargetDatabaseUrl,
-} from "../server/database-policy.js";
+} from "../server/database-policy.ts";
 
 export async function resolveInitialAdminCredentials() {
   let initialAdmin = {};

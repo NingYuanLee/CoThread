@@ -1,6 +1,6 @@
 import { transaction, query } from "./db.ts";
 import { HttpError } from "./service.js";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 
 export async function retryReply(service, user, threadId, messageId) {
   if (user.kind !== "session") throw new HttpError(403, "需要人工登录");

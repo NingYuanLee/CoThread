@@ -1,4 +1,4 @@
-import { insertCompletedAgentEvent } from "./thread-activity.js";
+import { insertCompletedAgentEvent } from "./thread-activity.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   capturedModelUsage,

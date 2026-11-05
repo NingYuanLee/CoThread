@@ -11,7 +11,7 @@ import {
   createConversationWindow,
 } from "../server/conversation-memory-store.js";
 import { processConversationWindow } from "../server/conversation-memory-runner.js";
-import { loadConversationContext } from "../server/conversation-memory-context.js";
+import { loadConversationContext } from "../server/conversation-memory-context.ts";
 import { startConversationToolBridge } from "../server/conversation-memory-tools.js";
 import { createVersion } from "../server/documents/versions.js";
 import {

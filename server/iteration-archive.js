@@ -5,7 +5,7 @@ import { HttpError } from "./http-error.ts";
 import { lockIteration } from "./iteration-state.ts";
 import { latestVersionsByFolderRoots } from "./documents/index.js";
 import { modelResponse, responseText } from "./model-config.js";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 import { nativeHistoryFromLiveHome } from "./child-agent-session.js";
 import { acquireSessionLock } from "./session-lock.ts";
 import { recordArchivePages } from "./wiki-pages.js";

@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { createDatabase, query } from "../server/db.ts";
 import PptxGenJS from "pptxgenjs";
-import { assertProductionWriteAllowed } from "../server/database-policy.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 
 assertProductionWriteAllowed();
 

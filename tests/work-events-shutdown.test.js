@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate as turn } from "node:timers/promises";
-import { startWakeWorker } from "../server/work-events.js";
+import { startWakeWorker } from "../server/work-events.ts";
 
 test("stop is one promise and waits for in-flight work without starting more", async () => {
   const gates = [Promise.withResolvers(), Promise.withResolvers()];

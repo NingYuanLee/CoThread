@@ -1,6 +1,6 @@
 import mysql from "mysql2/promise";
 import { readFile } from "node:fs/promises";
-import { resolveConfiguredDevDatabaseUrl } from "../server/database-policy.js";
+import { resolveConfiguredDevDatabaseUrl } from "../server/database-policy.ts";
 
 const url = new URL(resolveConfiguredDevDatabaseUrl());
 const databaseName = url.pathname.slice(1);

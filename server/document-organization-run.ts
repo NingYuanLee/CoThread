@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { Service } from "./service.js";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 import { listOrganizationDocuments } from "./document-organization.js";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.ts";
 import { createFolder, placeArtifact } from "./documents/index.js";

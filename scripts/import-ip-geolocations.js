@@ -6,7 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { createDatabase, query } from "../server/db.ts";
 import { ipv4ToLong } from "../server/ip-location.js";
 import { migrate } from "./migrate.js";
-import { assertProductionWriteAllowed } from "../server/database-policy.js";
+import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 
 const DEFAULT_SOURCE_URL =
   process.env.IP_GEOLOCATION_SOURCE_URL ||

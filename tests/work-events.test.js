@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate as turn, setTimeout as delay } from "node:timers/promises";
-import { publishWork, subscribeWork, startWakeWorker } from "../server/work-events.js";
+import { publishWork, subscribeWork, startWakeWorker } from "../server/work-events.ts";
 import { createWakeGate } from "../shared/wake-gate.js";
 import { drainReplies } from "../server/reply-dispatch.js";
 

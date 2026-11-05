@@ -1,4 +1,4 @@
-import { finishAgentEvent, finishSandboxRun } from "../server/thread-activity.js";
+import { finishAgentEvent, finishSandboxRun } from "../server/thread-activity.ts";
 import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

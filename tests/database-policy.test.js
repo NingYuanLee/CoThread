@@ -15,7 +15,7 @@ import {
   resolveTargetDatabaseUrl,
   resolveDatabaseEndpoint,
   resolveDatabasePolicy,
-} from "../server/database-policy.js";
+} from "../server/database-policy.ts";
 
 const local = "mysql://cothread:secret@127.0.0.1:3307/cothread";
 const rds = "mysql://cothread:secret@rm-example.mysql.rds.aliyuncs.com:3306/cothread";

@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { readFile } from "node:fs/promises";
 import { recordQuery } from "./request-timing.ts";
-import { resolveTargetDatabaseUrl } from "./database-policy.js";
+import { resolveTargetDatabaseUrl } from "./database-policy.ts";
 import type { Db, SqlParams } from "./types.ts";
 
 /** 建池时可覆盖的项；其余连接参数写死在这里。 */

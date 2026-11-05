@@ -1,5 +1,5 @@
 import { validDocumentSummarySql } from "./file-index-visibility.js";
-import { finishAgentEvent } from "./thread-activity.js";
+import { finishAgentEvent } from "./thread-activity.ts";
 import { documentTool } from "./documents/index.js";
 import { z } from "zod/v3";
 import { redactSecrets } from "./model-config.js";
@@ -707,7 +707,7 @@ export function createAgentTools(
         );
         Object.assign(result, wiki);
       } else if (name === "read_project_facts") {
-        const { readProjectFacts } = await import("./project-facts.js");
+        const { readProjectFacts } = await import("./project-facts.ts");
         result = await readProjectFacts(service.db, thread.project_id, {
           kind: args.kind,
           offset: args.offset,

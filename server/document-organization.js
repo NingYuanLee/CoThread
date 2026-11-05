@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
-import { publishWork } from "./work-events.js";
+import { publishWork } from "./work-events.ts";
 
 export async function listOrganizationDocuments(db, job) {
   return query(

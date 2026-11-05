@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db.ts";
-import { createMemoryRelation } from "./memory-graph.js";
+import { createMemoryRelation } from "./memory-graph.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 
 /** 话题归一键：标题去空白与标点后小写，用于跨迭代合并同一议题。 */

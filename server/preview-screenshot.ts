@@ -1,12 +1,48 @@
 import { posix } from "node:path";
+import type { Browser } from "playwright";
 import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
 import { previewContentType, storedContentType } from "./documents/index.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.js";
 
+/** 文档树用到的文件夹行。 */
+type FolderRow = { id: string; name?: unknown; parent_id?: string | null };
+
+/** 文档树用到的版本行。 */
+type VersionRow = {
+  artifact_id?: string;
+  artifactId?: string;
+  version?: unknown;
+  folder_id?: string | null;
+  filename?: unknown;
+  title?: unknown;
+  mime?: unknown;
+  content?: Buffer;
+};
+
+/** 项目树输入：调用方给的结构更宽，{@link treeMarkup} 内部自行收窄。 */
+type ProjectTree = { name?: unknown; folders?: unknown; versions?: unknown };
+
+/** 沙箱（只要读文件）。 */
+type ScreenshotSandbox = {
+  readFile?(path: string): Promise<unknown>;
+  files: { read(path: string): Promise<unknown> };
+};
+
+/** 截图相关 Service 视图。 */
+type ScreenshotService = {
+  project(user: { id: string }, projectId: string): Promise<ProjectTree>;
+  version(user: { id: string }, versionId: string): Promise<VersionRow>;
+  versionPreview(
+    user: { id: string },
+    versionId: string,
+    asset: string,
+  ): Promise<{ content: Buffer }>;
+};
+
 const MAX_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 const DEFAULT_VIEWPORT = { width: 1440, height: 1000 };
 
-function escapeHtml(value) {
+function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -15,11 +51,11 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function imageData(content, mime) {
+function imageData(content: Buffer, mime: string): string {
   return `data:${mime};base64,${Buffer.from(content).toString("base64")}`;
 }
 
-function latestVersions(versions) {
+function latestVersions(versions: VersionRow[]): VersionRow[] {
   const current = new Map();
   for (const version of versions) {
     const previous = current.get(version.artifact_id || version.artifactId);
@@ -29,27 +65,33 @@ function latestVersions(versions) {
   return [...current.values()];
 }
 
-function treeMarkup(project) {
-  const folders = filterProjectLibraryFolders(project.folders || []);
-  const versions = latestVersions(filterProjectLibraryVersions(project.versions || []));
+function treeMarkup(project: ProjectTree): string {
+  const folders = filterProjectLibraryFolders(
+    (project.folders || []) as FolderRow[],
+  ) as FolderRow[];
+  const versions = latestVersions(
+    filterProjectLibraryVersions((project.versions || []) as VersionRow[]) as VersionRow[],
+  );
   const folderById = new Map(folders.map((folder) => [folder.id, folder]));
-  const children = new Map();
+  const children = new Map<string, FolderRow[]>();
   for (const folder of folders) {
     const key = folder.parent_id || "root";
-    if (!children.has(key)) children.set(key, []);
-    children.get(key).push(folder);
+    const folderBucket = children.get(key) || [];
+    folderBucket.push(folder);
+    children.set(key, folderBucket);
   }
   for (const list of children.values())
     list.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
-  const filesByFolder = new Map();
+  const filesByFolder = new Map<string, VersionRow[]>();
   for (const version of versions) {
     const key = version.folder_id || "root";
-    if (!filesByFolder.has(key)) filesByFolder.set(key, []);
-    filesByFolder.get(key).push(version);
+    const fileBucket = filesByFolder.get(key) || [];
+    fileBucket.push(version);
+    filesByFolder.set(key, fileBucket);
   }
   for (const list of filesByFolder.values())
     list.sort((a, b) => String(a.filename).localeCompare(String(b.filename), "zh-CN"));
-  const renderFolder = (folderId, depth = 0) => {
+  const renderFolder = (folderId: string, depth: number = 0): string => {
     const rows = [];
     for (const folder of children.get(folderId) || []) {
       rows.push(
@@ -67,7 +109,7 @@ function treeMarkup(project) {
   return `<ul class="tree">${renderFolder("root") || '<li class="empty">暂无文档</li>'}</ul>`;
 }
 
-function treeHtml(project) {
+function treeHtml(project: ProjectTree): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
     *{box-sizing:border-box}body{margin:0;background:#f5f7f3;color:#26352c;font-family:Arial,"Microsoft YaHei",sans-serif}
     .shell{width:100%;min-height:100vh;padding:28px 34px;background:#fff}.title{font-size:24px;font-weight:700;margin-bottom:6px}
@@ -77,11 +119,11 @@ function treeHtml(project) {
   </style></head><body><main class="shell"><div class="title">${escapeHtml(project.name || "项目文档树")}</div><div class="meta">项目文档树 · ${new Date().toLocaleString("zh-CN")}</div>${treeMarkup(project)}</main></body></html>`;
 }
 
-export async function captureProjectTree(project) {
+export async function captureProjectTree(project: ProjectTree): Promise<Buffer> {
   return captureHtml(treeHtml(project));
 }
 
-async function withBrowser(work) {
+async function withBrowser<T>(work: (browser: Browser) => Promise<T>): Promise<T> {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({
     headless: true,
@@ -94,7 +136,10 @@ async function withBrowser(work) {
   }
 }
 
-async function captureHtml(html, { waitMs = 300, fullPage = true } = {}) {
+async function captureHtml(
+  html: string,
+  { waitMs = 300, fullPage = true }: { waitMs?: number; fullPage?: boolean } = {},
+): Promise<Buffer> {
   return withBrowser(async (browser) => {
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT, deviceScaleFactor: 1 });
     await page.setContent(html, { waitUntil: "networkidle", timeout: 30000 });
@@ -105,7 +150,11 @@ async function captureHtml(html, { waitMs = 300, fullPage = true } = {}) {
   });
 }
 
-async function captureSandboxHtml(sandbox, root, relativePath) {
+async function captureSandboxHtml(
+  sandbox: ScreenshotSandbox,
+  root: string,
+  relativePath: unknown,
+): Promise<Buffer> {
   const entry = String(relativePath || "")
     .replaceAll("\\", "/")
     .replace(/^\/+/, "");
@@ -122,7 +171,7 @@ async function captureSandboxHtml(sandbox, root, relativePath) {
         const raw = sandbox.readFile
           ? await sandbox.readFile(path)
           : await sandbox.files.read(path);
-        const content = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+        const content = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as string);
         await route.fulfill({
           body: content,
           contentType: storedContentType(posix.basename(requested)).split(";")[0],
@@ -139,7 +188,11 @@ async function captureSandboxHtml(sandbox, root, relativePath) {
   });
 }
 
-export async function captureDocumentTree(service, user, projectId) {
+export async function captureDocumentTree(
+  service: ScreenshotService,
+  user: { id: string },
+  projectId: string,
+) {
   const project = await service.project(user, projectId);
   return {
     content: await captureProjectTree(project),
@@ -149,20 +202,30 @@ export async function captureDocumentTree(service, user, projectId) {
   };
 }
 
-export async function captureDocumentPreview(service, user, versionId) {
+export async function captureDocumentPreview(
+  service: ScreenshotService,
+  user: { id: string },
+  versionId: string,
+) {
   const version = await service.version(user, versionId);
   const filename = String(version.filename || "文档");
-  let html;
+  let html: string;
   if (/\.html?$/i.test(filename)) {
     const preview = await service.versionPreview(user, versionId, "");
     html = await inlineHtmlPreviewAssets(preview.content.toString("utf8"), async (asset) => {
       const loaded = await service.versionPreview(user, versionId, asset);
       return loaded.content.toString("utf8");
     });
-  } else if (/^image\//.test(version.mime || "") || /\.(png|jpe?g|gif|webp|svg)$/i.test(filename)) {
-    html = `<img style="max-width:100%;display:block;margin:auto" src="${imageData(version.content, previewContentType(version.mime, filename).split(";")[0])}" alt="${escapeHtml(filename)}">`;
+  } else if (
+    /^image\//.test(String(version.mime || "")) ||
+    /\.(png|jpe?g|gif|webp|svg)$/i.test(filename)
+  ) {
+    html = `<img style="max-width:100%;display:block;margin:auto" src="${imageData(
+      version.content as Buffer,
+      previewContentType(String(version.mime || ""), filename).split(";")[0],
+    )}" alt="${escapeHtml(filename)}">`;
   } else {
-    html = `<pre style="white-space:pre-wrap;font:14px/1.6 Consolas,monospace;padding:24px">${escapeHtml(version.content.toString("utf8"))}</pre>`;
+    html = `<pre style="white-space:pre-wrap;font:14px/1.6 Consolas,monospace;padding:24px">${escapeHtml(String((version.content as Buffer).toString("utf8")))}</pre>`;
   }
   return {
     content: await captureHtml(
@@ -175,7 +238,11 @@ export async function captureDocumentPreview(service, user, versionId) {
   };
 }
 
-export async function captureSandboxPreview(sandbox, root, path) {
+export async function captureSandboxPreview(
+  sandbox: ScreenshotSandbox,
+  root: string,
+  path: string,
+) {
   return {
     content: await captureSandboxHtml(sandbox, root, path),
     mime: "image/png",

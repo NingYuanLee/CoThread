@@ -10,7 +10,7 @@ import {
   listMemoryRelations,
   memoryNeighborhood,
   noteMemoryRecall,
-} from "../server/memory-graph.js";
+} from "../server/memory-graph.ts";
 import { applyProjectMemoryResult } from "../server/project-memory.js";
 import { memorySubjectLabel } from "../shared/memory-kinds.js";
 

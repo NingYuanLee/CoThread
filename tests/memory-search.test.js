@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { searchProjectMemory } from "../server/memory-search.js";
-import { createMemoryRelation } from "../server/memory-graph.js";
+import { createMemoryRelation } from "../server/memory-graph.ts";
 import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 import { callMcpTool } from "../server/mcp.js";
 

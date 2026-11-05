@@ -828,7 +828,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
       );
       if (!original || original.memberId !== payload.memberId)
         throw new Error("纠正关系的发言者或项目不匹配");
-      const { createMemoryRelation } = await import("./memory-graph.js");
+      const { createMemoryRelation } = await import("./memory-graph.ts");
       await createMemoryRelation(conn, {
         projectId: candidate.projectId,
         fromPageId: pageId,
@@ -857,7 +857,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
       { captureKind: "conversation_snapshot" },
     );
     if (related.length) {
-      const { createMemoryRelation } = await import("./memory-graph.js");
+      const { createMemoryRelation } = await import("./memory-graph.ts");
       for (const other of related)
         await createMemoryRelation(conn, {
           projectId: candidate.projectId,

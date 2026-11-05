@@ -11,7 +11,7 @@ import {
   readProjectMemory,
   readProjectMemoryEntry,
 } from "../server/memory-timeline.js";
-import { createMemoryRelation } from "../server/memory-graph.js";
+import { createMemoryRelation } from "../server/memory-graph.ts";
 
 async function setup() {
   const database = await testDatabase();

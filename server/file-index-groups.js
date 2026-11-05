@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { createMemoryRelation } from "./memory-graph.js";
+import { createMemoryRelation } from "./memory-graph.ts";
 import { visibleFileIndexSql } from "./file-index-visibility.ts";
 
 function stableId(projectId, first, second) {

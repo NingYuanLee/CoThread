@@ -49,7 +49,7 @@ import {
   retryMemoryJob,
   updateMemoryEntryMeta,
 } from "../project-memory.js";
-import { createMemoryRelation, deleteMemoryRelation } from "../memory-graph.js";
+import { createMemoryRelation, deleteMemoryRelation } from "../memory-graph.ts";
 import { emptyLibraryRecycle, libraryChange } from "../documents/index.js";
 import { countDocumentChanges, listDocumentChanges } from "../documents/index.js";
 import { projectManagerOperation } from "../service-access.ts";

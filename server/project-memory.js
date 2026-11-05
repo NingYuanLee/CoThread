@@ -2515,7 +2515,7 @@ export async function applyProjectMemoryResult(
             ],
           );
           if (mapped.sourceKind === "memory_page") {
-            const { createMemoryRelation } = await import("./memory-graph.js");
+            const { createMemoryRelation } = await import("./memory-graph.ts");
             await createMemoryRelation(conn, {
               projectId,
               fromPageId: id,
@@ -2601,7 +2601,7 @@ export async function applyProjectMemoryResult(
               ],
             );
           if (mapped.sourceKind === "memory_page") {
-            const { createMemoryRelation } = await import("./memory-graph.js");
+            const { createMemoryRelation } = await import("./memory-graph.ts");
             await createMemoryRelation(conn, {
               projectId,
               fromPageId: item.entryId,

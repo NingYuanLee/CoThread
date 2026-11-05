@@ -3,15 +3,46 @@ import { query } from "./db.ts";
 import { HttpError } from "./service.js";
 import { MEMORY_DIRECTED_RELATIONS, MEMORY_RELATION_LABELS } from "../shared/memory-kinds.js";
 import { visibleFileIndexSql, historicalFileIndexSql } from "./file-index-visibility.ts";
+import type { Db } from "./types.ts";
 
-const RELATIONS = Object.keys(MEMORY_RELATION_LABELS);
+const RELATIONS: string[] = Object.keys(MEMORY_RELATION_LABELS);
 /** derives / supersedes 是单向边，防环只看有向边。 */
 const CYCLE_DEPTH_LIMIT = 8;
 
-async function projectPages(db, projectId, ids) {
-  const unique = [...new Set(ids.filter(Boolean))];
+/** 记忆条目行。 */
+type MemoryPageRow = {
+  id: string;
+  subjectType?: string | null;
+  status?: string | null;
+  title?: unknown;
+};
+
+/** 关系入口。 */
+export type CreateRelationInput = {
+  projectId: string;
+  fromPageId: string;
+  toPageId: string;
+  relation: string;
+  note?: unknown;
+  createdBy?: string | null;
+};
+
+/** 召回结果条目。 */
+export type NeighborhoodEntry = {
+  pageId: string;
+  distance: number;
+  via: string | null;
+  [column: string]: unknown;
+};
+
+async function projectPages(
+  db: Db,
+  projectId: string,
+  ids: unknown[],
+): Promise<Map<string, MemoryPageRow>> {
+  const unique = [...new Set(ids.filter(Boolean))] as string[];
   if (!unique.length) return new Map();
-  const rows = await query(
+  const rows = await query<MemoryPageRow>(
     db,
     `SELECT id,subject_type subjectType,status,title FROM wiki_pages
      WHERE project_id=? AND id IN (${unique.map(() => "?").join(",")})`,
@@ -21,7 +52,7 @@ async function projectPages(db, projectId, ids) {
 }
 
 /** 从 to 沿 derives 反向可达 from 时，新增 from→to 会成环。 */
-async function wouldCycle(db, fromPageId, toPageId) {
+async function wouldCycle(db: Db, fromPageId: string, toPageId: string): Promise<boolean> {
   const rows = await query(
     db,
     `WITH RECURSIVE reach(id, depth) AS (
@@ -42,10 +73,8 @@ async function wouldCycle(db, fromPageId, toPageId) {
  * 建一条记忆关系。关联 relates 可双向，同一个 from/to 只存一行；
  * 继承 derives 与替代 supersedes 单向，继承禁止成环。
  */
-export async function createMemoryRelation(
-  db,
-  { projectId, fromPageId, toPageId, relation, note = "", createdBy = null },
-) {
+export async function createMemoryRelation(db: Db, input: CreateRelationInput) {
+  const { projectId, fromPageId, toPageId, relation, note = "", createdBy = null } = input;
   if (!RELATIONS.includes(relation)) throw new HttpError(400, "不支持的记忆关系");
   if (!fromPageId || !toPageId) throw new HttpError(400, "关系两端不能为空");
   if (fromPageId === toPageId) throw new HttpError(400, "记忆不能关联自己");
@@ -69,17 +98,20 @@ export async function createMemoryRelation(
   return row;
 }
 
-export async function deleteMemoryRelation(db, { projectId, relationId }) {
-  const result = await query(db, "DELETE FROM memory_relations WHERE id=? AND project_id=?", [
+export async function deleteMemoryRelation(
+  db: Db,
+  { projectId, relationId }: { projectId: string; relationId: string },
+): Promise<void> {
+  const result = (await query(db, "DELETE FROM memory_relations WHERE id=? AND project_id=?", [
     relationId,
     projectId,
-  ]);
+  ])) as unknown as { affectedRows?: number };
   if (!Number(result?.affectedRows || 0)) throw new HttpError(404, "关系不存在");
 }
 
 /** 一条记忆的全部直接关系：出边与入边都返回，relates 不重复存反向边。 */
-export async function listMemoryRelations(db, projectId, pageId) {
-  return query(
+export async function listMemoryRelations(db: Db, projectId: string, pageId: string) {
+  return query<Record<string, unknown>>(
     db,
     `SELECT r.id,r.from_page_id fromPageId,r.to_page_id toPageId,r.relation,r.note,
        r.created_at createdAt,
@@ -99,18 +131,23 @@ export async function listMemoryRelations(db, projectId, pageId) {
  * 返回带距离与经由关系的条目，供读侧决定注入摘要还是打开全文。
  */
 export async function memoryNeighborhood(
-  db,
-  projectId,
-  startPageIds,
-  { depth = 1, limit = 40, historical = false } = {},
-) {
+  db: Db,
+  projectId: string,
+  startPageIds: unknown[],
+  {
+    depth = 1,
+    limit = 40,
+    historical = false,
+  }: { depth?: unknown; limit?: number; historical?: boolean } = {},
+): Promise<NeighborhoodEntry[]> {
   const visibility = historical ? historicalFileIndexSql : visibleFileIndexSql;
   const hops = Math.min(Math.max(Number(depth) || 1, 1), 3);
-  const visited = new Map();
-  let frontier = [...new Set(startPageIds.filter(Boolean))];
+  const startIds = startPageIds as string[];
+  const visited = new Map<string, NeighborhoodEntry>();
+  let frontier: string[] = [...new Set(startIds.filter(Boolean))];
   for (const id of frontier) visited.set(id, { pageId: id, distance: 0, via: null });
   for (let step = 0; step < hops && frontier.length; step++) {
-    const rows = await query(
+    const rows = await query<{ fromPageId: string; toPageId: string; relation: string }>(
       db,
       `SELECT r.from_page_id fromPageId,r.to_page_id toPageId,r.relation FROM memory_relations r
        JOIN wiki_pages fp ON fp.id=r.from_page_id JOIN wiki_pages tp ON tp.id=r.to_page_id
@@ -119,7 +156,7 @@ export async function memoryNeighborhood(
          OR r.to_page_id IN (${frontier.map(() => "?").join(",")}))`,
       [projectId, ...frontier, ...frontier],
     );
-    const next = [];
+    const next: string[] = [];
     for (const row of rows) {
       const other = frontier.includes(row.fromPageId) ? row.toPageId : row.fromPageId;
       if (visited.has(other) || visited.size >= limit) continue;
@@ -128,9 +165,9 @@ export async function memoryNeighborhood(
     }
     frontier = next;
   }
-  const missing = [...visited.keys()].filter((id) => !startPageIds.includes(id));
+  const missing = [...visited.keys()].filter((id) => !startIds.includes(id));
   if (missing.length) {
-    const rows = await query(
+    const rows = await query<MemoryPageRow>(
       db,
       `SELECT id,title,subject_type subjectType,status FROM wiki_pages
        WHERE project_id=? AND id IN (${missing.map(() => "?").join(",")})`,
@@ -143,8 +180,8 @@ export async function memoryNeighborhood(
 }
 
 /** 召回统计：只加计数与最近时间，不改正文。 */
-export async function noteMemoryRecall(db, pageIds = []) {
-  const ids = [...new Set(pageIds.filter(Boolean))];
+export async function noteMemoryRecall(db: Db, pageIds: unknown[] = []): Promise<void> {
+  const ids = [...new Set(pageIds.filter(Boolean))] as string[];
   if (!ids.length) return;
   await query(
     db,
@@ -154,6 +191,6 @@ export async function noteMemoryRecall(db, pageIds = []) {
   );
 }
 
-export function directedRelations() {
+export function directedRelations(): string[] {
   return [...MEMORY_DIRECTED_RELATIONS];
 }

@@ -1,5 +1,5 @@
 import { query, transaction } from "./db.ts";
-import { memoryNeighborhood, noteMemoryRecall } from "./memory-graph.js";
+import { memoryNeighborhood, noteMemoryRecall } from "./memory-graph.ts";
 import { MEMORY_SUBJECT_LABELS, isMemorySubject } from "../shared/memory-kinds.js";
 import { MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";
 import { visibleFileIndexSql, historicalFileIndexSql } from "./file-index-visibility.ts";

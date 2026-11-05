@@ -175,7 +175,7 @@ export async function processNextDocumentOrganization(db: Pool, options: Organiz
       if (!visualVerificationEnabled("knowledge")) {
         visual = visualVerificationSkip("laoweng");
       } else {
-        const { captureProjectTree } = await import("./preview-screenshot.js");
+        const { captureProjectTree } = await import("./preview-screenshot.ts");
         const project = await new Service(db).project(
           { id: job.requested_by, kind: "session" },
           job.project_id,

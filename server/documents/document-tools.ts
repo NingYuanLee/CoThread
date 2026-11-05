@@ -3,7 +3,11 @@ import { libraryChange } from "./library.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
 import { query } from "../db.ts";
 import { HttpError } from "../http-error.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "../types.ts";
+
 const id = z.string().uuid();
+
 export const documentToolSchemas = {
   list_documents: {
     projectId: id.optional(),
@@ -30,18 +34,71 @@ export const documentToolSchemas = {
   },
 };
 
-function folderDescendantIds(rootId, folders) {
-  const children = new Map();
+/** 工具入参（三个 schema 的并集）。 */
+type DocumentToolArgs = {
+  projectId?: string | null;
+  folderId?: string | null;
+  recursive?: boolean;
+  limit?: number;
+  offset?: number;
+  action?: string;
+  artifactId?: string;
+  versionId?: string;
+  scope?: string;
+  name?: string;
+  parentId?: string | null;
+};
+
+/** 文件夹行。 */
+type FolderRow = { id: string; parent_id?: string | null };
+
+/** 版本行。 */
+type VersionRow = {
+  artifact_id: string;
+  version?: number | null;
+  folder_id?: string | null;
+  deleted_at?: unknown;
+};
+
+/** 工具调用所需的 Service 视图。 */
+export type DocumentToolService = {
+  db: Pool;
+  thread(
+    user: DocumentToolUser,
+    threadId: string,
+    write?: boolean,
+    db?: Db,
+  ): Promise<{ project_id: string }>;
+  project(
+    user: DocumentToolUser,
+    projectId: string,
+    options?: { display?: boolean },
+  ): Promise<{ folders: FolderRow[]; versions: VersionRow[] }>;
+  assertDocumentScopeAvailable(
+    db: Db,
+    projectId: string,
+    threadId: string | null,
+  ): Promise<unknown>;
+};
+
+/** 发起工具调用的人。 */
+export type DocumentToolUser = { id: string; kind?: string | null };
+
+/** 工具调用的任务上下文。 */
+export type DocumentToolJob = { thread_id: string; message_id: string };
+
+function folderDescendantIds(rootId: string, folders: FolderRow[]): Set<string> {
+  const children = new Map<string, string[]>();
   for (const folder of folders) {
     if (!folder.parent_id) continue;
     const list = children.get(folder.parent_id) || [];
     list.push(folder.id);
     children.set(folder.parent_id, list);
   }
-  const ids = new Set([rootId]);
+  const ids = new Set<string>([rootId]);
   const stack = [rootId];
   while (stack.length) {
-    const current = stack.pop();
+    const current = stack.pop() as string;
     for (const child of children.get(current) || []) {
       if (ids.has(child)) continue;
       ids.add(child);
@@ -51,8 +108,8 @@ function folderDescendantIds(rootId, folders) {
   return ids;
 }
 
-function latestVersions(versions) {
-  const latest = new Map();
+function latestVersions(versions: VersionRow[]): VersionRow[] {
+  const latest = new Map<string, VersionRow>();
   for (const item of versions) {
     if (item.deleted_at) continue;
     const prev = latest.get(item.artifact_id);
@@ -62,9 +119,14 @@ function latestVersions(versions) {
 }
 
 export function listDocumentScope(
-  folders,
-  versions,
-  { folderId, recursive = false, limit = 100, offset = 0 } = {},
+  folders: FolderRow[],
+  versions: VersionRow[],
+  {
+    folderId,
+    recursive = false,
+    limit = 100,
+    offset = 0,
+  }: { folderId?: string | null; recursive?: boolean; limit?: number; offset?: number } = {},
 ) {
   if (!folderId) {
     const end = offset + limit;
@@ -97,8 +159,15 @@ export function listDocumentScope(
   };
 }
 
-export async function documentTool(service, user, name, input, job) {
-  const args = z.object(documentToolSchemas[name]).parse(input);
+export async function documentTool(
+  service: DocumentToolService,
+  user: DocumentToolUser,
+  name: string,
+  input: unknown,
+  job?: DocumentToolJob | null,
+): Promise<Record<string, unknown>> {
+  const schema = (documentToolSchemas as Record<string, Record<string, z.ZodTypeAny>>)[name];
+  const args = z.object(schema).parse(input) as DocumentToolArgs;
   let projectId = args.projectId;
   if (job) {
     const thread = await service.thread(user, job.thread_id);
@@ -107,8 +176,9 @@ export async function documentTool(service, user, name, input, job) {
   }
   id.parse(projectId);
   if (name === "list_documents") {
-    if (job) await service.assertDocumentScopeAvailable(service.db, projectId, job.thread_id);
-    const p = await service.project(user, projectId, { display: true });
+    if (job)
+      await service.assertDocumentScopeAvailable(service.db, projectId as string, job.thread_id);
+    const p = await service.project(user, projectId as string, { display: true });
     const folders = job ? filterProjectLibraryFolders(p.folders) : p.folders;
     const versions = job ? filterProjectLibraryVersions(p.versions) : p.versions;
     return { projectId, ...listDocumentScope(folders, versions, args) };
@@ -116,9 +186,9 @@ export async function documentTool(service, user, name, input, job) {
   const options = {
     tool: true,
     authorize: job
-      ? async (db) => {
+      ? async (db: Db) => {
           await service.thread(user, job.thread_id, true, db);
-          const [r] = await query(
+          const [r] = await query<{ status?: string | null }>(
             db,
             "SELECT status FROM assistant_replies WHERE message_id=? FOR UPDATE",
             [job.message_id],
@@ -128,56 +198,58 @@ export async function documentTool(service, user, name, input, job) {
       : undefined,
   };
   if (name === "manage_document") {
-    if (["delete", "restore"].includes(args.action) && !args.scope)
+    const action = args.action as string;
+    if (["delete", "restore"].includes(action) && !args.scope)
       throw new HttpError(400, "删除或恢复必须明确scope：document为整份文档，version为单个版本");
     const version = args.scope === "version";
-    if (version && !["delete", "restore"].includes(args.action))
+    if (version && !["delete", "restore"].includes(action))
       throw new HttpError(400, "版本仅支持删除或恢复；重命名和移动作用于整份文档");
     const target = id.parse(version ? args.versionId : args.artifactId);
     const data = {
       ...(job ? { threadId: job.thread_id } : {}),
-      ...(args.action === "rename"
+      ...(action === "rename"
         ? { name: z.string().min(1).parse(args.name) }
-        : args.action === "move"
+        : action === "move"
           ? { folderId: id.nullable().parse(args.folderId) }
-          : { deleted: args.action === "delete" }),
+          : { deleted: action === "delete" }),
     };
     return {
-      ...(await libraryChange(
+      ...((await libraryChange(
         service,
         user,
-        projectId,
+        projectId as string,
         version ? "version" : "artifact",
         target,
         data,
         options,
-      )),
-      action: args.action,
+      )) as Record<string, unknown>),
+      action,
       scope: args.scope || "document",
     };
   }
-  const target = args.action === "create" ? null : id.parse(args.folderId);
+  const action = args.action as string;
+  const target = action === "create" ? null : id.parse(args.folderId);
   const data = {
     ...(job ? { threadId: job.thread_id } : {}),
-    ...(args.action === "create" || args.action === "rename"
+    ...(action === "create" || action === "rename"
       ? {
           name: z.string().min(1).parse(args.name),
-          ...(args.action === "create" ? { parentId: args.parentId || null } : {}),
+          ...(action === "create" ? { parentId: args.parentId || null } : {}),
         }
-      : args.action === "move"
+      : action === "move"
         ? { parentId: id.nullable().parse(args.parentId) }
         : {}),
   };
   return {
-    ...(await libraryChange(
+    ...((await libraryChange(
       service,
       user,
-      projectId,
-      args.action === "delete" ? "remove-folder" : "folder",
+      projectId as string,
+      action === "delete" ? "remove-folder" : "folder",
       target,
       data,
       options,
-    )),
-    action: args.action,
+    )) as Record<string, unknown>),
+    action,
   };
 }

@@ -91,7 +91,7 @@ import {
   captureDocumentPreview,
   captureDocumentTree,
   captureSandboxPreview,
-} from "./preview-screenshot.js";
+} from "./preview-screenshot.ts";
 import { saveVisualArtifact } from "./visual-artifacts.ts";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.ts";
 

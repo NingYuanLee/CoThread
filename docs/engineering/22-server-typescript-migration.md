@@ -239,15 +239,21 @@ npm test            # 集成测试需要测试库
 
 第十四批：`server/service-messages.ts`（567 行）——发消息、分页列表、单条读取与成员目录。`insertMessageOperation` 那两个分支（连接池 vs 事务连接）用 `isPool` 守卫拆开，事务内才走 `assertIterationWritable`。
 
-剩余 117 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第十五批（6 个小模块，711 行）：`service-notification-operations`(53，第 2 轮因依赖未转而推迟，本轮补上)、`agent-thinking`(237)、`memory-cache`(209)、`inbox-task`(95)、`task-queries`(69)、`reply-actions`(48)。
+
+`service-notification-operations` 现在直接用 `Parameters<typeof notify>` 等派生参数类型——被调方已带类型，不必再自己声明一遍。这是「先转实现、后转适配层」这条顺序带来的直接好处。
+
+剩余 111 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                  | 文件数 |
 | ---- | --------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 11     |
-| 4    | 被 2–4 个文件引用                                                     | 47     |
-| 5    | 被 5–9 个文件引用                                                     | 33     |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 25     |
+| 4    | 被 2–4 个文件引用                                                     | 43     |
+| 5    | 被 5–9 个文件引用                                                     | 32     |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 24 |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
+
+`service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。
 
 ## 领域模块的类型策略
 

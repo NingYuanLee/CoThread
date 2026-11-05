@@ -12,7 +12,7 @@ import {
   listAdminRoles,
   requireAdminPermission,
   saveAdminRole,
-} from "../admin-rbac.js";
+} from "../admin-rbac.ts";
 import { adminTaskDetail, listAdminWork, updateAdminWork } from "../admin-work.js";
 import { listAccountChanges, listAccountLogins } from "../account-audit.ts";
 import {

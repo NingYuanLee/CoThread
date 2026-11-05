@@ -86,7 +86,7 @@ import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import {
   saveMiniprogramPublishableKey,
   setMiniprogramPhoneAuthForAgent,
-} from "./miniprogram-auth-config.js";
+} from "./miniprogram-auth-config.ts";
 import {
   captureDocumentPreview,
   captureDocumentTree,

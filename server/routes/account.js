@@ -18,7 +18,7 @@ import {
   listEnvironmentVariables,
   readEnvironmentRemark,
   setEnvironmentVariable,
-} from "../environment-variables.js";
+} from "../environment-variables.ts";
 import { loginLanding } from "../org-shelf.js";
 import { UI_THEMES, normalizeUiTheme } from "../../shared/ui-theme.js";
 import { resolveIpLocation } from "../ip-location.ts";

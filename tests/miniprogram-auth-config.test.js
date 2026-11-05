@@ -9,7 +9,7 @@ import {
   readMiniprogramAuthRuntime,
   saveMiniprogramAuthConfig,
   saveMiniprogramPublishableKey,
-} from "../server/miniprogram-auth-config.js";
+} from "../server/miniprogram-auth-config.ts";
 import { Service } from "../server/service.js";
 import { testDatabase } from "./database.js";
 

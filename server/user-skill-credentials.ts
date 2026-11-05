@@ -3,10 +3,10 @@ import {
   listEnvironmentVariables,
   readEnvironmentVariable,
   setEnvironmentVariable,
-} from "./environment-variables.js";
+} from "./environment-variables.ts";
 import type { Db } from "./types.ts";
 
-export { assertMiaowenToken } from "./environment-variables.js";
+export { assertMiaowenToken } from "./environment-variables.ts";
 
 export async function listUserSkills(db: Db, userId: string) {
   return listEnvironmentVariables(db, "personal", userId);

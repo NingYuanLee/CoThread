@@ -9,7 +9,7 @@ import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
 } from "../server/miniprogram-config.js";
-import { saveMiniprogramPublishableKey } from "../server/miniprogram-auth-config.js";
+import { saveMiniprogramPublishableKey } from "../server/miniprogram-auth-config.ts";
 import {
   addCloudbaseDocument,
   cloudbaseFileUrls,

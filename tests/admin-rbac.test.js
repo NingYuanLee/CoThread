@@ -13,7 +13,7 @@ import {
   deleteAdminRole,
   adminRoleOptions,
   listAdminRoles,
-} from "../server/admin-rbac.js";
+} from "../server/admin-rbac.ts";
 import { IMPLICIT_ADMIN_PERMISSIONS } from "../shared/admin-permissions.js";
 import { listAdminWork, updateAdminWork, adminTaskDetail } from "../server/admin-work.js";
 

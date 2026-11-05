@@ -2,6 +2,36 @@ import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { decryptToken, encryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.js";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 各环境的 CloudBase 配置。 */
+type CloudbaseEnvs = Record<string, { envId?: string } | undefined>;
+
+/** 配置上下文。 */
+type AuthContext = {
+  appId: string | null;
+  cloudbaseEnvId: string | null;
+  publishableKey: string | null;
+};
+
+/** 配置行。 */
+type AuthRow = Record<string, unknown>;
+
+/** 发起人。 */
+type AuthActor = { id: string; kind?: string | null };
+
+/** 用到的 Service 视图。 */
+type AuthService = {
+  db: Pool;
+  member(
+    actor: AuthActor,
+    projectId: string,
+    write?: boolean,
+    db?: Db,
+    strict?: boolean,
+  ): Promise<unknown>;
+};
 
 const environmentSchema = z.enum(["development", "production"]);
 const configSchema = z.object({
@@ -13,26 +43,26 @@ const configSchema = z.object({
   // readable for backwards-compatible migrations.
 });
 
-const parseJson = (value, fallback) => {
+const parseJson = <T>(value: unknown, fallback: T): T => {
   if (value == null) return fallback;
-  if (typeof value === "object") return value;
+  if (typeof value === "object") return value as T;
   try {
-    return JSON.parse(value);
+    return JSON.parse(String(value)) as T;
   } catch {
     return fallback;
   }
 };
-function readiness(ready, missing = []) {
+function readiness(ready: boolean, missing: string[] = []) {
   return { ready, missing };
 }
 
-async function contextFor(db, projectId, environment) {
+async function contextFor(db: Db, projectId: string, environment: string): Promise<AuthContext> {
   const [project] = await query(
     db,
     `SELECT a.app_id, c.cloudbase_envs FROM project_miniprogram_config c LEFT JOIN project_miniprogram_apps a ON a.project_id=c.project_id AND a.role='main' WHERE c.project_id=?`,
     [projectId],
   );
-  const cloudbaseEnvs = parseJson(project?.cloudbase_envs, {});
+  const cloudbaseEnvs = parseJson<CloudbaseEnvs>(project?.cloudbase_envs, {});
   const [auth] = await query(
     db,
     "SELECT cloudbase_publishable_key,cloudbase_server_api_key FROM project_miniprogram_auth_config WHERE project_id=? AND environment=?",
@@ -48,7 +78,12 @@ async function contextFor(db, projectId, environment) {
   };
 }
 
-function configView(projectId, environment, row, context) {
+function configView(
+  projectId: string,
+  environment: string,
+  row: AuthRow | undefined,
+  context: AuthContext,
+) {
   const baseMissing = [];
   if (!context.appId) baseMissing.push("小程序 AppID");
   if (!context.cloudbaseEnvId) baseMissing.push(`${environment} CloudBase 环境`);
@@ -73,7 +108,12 @@ function configView(projectId, environment, row, context) {
   };
 }
 
-export async function readMiniprogramAuthConfig(service, actor, projectId, input = {}) {
+export async function readMiniprogramAuthConfig(
+  service: AuthService,
+  actor: AuthActor,
+  projectId: string,
+  input: Record<string, unknown> = {},
+) {
   await service.member(actor, projectId, false);
   const environment = environmentSchema.parse(input.environment);
   const [row] = await query(
@@ -91,7 +131,12 @@ export async function readMiniprogramAuthConfig(service, actor, projectId, input
   );
 }
 
-export async function saveMiniprogramAuthConfig(service, actor, projectId, input = {}) {
+export async function saveMiniprogramAuthConfig(
+  service: AuthService,
+  actor: AuthActor,
+  projectId: string,
+  input: Record<string, unknown> = {},
+) {
   await service.member(actor, projectId, true, service.db, true);
   const data = configSchema.parse(input);
   const current = await contextFor(service.db, projectId, data.environment);
@@ -126,14 +171,14 @@ export async function saveMiniprogramAuthConfig(service, actor, projectId, input
   return readMiniprogramAuthConfig(service, actor, projectId, data);
 }
 
-export async function readMiniprogramAuthRuntime(db, projectId) {
+export async function readMiniprogramAuthRuntime(db: Db, projectId: string) {
   const rows = await query(
     db,
     `SELECT environment,miniprogram_wechat_phone,cloudbase_publishable_key,updated_at
      FROM project_miniprogram_auth_config WHERE project_id=?`,
     [projectId],
   );
-  const result = {};
+  const result: Record<string, unknown> = {};
   for (const environment of environmentSchema.options) {
     const context = await contextFor(db, projectId, environment);
     const view = configView(
@@ -147,13 +192,13 @@ export async function readMiniprogramAuthRuntime(db, projectId) {
   return result;
 }
 
-async function storedServerApiKey(projectId, key) {
+async function storedServerApiKey(projectId: string, key: unknown): Promise<string | null> {
   if (key == null || key === "") return null;
   return encryptToken(String(key), "project:" + projectId);
 }
 
 /** Persist or clear one environment's Publishable Key without changing auth policy. */
-export async function readEnvironmentServerApiKey(db, projectId, environment) {
+export async function readEnvironmentServerApiKey(db: Db, projectId: string, environment: unknown) {
   const parsedEnvironment = environmentSchema.parse(environment);
   const [row] = await query(
     db,
@@ -165,12 +210,12 @@ export async function readEnvironmentServerApiKey(db, projectId, environment) {
 }
 
 export async function saveMiniprogramPublishableKey(
-  db,
-  projectId,
-  environment,
-  key,
-  updatedBy = null,
-  serverApiKey,
+  db: Db,
+  projectId: string,
+  environment: unknown,
+  key: unknown,
+  updatedBy: string | null = null,
+  serverApiKey?: unknown,
 ) {
   const parsedEnvironment = environmentSchema.parse(environment);
   const publishableKey = z.string().trim().min(1).max(16384).nullable().parse(key);
@@ -207,11 +252,11 @@ export async function saveMiniprogramPublishableKey(
 
 /** Update the 子 Agent-controlled mini-program phone-auth policy for one environment. */
 export async function setMiniprogramPhoneAuthForAgent(
-  db,
-  projectId,
-  environment,
-  enabled,
-  updatedBy = null,
+  db: Db,
+  projectId: string,
+  environment: unknown,
+  enabled: unknown,
+  updatedBy: string | null = null,
 ) {
   const parsedEnvironment = environmentSchema.parse(environment);
   const [project] = await query(
@@ -219,7 +264,7 @@ export async function setMiniprogramPhoneAuthForAgent(
     "SELECT a.app_id, c.cloudbase_envs FROM project_miniprogram_config c LEFT JOIN project_miniprogram_apps a ON a.project_id=c.project_id AND a.role='main' WHERE c.project_id=?",
     [projectId],
   );
-  const envs = parseJson(project?.cloudbase_envs, {});
+  const envs = parseJson<CloudbaseEnvs>(project?.cloudbase_envs, {});
   const envId =
     envs?.[parsedEnvironment]?.envId ||
     (parsedEnvironment === "production" ? envs?.development?.envId : null);

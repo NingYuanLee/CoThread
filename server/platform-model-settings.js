@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { adminAudit } from "./admin-rbac.js";
+import { adminAudit } from "./admin-rbac.ts";
 import { decryptToken, encryptToken } from "./credential-vault.ts";
 import { MODEL_REASONING_EFFORTS } from "../shared/model-settings.js";
 import {

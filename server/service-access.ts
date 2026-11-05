@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { requireAdminPermission } from "./admin-rbac.js";
+import { requireAdminPermission } from "./admin-rbac.ts";
 import { fail, id } from "./service-support.ts";
 import type { Db } from "./types.ts";
 

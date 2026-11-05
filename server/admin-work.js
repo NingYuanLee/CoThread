@@ -1,7 +1,7 @@
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { adminAudit, requireAdminPermission } from "./admin-rbac.js";
+import { adminAudit, requireAdminPermission } from "./admin-rbac.ts";
 import { publishWork } from "./work-events.ts";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
 import { projectImageUrlSql } from "./project-image.ts";

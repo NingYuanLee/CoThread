@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { query } from "./db.ts";
 import { HttpError } from "./service.js";
+import type { Db } from "./types.ts";
 
 // 变量字段只在这里增减。用户界面只能填写或清除已有字段的值。
 // 每个字段必须有 server/environment-remarks/<scope>/<key>.md，界面从这份文件打开说明。
@@ -13,14 +14,25 @@ const AS_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 const KEY_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const remarkRoot = join(dirname(fileURLToPath(import.meta.url)), "environment-remarks");
 
-export function assertMiaowenToken(token) {
+/** 一个环境变量字段的定义。 */
+type VariableEntry = {
+  key: string;
+  name: string;
+  maxLength?: number;
+  validate?: (value: unknown) => string;
+};
+
+/** 一次注入绑定。 */
+type VariableBinding = { as?: unknown; scope?: unknown; key?: unknown; ownerId?: unknown };
+
+export function assertMiaowenToken(token: unknown): string {
   const value = String(token || "").trim();
   if (!/^sk-mw-[A-Za-z0-9_-]{8,180}$/.test(value))
     throw new HttpError(400, "API KEY 应以 sk-mw- 开头");
   return value;
 }
 
-export const ENVIRONMENT_VARIABLES = {
+export const ENVIRONMENT_VARIABLES: Record<string, VariableEntry[]> = {
   personal: [
     {
       key: "miaowen",
@@ -32,48 +44,49 @@ export const ENVIRONMENT_VARIABLES = {
   project: [],
 };
 
-export function environmentVaultId(scope, ownerId, key) {
+export function environmentVaultId(scope: string, ownerId: string, key: string): string {
   if (scope === "personal") return ownerId + ":" + key;
   if (scope === "project") return "project:" + ownerId + ":" + key;
   throw new Error("未知环境变量范围");
 }
 
-export function catalogEntry(scope, key) {
-  const list = ENVIRONMENT_VARIABLES[scope];
+export function catalogEntry(scope: unknown, key: unknown): VariableEntry | null {
+  const list = ENVIRONMENT_VARIABLES[String(scope)];
   if (!list) return null;
   return list.find((item) => item.key === key) || null;
 }
 
-export function requireCatalogEntry(scope, key) {
+export function requireCatalogEntry(scope: unknown, key: unknown): VariableEntry {
   const entry = catalogEntry(scope, key);
   if (!entry) throw new HttpError(404, "没有这个环境变量");
   return entry;
 }
 
-function tableFor(scope) {
+function tableFor(scope: string): { table: string; column: string } {
   if (scope === "personal") return { table: "personal_environment_variables", column: "user_id" };
   if (scope === "project") return { table: "project_environment_variables", column: "project_id" };
   throw new HttpError(404, "没有这个环境变量范围");
 }
 
-export function environmentRemarkPath(scope, key) {
+export function environmentRemarkPath(scope: string, key: unknown): string {
   const entry = requireCatalogEntry(scope, key);
   if (!KEY_NAME.test(entry.key) || (scope !== "personal" && scope !== "project"))
     throw new HttpError(404, "没有这个环境变量");
   return join(remarkRoot, scope, `${entry.key}.md`);
 }
 
-export async function readEnvironmentRemark(scope, key) {
+export async function readEnvironmentRemark(scope: string, key: unknown): Promise<string> {
   const path = environmentRemarkPath(scope, key);
   try {
     return await readFile(path, "utf8");
   } catch (error) {
-    if (error?.code === "ENOENT") throw new HttpError(500, "这个环境变量还没有说明");
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT")
+      throw new HttpError(500, "这个环境变量还没有说明");
     throw error;
   }
 }
 
-export function presentEnvironmentVariable(entry, updatedAt = null) {
+export function presentEnvironmentVariable(entry: VariableEntry, updatedAt: unknown = null) {
   return {
     key: entry.key,
     name: entry.name,
@@ -90,11 +103,13 @@ for (const [scope, entries] of Object.entries(ENVIRONMENT_VARIABLES)) {
   }
 }
 
-export async function listEnvironmentVariables(db, scope, ownerId) {
+export async function listEnvironmentVariables(db: Db, scope: string, ownerId: string) {
   const { table, column } = tableFor(scope);
-  const rows = await query(db, `SELECT var_key, updated_at FROM ${table} WHERE ${column}=?`, [
-    ownerId,
-  ]);
+  const rows = await query<{ var_key: string; updated_at?: unknown }>(
+    db,
+    `SELECT var_key, updated_at FROM ${table} WHERE ${column}=?`,
+    [ownerId],
+  );
   const saved = new Map(rows.map((row) => [row.var_key, row.updated_at]));
   return ENVIRONMENT_VARIABLES[scope].map((entry) =>
     presentEnvironmentVariable(entry, saved.get(entry.key) || null),
@@ -103,13 +118,15 @@ export async function listEnvironmentVariables(db, scope, ownerId) {
 
 /**
  * 写入一个环境变量；`scope` 为 `personal` 时归属个人，否则归属项目。
- *
- * 这里只补 `updatedBy` 的 JSDoc：JS 默认值会让 TS 把它推成 `null`，而实际调用会
- * 传入当前用户 ID（见 server/user-skill-credentials.ts）。
- *
- * @param {string | null} [updatedBy]
  */
-export async function setEnvironmentVariable(db, scope, ownerId, key, value, updatedBy = null) {
+export async function setEnvironmentVariable(
+  db: Db,
+  scope: string,
+  ownerId: string,
+  key: unknown,
+  value: unknown,
+  updatedBy: string | null = null,
+): Promise<void> {
   const entry = requireCatalogEntry(scope, key);
   const secret = entry.validate ? entry.validate(value) : String(value ?? "").trim();
   if (!secret) throw new HttpError(400, "请填写变量值");
@@ -134,17 +151,27 @@ export async function setEnvironmentVariable(db, scope, ownerId, key, value, upd
   );
 }
 
-export async function clearEnvironmentVariable(db, scope, ownerId, key) {
+export async function clearEnvironmentVariable(
+  db: Db,
+  scope: string,
+  ownerId: string,
+  key: unknown,
+): Promise<void> {
   const entry = requireCatalogEntry(scope, key);
   const { table, column } = tableFor(scope);
   await query(db, `DELETE FROM ${table} WHERE ${column}=? AND var_key=?`, [ownerId, entry.key]);
 }
 
 /** 服务端取用一个变量。未配置时返回空字符串。不要把结果交给模型。 */
-export async function readEnvironmentVariable(db, scope, ownerId, key) {
+export async function readEnvironmentVariable(
+  db: Db,
+  scope: string,
+  ownerId: string,
+  key: unknown,
+): Promise<string> {
   const entry = requireCatalogEntry(scope, key);
   const { table, column } = tableFor(scope);
-  const [row] = await query(
+  const [row] = await query<{ secret_cipher?: unknown }>(
     db,
     `SELECT secret_cipher FROM ${table} WHERE ${column}=? AND var_key=?`,
     [ownerId, entry.key],
@@ -157,29 +184,40 @@ export async function readEnvironmentVariable(db, scope, ownerId, key) {
  * 工具或插件真正调用前，把点名的变量收进一个新对象。
  * 未配置的键是空字符串。不要写入 process.env、提示词、工具结果或日志。
  */
-export async function injectEnvironmentVariables(db, bindings) {
+export async function injectEnvironmentVariables(
+  db: Db,
+  bindings: unknown,
+): Promise<Record<string, string>> {
   return collectEnvironmentInjection(bindings, (scope, ownerId, key) =>
     readEnvironmentVariable(db, scope, ownerId, key),
   );
 }
 
-export async function collectEnvironmentInjection(bindings, read) {
+export async function collectEnvironmentInjection(
+  bindings: unknown,
+  read: (scope: string, ownerId: string, key: string) => Promise<string>,
+): Promise<Record<string, string>> {
   if (!Array.isArray(bindings) || bindings.length < 1 || bindings.length > 16)
     throw new Error("环境变量注入无效");
-  const injected = {};
-  for (const binding of bindings) {
-    const as = String(binding?.as || "");
+  const injected: Record<string, string> = {};
+  for (const raw of bindings as VariableBinding[]) {
+    const as = String(raw?.as || "");
     if (!AS_NAME.test(as) || Object.hasOwn(injected, as)) throw new Error("环境变量注入名无效");
-    requireCatalogEntry(binding?.scope, binding?.key);
-    injected[as] = String((await read(binding.scope, binding.ownerId, binding.key)) || "");
+    requireCatalogEntry(raw?.scope, raw?.key);
+    injected[as] = String(
+      (await read(String(raw.scope), String(raw.ownerId), String(raw.key))) || "",
+    );
   }
   return injected;
 }
 
 /** 拷进一次子进程环境。不修改传入的对象，也不修改 process.env。 */
-export function bindInjectedEnvironment(baseEnv, injected) {
-  const next = { ...(baseEnv || {}) };
-  for (const [key, value] of Object.entries(injected || {})) {
+export function bindInjectedEnvironment(
+  baseEnv: unknown,
+  injected: unknown,
+): Record<string, string> {
+  const next: Record<string, string> = { ...((baseEnv as Record<string, string>) || {}) };
+  for (const [key, value] of Object.entries((injected as Record<string, unknown>) || {})) {
     if (!AS_NAME.test(key)) throw new Error("环境变量注入名无效");
     next[key] = value == null ? "" : String(value);
   }

@@ -9,7 +9,7 @@ import { runElderQuestion } from "./elder-kernel.js";
 import { elderPersist, elderRoomState, recordElderRun, wikiScopeKey } from "./wiki-session.js";
 import { callMcpTool } from "./mcp.js";
 import { runMiaowenChat } from "./miaowen-skill.ts";
-import { injectEnvironmentVariables } from "./environment-variables.js";
+import { injectEnvironmentVariables } from "./environment-variables.ts";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { inferCitationKind } from "../shared/citations.js";
 

@@ -9,7 +9,7 @@ import {
   presentEnvironmentVariable,
   readEnvironmentRemark,
   requireCatalogEntry,
-} from "../server/environment-variables.js";
+} from "../server/environment-variables.ts";
 
 test("环境变量字段由目录定义，个人妙问钥匙沿用原来的加密关联串", () => {
   assert.equal(assertMiaowenToken("sk-mw-abc_DEF-1234"), "sk-mw-abc_DEF-1234");

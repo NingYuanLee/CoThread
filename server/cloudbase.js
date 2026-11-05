@@ -238,7 +238,7 @@ export async function getCloudbaseClient(service, projectId, environment = "deve
   const key = clientKey(projectId, target.envId);
   if (clients.has(key)) return { client: clients.get(key), ...target };
   const factory = clientFactoryOverride || defaultClientFactory;
-  const { readEnvironmentServerApiKey } = await import("./miniprogram-auth-config.js");
+  const { readEnvironmentServerApiKey } = await import("./miniprogram-auth-config.ts");
   const accessKey = await readEnvironmentServerApiKey(service.db, projectId, target.kind);
   let credential = null;
   if (!clientFactoryOverride) {

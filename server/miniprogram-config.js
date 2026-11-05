@@ -4,7 +4,7 @@ import { query } from "./db.ts";
 import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.js";
 import { ensureMiniprogramWorkspace, migrateLegacyAdminDist } from "./miniprogram-workspace.js";
-import { readMiniprogramAuthRuntime } from "./miniprogram-auth-config.js";
+import { readMiniprogramAuthRuntime } from "./miniprogram-auth-config.ts";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.js";
 
 export const MINIPROGRAM_ENVIRONMENTS = ["development", "production"];

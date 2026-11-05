@@ -23,7 +23,7 @@ import {
   readMiniprogramAuthConfig,
   saveMiniprogramAuthConfig,
   saveMiniprogramPublishableKey,
-} from "../miniprogram-auth-config.js";
+} from "../miniprogram-auth-config.ts";
 import {
   buildMiniprogramPreview,
   listMiniprogramBuilds,

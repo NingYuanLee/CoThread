@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { createApp } from "../server/http-app.js";
 import { issueCredential } from "../server/auth.ts";
-import { saveAdminRole, assignAdminRoles } from "../server/admin-rbac.js";
+import { saveAdminRole, assignAdminRoles } from "../server/admin-rbac.ts";
 import { listAccountChanges, listAccountLogins } from "../server/account-audit.ts";
 
 async function insertUser(db, { admin = false, name = "成员" } = {}) {

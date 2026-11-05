@@ -58,7 +58,7 @@ import {
   listEnvironmentVariables,
   readEnvironmentRemark,
   setEnvironmentVariable,
-} from "../environment-variables.js";
+} from "../environment-variables.ts";
 import { z } from "zod/v3";
 import { query } from "../db.ts";
 import { HttpError } from "../service.js";
@@ -119,7 +119,7 @@ import {
   readMiniprogramAuthConfig,
   saveMiniprogramAuthConfig,
   saveMiniprogramPublishableKey,
-} from "../miniprogram-auth-config.js";
+} from "../miniprogram-auth-config.ts";
 import {
   buildMiniprogramPreview,
   listMiniprogramBuilds,

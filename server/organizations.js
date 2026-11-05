@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { requireAdminPermission } from "./admin-rbac.js";
+import { requireAdminPermission } from "./admin-rbac.ts";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { backfillParticipantBriefs, clearParticipantBriefs } from "./wiki-briefs.ts";

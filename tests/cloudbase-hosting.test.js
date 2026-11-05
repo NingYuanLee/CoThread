@@ -23,7 +23,7 @@ import {
   deployAdminHosting,
   normalizeCloudPath,
   selectHostingFiles,
-} from "../server/cloudbase-hosting.js";
+} from "../server/cloudbase-hosting.ts";
 
 const VALID_APP_ID = "wx1234567890abcdef";
 

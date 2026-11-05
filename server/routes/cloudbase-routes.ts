@@ -87,7 +87,7 @@ export function registerCloudbaseRoutes(app: Express, { service }: CloudbaseRout
     res.json(await listCloudbaseAccountEnvironments(service, req.user, req.params.id)),
   );
   const readAdminProductionAddress = async (req: Request, res: Response) =>
-    res.json(await readAdminProductionUrl(service, req.user, req.params.id));
+    res.json(await readAdminProductionUrl(service as never, req.user, String(req.params.id)));
   app.get("/api/projects/:id/cloudbase/admin-production-url", readAdminProductionAddress);
   app.get("/api/projects/:id/cloudbase/admin-experience-url", readAdminProductionAddress);
   app.get("/api/projects/:id/cloudbase/functions", async (req: Request, res: Response) =>

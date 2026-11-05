@@ -48,7 +48,7 @@ export {
   promoteCloudbaseFunction,
 } from "./cloudbase-functions.js";
 
-export { deployAdminHosting, readAdminProductionUrl } from "./cloudbase-hosting.js";
+export { deployAdminHosting, readAdminProductionUrl } from "./cloudbase-hosting.ts";
 
 /** URL path Admin 预览用来提供平台自带的浏览器 SDK，不放进 Admin 源码区。 */
 export const CLOUD_BROWSER_SDK_ASSET = "sdk/cloudbase.esm.js";

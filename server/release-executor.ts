@@ -36,7 +36,7 @@ export async function executeRelease(
     return result.deploymentId;
   }
   if (request.target === "cloudbase_static") {
-    const result = await deployAdminHosting(service, actor, projectId, request);
+    const result = await deployAdminHosting(service as never, actor as never, projectId, request);
     return result.deploymentId;
   }
   if (request.target === "cloudbase_function") {

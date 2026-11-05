@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, writeFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { query } from "./db.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";
@@ -22,11 +24,53 @@ import {
  * （由审批流表达，见 server/release-requests.js）。
  */
 
+/** 一个待上传的托管文件。 */
+type HostingFile = {
+  path?: unknown;
+  relative: string;
+  byteSize?: unknown;
+  [field: string]: unknown;
+};
+
+/** CloudBase 静态托管管理器的能力面。 */
+type HostingManager = {
+  hosting: {
+    uploadFiles(options: {
+      localPath: string;
+      cloudPath?: string;
+      onProgress?: (progress: unknown) => void;
+    }): Promise<unknown>;
+    setWebsiteDocument(options: Record<string, string>): Promise<unknown>;
+    getInfo(): Promise<unknown>;
+  };
+};
+
+/** 小程序运行时配置（本文件只读几个字段）。 */
+type MiniProgramRuntime = {
+  enabled?: boolean;
+  adminDeploy?: {
+    hostingPath?: unknown;
+    customDomain?: unknown;
+    spaFallback?: unknown;
+    target?: string;
+  } | null;
+  cloudbaseEnvs?: Record<string, { envId?: string } | undefined>;
+};
+
+/** 发布动作所需的 Service 视图。 */
+type HostingService = {
+  db: Pool;
+  member(user: HostingUser, projectId: string, write?: boolean): Promise<unknown>;
+};
+
+/** 发布发起人。 */
+type HostingUser = { id: string; kind?: string | null };
+
 export const HOSTING_MAX_FILES = 2000;
 export const HOSTING_MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 
 /** Normalize a hosting path to a cloudPath with no leading slash. */
-export function normalizeCloudPath(value) {
+export function normalizeCloudPath(value: unknown): string {
   const raw = String(value ?? "").trim();
   if (!raw || raw === "/") return "";
   if (raw.includes("..")) throw new HttpError(400, "托管路径非法");
@@ -34,13 +78,16 @@ export function normalizeCloudPath(value) {
 }
 
 /** Select the whole Admin workspace; it is the static site's upload root. */
-export function selectHostingFiles(files) {
-  return files
+export function selectHostingFiles(files: unknown): HostingFile[] {
+  return (files as HostingFile[])
     .map((file) => ({ ...file, relative: String(file.path || "").replace(/^\/+/, "") }))
     .filter((file) => file.relative);
 }
 
-export function assertHostingPayload(entries) {
+export function assertHostingPayload(entries: HostingFile[]): {
+  fileCount: number;
+  totalBytes: number;
+} {
   if (!entries.length) {
     throw new HttpError(
       409,
@@ -60,7 +107,12 @@ export function assertHostingPayload(entries) {
   return { fileCount: entries.length, totalBytes: total };
 }
 
-async function materialize(dir, entries, db, runtimeConfig) {
+async function materialize(
+  dir: string,
+  entries: HostingFile[],
+  db: Db,
+  runtimeConfig: unknown,
+): Promise<number> {
   let bytes = 0;
   for (const entry of entries) {
     const [row] = await query(db, "SELECT content FROM versions WHERE id=?", [entry.versionId]);
@@ -69,7 +121,7 @@ async function materialize(dir, entries, db, runtimeConfig) {
     await mkdir(dirname(target), { recursive: true });
     const content =
       entry.relative === "index.html"
-        ? injectAdminRuntimeHtml(row.content, runtimeConfig)
+        ? injectAdminRuntimeHtml(row.content, runtimeConfig as { channel?: string })
         : row.content;
     await writeFile(target, content);
     bytes += content?.length || 0;
@@ -77,7 +129,7 @@ async function materialize(dir, entries, db, runtimeConfig) {
   return bytes;
 }
 
-async function readHostingDomain(manager) {
+async function readHostingDomain(manager: HostingManager): Promise<string | null> {
   try {
     const info = await manager.hosting.getInfo();
     const first = Array.isArray(info) ? info[0] : null;
@@ -90,10 +142,10 @@ async function readHostingDomain(manager) {
   }
 }
 
-function hostingUrl(domain, cloudPath) {
+function hostingUrl(domain: unknown, cloudPath: unknown): string | null {
   const value = String(domain || "").trim();
   if (!value) return null;
-  let parsed;
+  let parsed: URL;
   try {
     parsed = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
   } catch {
@@ -107,9 +159,16 @@ function hostingUrl(domain, cloudPath) {
 }
 
 /** Resolve the current Admin address even when an older deployment row has no URL. */
-export async function readAdminProductionUrl(service, user, projectId) {
+export async function readAdminProductionUrl(
+  service: HostingService,
+  user: HostingUser,
+  projectId: string,
+) {
   await service.member(user, projectId, false);
-  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  const runtime = (await loadProjectMiniProgramRuntime(
+    service as never,
+    projectId,
+  )) as MiniProgramRuntime;
   const adminDeploy = runtime.adminDeploy;
   if (!adminDeploy) return { environment: "production", url: null };
   const cloudPath = normalizeCloudPath(adminDeploy.hostingPath);
@@ -118,7 +177,9 @@ export async function readAdminProductionUrl(service, user, projectId) {
   if (!runtime.cloudbaseEnvs?.production?.envId && !runtime.cloudbaseEnvs?.development?.envId) {
     return { environment: "production", url: null };
   }
-  const { manager } = await getCloudbaseManager(service, projectId, "production");
+  const { manager } = (await getCloudbaseManager(service as never, projectId, "production")) as {
+    manager: HostingManager;
+  };
   const domain = await readHostingDomain(manager);
   return { environment: "production", url: hostingUrl(domain, cloudPath) };
 }
@@ -127,19 +188,41 @@ export async function readAdminProductionUrl(service, user, projectId) {
  * Deploy the built admin bundle to CloudBase static hosting and record it as a
  * deployment. Returns the deployment id so the approval flow can store it.
  */
-export async function deployAdminHosting(service, actor, projectId, request, options = {}) {
+export async function deployAdminHosting(
+  service: HostingService,
+  actor: HostingUser,
+  projectId: string,
+  request: { target?: string | null; version?: unknown },
+  options: Record<string, unknown> = {},
+): Promise<{
+  deploymentId: string;
+  url: string | null;
+  envId: unknown;
+  environment: unknown;
+  cloudPath: string;
+  fileCount: number;
+  totalBytes: number;
+}> {
   if (request?.target && request.target !== "cloudbase_static") {
     throw new HttpError(400, "Admin 仅支持静态网站托管");
   }
-  const runtime = await loadProjectMiniProgramRuntime(service, projectId);
+  const runtime = (await loadProjectMiniProgramRuntime(
+    service as never,
+    projectId,
+  )) as MiniProgramRuntime;
   if (!runtime.enabled) throw new HttpError(409, "小程序工作区尚未通过连接测试");
   const adminDeploy = runtime.adminDeploy;
   if (!adminDeploy) throw new HttpError(409, "尚未配置 Admin 生产版");
-  const runtimeConfig = resolveMiniprogramRuntime(runtime, "admin_publish");
+  const runtimeConfig = resolveMiniprogramRuntime(runtime as never, "admin_publish") as {
+    environment: string;
+  };
   const environment = runtimeConfig.environment;
 
-  const snapshot = await miniprogramSnapshot(service.db, projectId);
-  const adminFiles = snapshot.areas.miniprogram_admin?.files || [];
+  const snapshot = (await miniprogramSnapshot(service.db, projectId)) as {
+    sourceHash?: string;
+    areas?: { miniprogram_admin?: { files?: HostingFile[] } };
+  };
+  const adminFiles = snapshot.areas?.miniprogram_admin?.files || [];
   const selected = selectHostingFiles(adminFiles);
   const payload = assertHostingPayload(selected);
 
@@ -149,7 +232,11 @@ export async function deployAdminHosting(service, actor, projectId, request, opt
   try {
     // Resolved inside the try so a credential/config failure is still recorded as a
     // failed deployment instead of vanishing (audit consistency).
-    const { manager, envId } = await getCloudbaseManager(service, projectId, environment);
+    const { manager, envId } = (await getCloudbaseManager(
+      service as never,
+      projectId,
+      String(environment),
+    )) as { manager: HostingManager; envId: unknown };
     const bytes = await materialize(dir, selected, service.db, runtimeConfig);
     log.push(`materialized ${selected.length} files (${bytes} bytes)`);
     const info = await stat(join(dir, "index.html"));
@@ -200,7 +287,9 @@ export async function deployAdminHosting(service, actor, projectId, request, opt
     return { deploymentId, url, envId, environment, cloudPath, ...payload };
   } catch (error) {
     const detail =
-      error instanceof HttpError ? error.message : `Admin 发布失败：${error?.message || error}`;
+      error instanceof HttpError
+        ? error.message
+        : `Admin 发布失败：${(error as { message?: string } | null)?.message || error}`;
     await query(
       service.db,
       `INSERT INTO miniprogram_deployments

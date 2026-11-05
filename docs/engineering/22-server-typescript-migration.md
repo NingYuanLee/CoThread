@@ -351,12 +351,16 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 注入项（`executeRun` / `stopAgent` / `startArchiveDraft` / `afterMcpMessage`）的真实签名各不相同，选项类型先用 `unknown` 接住、传参处再收口——比给每个编一个假签名更诚实。
 
-剩余 60 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第三十一批：`cloudbase-hosting.ts`(225 行)。这是 `service.ts` 解锁的第三个、也是最后一个此前转不动的文件——至此 `service` / `http-app` / `cloudbase-hosting` 三个「小但难」的全部落地。
+
+它需要给外部 SDK 的类型单独开一个局部形状：`HostingManager`（`uploadFiles` / `setWebsiteDocument` / `getInfo`）。CloudBase 的 manager 在 JS 里是动态对象，这里只声明本文件真正调用的三个方法，不做全量建模。
+
+剩余 59 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                                | 文件数            |
 | ---- | ----------------------------------------------------------------------------------- | ----------------- |
 | 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                           | 10                |
-| 4    | 被 2–4 个文件引用                                                                   | 15                |
+| 4    | 被 2–4 个文件引用                                                                   | 14                |
 | 5    | 被 5–9 个文件引用                                                                   | 17                |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）              | 1（已计入批次 3） |

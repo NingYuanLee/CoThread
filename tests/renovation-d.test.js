@@ -50,7 +50,7 @@ async function connector(userId, { seenSql = "UTC_TIMESTAMP(3)", name = "本机"
 
 test("chat thread list no longer aggregates messages events or runs", () => {
   assert.equal(COORDINATOR_LANE_CONCURRENCY, 3);
-  const source = readFileSync(new URL("../server/service-projects.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../server/service-projects.ts", import.meta.url), "utf8");
   const projectFn = source.slice(source.indexOf("export async function projectOperation("));
   assert.equal(projectFn.includes("last_message_at"), false);
   assert.equal(projectFn.includes("last_event_at"), false);

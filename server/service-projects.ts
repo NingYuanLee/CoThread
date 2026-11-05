@@ -11,15 +11,51 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { ensureProjectLibraryRoots } from "./documents/index.js";
 import { fail, id, title, preferredLocalExecutorJoin } from "./service-support.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 一组行。 */
+type Row = Record<string, unknown>;
+
+/** 项目域用到的 Service 视图。 */
+export type ProjectService = {
+  db: Pool;
+  member(user: ProjectUser, projectId: string): Promise<unknown>;
+  projectManager(user: ProjectUser, projectId: string, db?: Db): Promise<unknown>;
+  projectChange(
+    db: Db,
+    projectId: string,
+    actorId: string,
+    action: string,
+    details?: Record<string, unknown>,
+  ): Promise<unknown>;
+  projects(user: ProjectUser): Promise<unknown>;
+  libraryQueries(projectId: string): {
+    versions: Promise<Row[]>;
+    folders: Promise<Row[]>;
+    documentOrganizationJobs: Promise<Row[]>;
+  };
+  libraryRevision(projectId: string): Promise<unknown>;
+  mapLibraryVersions(versions: Row[], folders: Row[]): unknown;
+  adminPermission(user: ProjectUser, permission: string): Promise<unknown>;
+  createProject(user: ProjectUser, input: unknown): Promise<unknown>;
+};
+
+/** 发起操作的人。 */
+export type ProjectUser = {
+  id: string;
+  kind?: string | null;
+  scope?: string | null;
+};
 
 export async function projectChangeOperation(
-  service,
-  db,
-  projectId,
-  actorUserId,
-  action,
-  details = {},
-) {
+  service: ProjectService,
+  db: Db,
+  projectId: string,
+  actorUserId: string,
+  action: string,
+  details: Record<string, unknown> = {},
+): Promise<string> {
   const changeId = randomUUID();
   await query(
     db,
@@ -30,7 +66,12 @@ export async function projectChangeOperation(
   return changeId;
 }
 
-export async function updateProjectOperation(service, user, projectId, input) {
+export async function updateProjectOperation(
+  service: ProjectService,
+  user: ProjectUser,
+  projectId: string,
+  input: unknown,
+) {
   if (user.kind !== "session") fail(403, "项目设置需要人工登录");
   const data = z
     .object({
@@ -50,11 +91,11 @@ export async function updateProjectOperation(service, user, projectId, input) {
   await transaction(service.db, async (db) => {
     await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
     await service.projectManager(user, projectId, db);
-    const [previous] = await query(
-      db,
-      "SELECT name,description,image FROM projects WHERE id=? FOR UPDATE",
-      [projectId],
-    );
+    const [previous] = await query<{
+      name?: unknown;
+      description?: unknown;
+      image?: unknown;
+    }>(db, "SELECT name,description,image FROM projects WHERE id=? FOR UPDATE", [projectId]);
     const name = next.name ?? previous.name;
     const description = next.description ?? previous.description;
     const image = next.image === undefined ? previous.image : next.image;
@@ -70,11 +111,12 @@ export async function updateProjectOperation(service, user, projectId, input) {
       ...(next.image === undefined ? {} : { image: next.image ? "updated" : "removed" }),
     });
   });
-  const [updated] = await query(
-    service.db,
-    "SELECT id,name,description,image FROM projects WHERE id=?",
-    [projectId],
-  );
+  const [updated] = await query<{
+    id: string;
+    name?: unknown;
+    description?: unknown;
+    image?: unknown;
+  }>(service.db, "SELECT id,name,description,image FROM projects WHERE id=?", [projectId]);
   return {
     id: updated.id,
     name: updated.name,
@@ -83,7 +125,7 @@ export async function updateProjectOperation(service, user, projectId, input) {
   };
 }
 
-export async function projectsOperation(service, user) {
+export async function projectsOperation(service: ProjectService, user: ProjectUser) {
   return query(
     service.db,
     `SELECT p.id,p.name,p.description,p.created_by,p.project_leader_id,p.created_at,p.archived_at,${projectImageUrlSql()} image,creator.name created_by_name,m.role,m.joined_at,m.tab_visible,m.tab_opened_at,m.tab_pinned_at,(SELECT COUNT(*) FROM threads t WHERE t.project_id=p.id AND t.status='active') active_threads
@@ -93,11 +135,16 @@ export async function projectsOperation(service, user) {
   );
 }
 
-export async function updateProjectTabOperation(service, user, projectId, input) {
+export async function updateProjectTabOperation(
+  service: ProjectService,
+  user: ProjectUser,
+  projectId: string,
+  input: unknown,
+) {
   if (user.kind === "api") fail(403, "请在界面中管理项目页签");
   await service.member(user, projectId);
   const { action } = z.object({ action: z.enum(["open", "close", "pin", "unpin"]) }).parse(input);
-  const updates = {
+  const updates: Record<string, string> = {
     open: "tab_opened_at=IF(tab_visible=0 OR tab_opened_at IS NULL,UTC_TIMESTAMP(6),tab_opened_at),tab_visible=1",
     close: "tab_visible=FALSE",
     pin: "tab_pinned_at=UTC_TIMESTAMP(6)",
@@ -114,7 +161,11 @@ export async function updateProjectTabOperation(service, user, projectId, input)
   return service.projects(user);
 }
 
-export async function reorderProjectTabsOperation(service, user, input) {
+export async function reorderProjectTabsOperation(
+  service: ProjectService,
+  user: ProjectUser,
+  input: unknown,
+) {
   if (user.kind === "api") fail(403, "请在界面中管理项目页签");
   const { projectIds, scope } = z
     .object({
@@ -125,7 +176,7 @@ export async function reorderProjectTabsOperation(service, user, input) {
   const pinned = scope === "pinned";
   await transaction(service.db, async (db) => {
     await query(db, "SELECT id FROM users WHERE id=? FOR UPDATE", [user.id]);
-    const rows = await query(
+    const rows = await query<{ project_id: string }>(
       db,
       `SELECT project_id FROM members WHERE user_id=? AND tab_visible=TRUE AND tab_pinned_at IS ${pinned ? "NOT NULL" : "NULL"} FOR UPDATE`,
       [user.id],
@@ -139,7 +190,7 @@ export async function reorderProjectTabsOperation(service, user, input) {
       fail(409, pinned ? "固定项目列表已变化，请刷新后重试" : "项目页签已变化，请刷新后重试");
     if (pinned) {
       // 固定组用新时间戳往前排：下标 0 最新，ORDER BY tab_pinned_at DESC 时在最左。
-      const [clock] = await query(db, "SELECT UTC_TIMESTAMP(6) sort_time");
+      const [clock] = await query<{ sort_time: unknown }>(db, "SELECT UTC_TIMESTAMP(6) sort_time");
       for (const [index, projectId] of projectIds.entries()) {
         await query(
           db,
@@ -149,7 +200,7 @@ export async function reorderProjectTabsOperation(service, user, input) {
       }
     } else {
       // 未固定组只交换已有的打开时间，不把整组挪到「现在」，关掉再打开的页签仍能插回原位置。
-      const stamps = await query(
+      const stamps = await query<{ tab_opened_at: unknown }>(
         db,
         `SELECT tab_opened_at FROM members WHERE user_id=? AND project_id IN (${projectIds.map(() => "?").join(",")}) ORDER BY tab_opened_at ASC, project_id ASC`,
         [user.id, ...projectIds],
@@ -166,7 +217,11 @@ export async function reorderProjectTabsOperation(service, user, input) {
   return service.projects(user);
 }
 
-export async function createProjectOperation(service, user, input) {
+export async function createProjectOperation(
+  service: ProjectService,
+  user: ProjectUser,
+  input: unknown,
+) {
   if (user.kind === "api") fail(403, "请在界面中创建项目");
   const data = z
     .object({
@@ -209,20 +264,20 @@ export async function createProjectOperation(service, user, input) {
 }
 
 export async function projectOperation(
-  service,
-  user,
-  projectId,
-  { display = false, includeLibrary = true } = {},
+  service: ProjectService,
+  user: ProjectUser,
+  projectId: string,
+  { display = false, includeLibrary = true }: { display?: boolean; includeLibrary?: boolean } = {},
 ) {
   await service.member(user, projectId);
   if (includeLibrary) await ensureProjectLibraryRoots(service.db, projectId);
   const library = includeLibrary ? service.libraryQueries(projectId) : null;
-  const projectQuery = query(
+  const projectQuery = query<Row>(
     service.db,
     `SELECT p.id,p.name,p.description,p.created_by,p.project_leader_id,p.created_at,p.archived_at,${projectImageUrlSql()} image,creator.name created_by_name FROM projects p JOIN users creator ON creator.id=p.created_by WHERE p.id=?`,
     [projectId],
   );
-  const threadsQuery = query(
+  const threadsQuery = query<Row>(
     service.db,
     `SELECT t.id,t.title,t.background,t.goal,t.status,t.created_at,t.archived_at,t.created_by,u.name creator,
        t.last_active_at
@@ -230,7 +285,7 @@ export async function projectOperation(
        WHERE t.project_id=? ORDER BY t.last_active_at DESC,t.created_at DESC`,
     [projectId],
   );
-  const membersQuery = query(
+  const membersQuery = query<Row>(
     service.db,
     `SELECT u.id,u.user_number,u.username,u.name,COALESCE(u.username,u.email) email,u.email bound_email,${display ? "CONCAT('/api/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) avatar" : "u.avatar"},u.motto,u.identity_tags,m.role,
         c.id local_executor_id,c.name local_executor_name,c.platform local_executor_platform,c.version local_executor_version,c.last_seen_at local_executor_last_seen_at,
@@ -242,13 +297,14 @@ export async function projectOperation(
        WHERE m.project_id=?`,
     [projectId, projectId],
   );
+  const libraryRowsQuery: Promise<Row[][]> = library
+    ? Promise.all([library.versions, library.folders, library.documentOrganizationJobs])
+    : Promise.resolve([[], [], []] as Row[][]);
   const [[project], threads, members, libraryRows, libraryRevision] = await Promise.all([
     projectQuery,
     threadsQuery,
     membersQuery,
-    library
-      ? Promise.all([library.versions, library.folders, library.documentOrganizationJobs])
-      : Promise.resolve([[], [], []]),
+    libraryRowsQuery,
     service.libraryRevision(projectId),
   ]);
   const [versions, folders, documentOrganizationJobs] = libraryRows;
@@ -256,7 +312,11 @@ export async function projectOperation(
   const knowledgeModel = modelConfig("knowledge");
   const coordinatorModel = modelConfig("coordinator");
   const { loadProjectSummary } = await import("./project-memory.js");
-  const projectSummary = await loadProjectSummary(service.db, projectId);
+  const projectSummary = (await loadProjectSummary(service.db, projectId)) as {
+    summary?: unknown;
+    updatedAt?: unknown;
+    lastThreadTitle?: unknown;
+  } | null;
   return {
     ...project,
     longTermSummary: projectSummary
@@ -318,7 +378,11 @@ export async function projectOperation(
   };
 }
 
-export async function adminCreateProjectOperation(service, user, input) {
+export async function adminCreateProjectOperation(
+  service: ProjectService,
+  user: ProjectUser,
+  input: unknown,
+) {
   await service.adminPermission(user, "projects.create");
   return service.createProject(user, input);
 }

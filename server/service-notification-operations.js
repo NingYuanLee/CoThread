@@ -3,7 +3,7 @@ import {
   notify,
   openNotification,
   readNotification,
-} from "./service-notifications.js";
+} from "./service-notifications.ts";
 import { fail, id } from "./service-support.ts";
 
 export async function notifyOperation(

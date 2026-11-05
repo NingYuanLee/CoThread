@@ -3,13 +3,45 @@ import { z } from "zod/v3";
 import { ALL_INBOX_KINDS, INBOX_KINDS, inboxCategory, inboxNeedsThread } from "../shared/inbox.js";
 import { query } from "./db.ts";
 import { projectImageUrlSql } from "./project-image.ts";
+import type { Db } from "./types.ts";
 
 const TASK_AND_CHAT = [...INBOX_KINDS.chat, ...INBOX_KINDS.task];
 
-function titleFor(row) {
-  const project = row.project_name || "项目";
-  const thread = row.thread_title || project;
-  const titles = {
+/** 站内信域用到的 Service 视图。 */
+export type NotificationService = {
+  db: Db;
+  thread(user: NotificationUser, threadId: string): Promise<unknown>;
+  updateProjectTab(
+    user: NotificationUser,
+    projectId: string,
+    body: { action: string },
+  ): Promise<unknown>;
+};
+
+/** 站内信的收件人。 */
+export type NotificationUser = { id: string; kind?: string | null };
+
+/** 校验与失败回调，由调用方注入以复用 service-support 的基元。 */
+export type NotificationHelpers = {
+  id: { parse(value: unknown): unknown };
+  fail(status: number, message: string): never;
+};
+
+/** `notifications` 的一行（`titleFor` 会读的列）。 */
+type NotificationRow = {
+  kind: string;
+  project_name?: unknown;
+  thread_title?: unknown;
+  [column: string]: unknown;
+};
+
+/** 每个类目的未读数与总数。 */
+type CategoryCount = { total: number; unread: number };
+
+function titleFor(row: NotificationRow): string {
+  const project = String(row.project_name || "项目");
+  const thread = String(row.thread_title || project);
+  const titles: Record<string, string> = {
     mention: `在「${thread}」中提到了你`,
     member_added: `你已加入「${project}」`,
     member_removed: `你已被移出「${project}」`,
@@ -29,14 +61,17 @@ function titleFor(row) {
   return titles[row.kind] || "站内信";
 }
 
-function categoriesFrom(counts) {
+/** 把逐类的计数汇总成类目计数。 */
+function categoriesFrom(
+  counts: Record<string, Partial<CategoryCount>>,
+): Record<string, CategoryCount> {
   return Object.fromEntries(
-    Object.entries(INBOX_KINDS).map(([category, kinds]) => [
+    Object.entries(INBOX_KINDS as Record<string, string[]>).map(([category, kinds]) => [
       category,
-      kinds.reduce(
+      kinds.reduce<CategoryCount>(
         (sum, kind) => ({
-          total: sum.total + (counts[kind]?.total || 0),
-          unread: sum.unread + (counts[kind]?.unread || 0),
+          total: sum.total + Number(counts[kind]?.total || 0),
+          unread: sum.unread + Number(counts[kind]?.unread || 0),
         }),
         { total: 0, unread: 0 },
       ),
@@ -45,15 +80,15 @@ function categoriesFrom(counts) {
 }
 
 export async function notify(
-  db,
-  userId,
-  projectId,
-  kind,
-  text,
-  threadId = null,
-  messageId = null,
-  senderName = "系统通知",
-) {
+  db: Db,
+  userId: string,
+  projectId: string,
+  kind: string,
+  text: string,
+  threadId: string | null = null,
+  messageId: string | null = null,
+  senderName: string = "系统通知",
+): Promise<void> {
   if (!inboxCategory(kind)) throw new Error(`未知站内信类型：${kind}`);
   if (inboxNeedsThread(kind)) {
     if (!threadId) throw new Error("聊天和任务站内信必须挂迭代");
@@ -65,33 +100,39 @@ export async function notify(
   );
 }
 
-export async function listNotifications(service, user, before, input, { id, fail }) {
+export async function listNotifications(
+  service: NotificationService,
+  user: NotificationUser,
+  before: string | null | undefined,
+  input: Record<string, unknown>,
+  { id, fail }: NotificationHelpers,
+) {
   if (user.kind !== "session") fail(403, "站内信需要人工登录");
   if (before) id.parse(before);
   const parsed = z
     .object({
       category: z.enum(["all", "chat", "task", "project"]).default("all"),
-      kind: z.enum(ALL_INBOX_KINDS).optional(),
+      kind: z.enum(ALL_INBOX_KINDS as [string, ...string[]]).optional(),
       limit: z.coerce.number().int().min(1).max(50).default(50),
       page: z.coerce.number().int().min(1).max(100000).default(1),
     })
     .parse(input);
   const { category, kind, limit, page } = parsed;
-  const params = [user.id];
+  const params: unknown[] = [user.id];
   let kindSql = "";
   if (kind) {
     kindSql = "AND n.kind=?";
     params.push(kind);
   } else if (category !== "all") {
-    const kinds = INBOX_KINDS[category];
+    const kinds = (INBOX_KINDS as Record<string, string[]>)[category];
     kindSql = `AND n.kind IN (${kinds.map(() => "?").join(",")})`;
     params.push(...kinds);
   }
   if (before) params.push(before, user.id);
-  const itemsQuery =
+  const itemsQuery: Promise<NotificationRow[]> =
     input.summary === "1"
       ? Promise.resolve([])
-      : query(
+      : query<NotificationRow>(
           service.db,
           `SELECT n.*,p.name project_name,t.title thread_title,${projectImageUrlSql("p.id")} project_image,
       (m.user_id IS NOT NULL AND n.kind NOT IN ('member_removed','project_archived')) can_open
@@ -102,29 +143,31 @@ export async function listNotifications(service, user, before, input, { id, fail
       ORDER BY n.created_at DESC,n.id DESC LIMIT ${limit + 1} OFFSET ${(page - 1) * limit}`,
           params,
         );
-  const countsQuery = query(
+  const countsQuery = query<{ kind: string; total: unknown; unread: unknown }>(
     service.db,
     "SELECT kind,COUNT(*) total,SUM(read_at IS NULL) unread FROM notifications WHERE user_id=? GROUP BY kind",
     [user.id],
   );
-  const placementQuery =
+  const placementQuery: Promise<
+    Array<{ project_id: string; thread_id: string; kind: string; unread: unknown }>
+  > =
     input.summary === "1"
-      ? query(
+      ? Promise.resolve([])
+      : query(
           service.db,
           `SELECT project_id,thread_id,kind,COUNT(*) unread FROM notifications
       WHERE user_id=? AND read_at IS NULL AND thread_id IS NOT NULL AND kind IN (${TASK_AND_CHAT.map(() => "?").join(",")})
       GROUP BY project_id,thread_id,kind`,
           [user.id, ...TASK_AND_CHAT],
-        )
-      : Promise.resolve([]);
+        );
   const [items, counts, placements] = await Promise.all([itemsQuery, countsQuery, placementQuery]);
-  const countMap = Object.fromEntries(
+  const countMap: Record<string, CategoryCount> = Object.fromEntries(
     counts.map((row) => [row.kind, { total: Number(row.total), unread: Number(row.unread) }]),
   );
-  const projects = new Map();
-  const threads = new Map();
+  const projects = new Map<string, { id: string; chat: number; task: number }>();
+  const threads = new Map<string, { id: string; projectId: string; chat: number; task: number }>();
   for (const row of placements) {
-    const bucket = inboxCategory(row.kind);
+    const bucket = inboxCategory(row.kind) as string | null;
     if (bucket !== "chat" && bucket !== "task") continue;
     const project = projects.get(row.project_id) || { id: row.project_id, chat: 0, task: 0 };
     const thread = threads.get(row.thread_id) || {
@@ -154,7 +197,12 @@ export async function listNotifications(service, user, before, input, { id, fail
   };
 }
 
-export async function readNotification(service, user, notificationId, { id, fail }) {
+export async function readNotification(
+  service: NotificationService,
+  user: NotificationUser,
+  notificationId: string | null | undefined,
+  { id, fail }: NotificationHelpers,
+): Promise<{ ok: true }> {
   if (user.kind !== "session") fail(403, "站内信需要人工登录");
   if (notificationId) id.parse(notificationId);
   await query(
@@ -165,14 +213,20 @@ export async function readNotification(service, user, notificationId, { id, fail
   return { ok: true };
 }
 
-export async function openNotification(service, user, notificationId, helpers) {
+export async function openNotification(
+  service: NotificationService,
+  user: NotificationUser,
+  notificationId: string,
+  helpers: NotificationHelpers,
+) {
   const { id, fail } = helpers;
   if (user.kind !== "session") fail(403, "站内信需要人工登录");
   id.parse(notificationId);
-  const [notice] = await query(service.db, "SELECT * FROM notifications WHERE id=? AND user_id=?", [
-    notificationId,
-    user.id,
-  ]);
+  const [notice] = await query<{
+    kind: string;
+    project_id: string;
+    thread_id?: string | null;
+  }>(service.db, "SELECT * FROM notifications WHERE id=? AND user_id=?", [notificationId, user.id]);
   if (!notice) fail(404, "站内信不存在");
   if (notice.kind === "member_removed" || notice.kind === "project_archived")
     fail(403, "这条站内信不支持跳转");

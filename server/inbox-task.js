@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { notify } from "./service-notifications.js";
+import { notify } from "./service-notifications.ts";
 
 async function taskRow(db, taskId) {
   const [task] = await query(

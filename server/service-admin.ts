@@ -4,28 +4,100 @@ import { query, transaction } from "./db.ts";
 import { hashPassword } from "./auth.ts";
 import { projectImageUrlSql } from "./project-image.ts";
 import { AGENT_MEMBER, AGENT_XIAOXIANG_MEMBER } from "../shared/agent-member.js";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
 
-async function assertAccountManagementScope(service, user, userId, permission, db, fail) {
+/** UPDATE / INSERT 的写入结果头。 */
+type WriteHeader = { affectedRows?: number };
+
+/** 管理域用到的 Service 视图。 */
+export type AdminService = {
+  db: Pool;
+  adminPermission(
+    user: AdminUser,
+    permission: string,
+    db?: Db,
+  ): Promise<{ isSuperAdmin?: boolean; permissions?: string[] }>;
+  member(user: AdminUser, projectId: string): Promise<unknown>;
+  accountChange(
+    db: Db,
+    userId: string,
+    actorId: string,
+    action: string,
+    details?: Record<string, unknown>,
+  ): Promise<unknown>;
+  projectChange(
+    db: Db,
+    projectId: string,
+    actorId: string,
+    action: string,
+    details?: Record<string, unknown>,
+  ): Promise<unknown>;
+  notify(
+    db: Db,
+    userId: string,
+    projectId: string,
+    kind: string,
+    text: string,
+    threadId: string | null,
+    messageId: string | null,
+    senderName: string,
+  ): Promise<void>;
+};
+
+/** 发起管理操作的人。 */
+export type AdminUser = { id: string; kind?: string | null };
+
+/** 失败回调。 */
+export type AdminFail = (status: number, message: string) => never;
+
+/** 只有失败回调。 */
+export type FailHelpers = { fail: AdminFail };
+
+/** 校验与失败回调。 */
+export type IdTitleFailHelpers = FailHelpers & {
+  id: { parse(value: unknown): unknown };
+  title: z.ZodString;
+};
+
+async function assertAccountManagementScope(
+  service: AdminService,
+  user: AdminUser,
+  userId: string,
+  permission: string,
+  db: Db,
+  fail: AdminFail,
+): Promise<void> {
   const access = await service.adminPermission(user, permission, db);
   if (access.isSuperAdmin) return;
-  const [target] = await query(db, "SELECT is_super_admin FROM users WHERE id=?", [userId]);
+  const [target] = await query<{ is_super_admin?: unknown }>(
+    db,
+    "SELECT is_super_admin FROM users WHERE id=?",
+    [userId],
+  );
   if (target && Number(target.is_super_admin)) fail(403, "仅超级管理员可管理超级管理员账号");
-  const roles = await query(
+  const roles = await query<{ permissions?: unknown }>(
     db,
     `SELECT r.permissions FROM roles r JOIN admin_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? AND r.scope='platform' AND r.is_builtin=FALSE`,
     [userId],
   );
+  const granted = access.permissions || [];
   if (
-    roles.some((role) =>
-      (typeof role.permissions === "string" ? JSON.parse(role.permissions) : role.permissions).some(
-        (key) => !access.permissions.includes(key),
-      ),
-    )
+    roles.some((role) => {
+      const list: unknown =
+        typeof role.permissions === "string" ? JSON.parse(role.permissions) : role.permissions;
+      return Array.isArray(list) && list.some((key) => !granted.includes(key as string));
+    })
   )
     fail(403, "不能管理权限范围高于自己的成员账号");
 }
 
-export async function users(service, user, projectId, { fail }) {
+export async function users(
+  service: AdminService,
+  user: AdminUser,
+  projectId: string | null | undefined,
+  { fail }: FailHelpers,
+) {
   if (user.kind !== "session") fail(403, "成员目录需要人工登录");
   if (projectId) await service.member(user, projectId);
   return query(
@@ -37,7 +109,12 @@ export async function users(service, user, projectId, { fail }) {
   );
 }
 
-export async function createUser(service, user, input, { title, fail }) {
+export async function createUser(
+  service: AdminService,
+  user: AdminUser,
+  input: unknown,
+  { title, fail }: { title: z.ZodString; fail: AdminFail },
+) {
   await service.adminPermission(user, "accounts.create");
   const data = z
     .object({
@@ -50,7 +127,7 @@ export async function createUser(service, user, input, { title, fail }) {
   if (data.username.length < 3) fail(400, "用户名至少需要 3 位");
   const userId = randomUUID();
   const password = randomBytes(15).toString("base64url");
-  let created;
+  let created: { user_number: unknown };
   try {
     created = await transaction(service.db, async (db) => {
       await query(
@@ -62,12 +139,17 @@ export async function createUser(service, user, input, { title, fail }) {
         name: data.name,
         username: data.username,
       });
-      const row = (await query(db, "SELECT user_number FROM users WHERE id=?", [userId]))[0];
+      const row = (
+        await query<{ user_number: unknown }>(db, "SELECT user_number FROM users WHERE id=?", [
+          userId,
+        ])
+      )[0];
       if (Number(row.user_number) > 999999) fail(409, "六位用户ID已用完");
       return row;
     });
   } catch (error) {
-    if (error.code === "ER_DUP_ENTRY") fail(409, "该用户名已被使用");
+    if ((error as { code?: unknown } | null)?.code === "ER_DUP_ENTRY")
+      fail(409, "该用户名已被使用");
     throw error;
   }
   return {
@@ -80,10 +162,10 @@ export async function createUser(service, user, input, { title, fail }) {
   };
 }
 
-export async function adminProjects(service, user) {
+export async function adminProjects(service: AdminService, user: AdminUser) {
   await service.adminPermission(user, "projects");
   const [projects, memberships, changes, roleMigrationIssues, recoveryAccess] = await Promise.all([
-    query(
+    query<{ id: string; [column: string]: unknown }>(
       service.db,
       `SELECT p.id,p.name,p.description,p.created_at,p.archived_at,p.created_by,p.project_leader_id,
         ${projectImageUrlSql("p.id", "/api/admin/projects")} image,
@@ -91,7 +173,7 @@ export async function adminProjects(service, user) {
         FROM projects p JOIN users u ON u.id=p.created_by
         ORDER BY p.archived_at IS NOT NULL,p.created_at DESC,p.id`,
     ),
-    query(
+    query<{ project_id: string; [column: string]: unknown }>(
       service.db,
       `SELECT m.project_id,u.id,u.user_number,COALESCE(u.username,u.email) username,u.name,u.email,m.joined_at,m.role_changed_at,
         CASE WHEN u.avatar IS NULL OR u.avatar='' THEN NULL ELSE CONCAT('/api/admin/projects/',m.project_id,'/members/',u.id,'/avatar?v=',LEFT(SHA2(u.avatar,256),16)) END avatar,
@@ -99,7 +181,7 @@ export async function adminProjects(service, user) {
         FROM members m JOIN users u ON u.id=m.user_id JOIN projects p ON p.id=m.project_id
         ORDER BY u.name,u.username,u.email`,
     ),
-    query(
+    query<{ project_id: string; [column: string]: unknown }>(
       service.db,
       `SELECT l.project_id,l.action,l.details,l.created_at,u.name actor FROM
         (SELECT project_id,actor_user_id,action,details,created_at,id,
@@ -107,15 +189,17 @@ export async function adminProjects(service, user) {
          FROM project_change_logs) l JOIN users u ON u.id=l.actor_user_id
         WHERE l.audit_rank<=50 ORDER BY l.created_at DESC,l.id DESC`,
     ),
-    query(
+    query<{ project_id: string; issue_type?: unknown; candidate_user_ids: unknown }>(
       service.db,
       "SELECT project_id,issue_type,candidate_user_ids FROM project_role_migration_issues",
     ),
     user.kind === "session"
-      ? query(service.db, "SELECT is_super_admin FROM users WHERE id=? AND disabled_at IS NULL", [
-          user.id,
-        ])
-      : Promise.resolve([]),
+      ? query<{ is_super_admin?: unknown }>(
+          service.db,
+          "SELECT is_super_admin FROM users WHERE id=? AND disabled_at IS NULL",
+          [user.id],
+        )
+      : Promise.resolve([] as Array<{ is_super_admin?: unknown }>),
   ]);
   return projects.map((project) => {
     const roleIssue = roleMigrationIssues.find((issue) => issue.project_id === project.id) || null;
@@ -136,7 +220,13 @@ export async function adminProjects(service, user) {
   });
 }
 
-export async function updateAdminProject(service, user, projectId, input, { id, title, fail }) {
+export async function updateAdminProject(
+  service: AdminService,
+  user: AdminUser,
+  projectId: string,
+  input: unknown,
+  { id, title, fail }: IdTitleFailHelpers,
+) {
   await service.adminPermission(user, "projects.update");
   id.parse(projectId);
   const data = z
@@ -145,7 +235,7 @@ export async function updateAdminProject(service, user, projectId, input, { id, 
     .parse(input);
   const description = data.description === undefined ? undefined : data.description.trim();
   const updated = await transaction(service.db, async (db) => {
-    const [previous] = await query(
+    const [previous] = await query<{ name?: unknown; description?: unknown }>(
       db,
       "SELECT name,description FROM projects WHERE id=? FOR UPDATE",
       [projectId],
@@ -167,23 +257,33 @@ export async function updateAdminProject(service, user, projectId, input, { id, 
   return updated;
 }
 
-export async function setProjectArchived(service, user, projectId, archived, { id, fail }) {
+export async function setProjectArchived(
+  service: AdminService,
+  user: AdminUser,
+  projectId: string,
+  archived: boolean,
+  { id, fail }: { id: { parse(value: unknown): unknown }; fail: AdminFail },
+) {
   await service.adminPermission(user, archived ? "projects.archive" : "projects.restore");
   id.parse(projectId);
-  const result = await transaction(service.db, async (db) => {
-    const changed = await query(
+  const result = (await transaction(service.db, async (db) => {
+    const changed = (await query(
       db,
       `UPDATE projects SET archived_at=${archived ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`,
       [projectId],
-    );
+    )) as unknown as WriteHeader;
     if (changed.affectedRows) {
       await service.projectChange(db, projectId, user.id, archived ? "archived" : "restored");
-      const members = await query(
+      const members = await query<{ user_id: string }>(
         db,
         "SELECT user_id FROM members WHERE project_id=? AND user_id NOT IN (?,?)",
         [projectId, AGENT_MEMBER.id, AGENT_XIAOXIANG_MEMBER.id],
       );
-      const [sender] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+      const [sender] = await query<{ name?: string | null }>(
+        db,
+        "SELECT name FROM users WHERE id=?",
+        [user.id],
+      );
       for (const member of members)
         await service.notify(
           db,
@@ -197,19 +297,19 @@ export async function setProjectArchived(service, user, projectId, archived, { i
         );
     }
     return changed;
-  });
+  })) as WriteHeader;
   if (!result.affectedRows) fail(404, "项目不存在");
   return { id: projectId, archived };
 }
 
-export async function adminAccounts(service, user) {
+export async function adminAccounts(service: AdminService, user: AdminUser) {
   await service.adminPermission(user, "accounts");
   const [accounts, memberships] = await Promise.all([
-    query(
+    query<{ id: string; [column: string]: unknown }>(
       service.db,
       "SELECT id,user_number,COALESCE(username,email) username,name,email,email_verified_at,is_super_admin,disabled_at,created_at,CASE WHEN avatar IS NULL OR avatar='' THEN NULL ELSE CONCAT('/api/admin/accounts/',id,'/avatar?v=',LEFT(SHA2(avatar,256),16)) END avatar FROM users ORDER BY disabled_at IS NOT NULL,user_number",
     ),
-    query(
+    query<{ user_id: string; [column: string]: unknown }>(
       service.db,
       `SELECT m.user_id,p.id,p.name,m.role,p.archived_at,${projectImageUrlSql("p.id", "/api/admin/projects")} image FROM members m JOIN projects p ON p.id=m.project_id
         ORDER BY p.archived_at IS NOT NULL,p.name,p.id`,
@@ -221,15 +321,23 @@ export async function adminAccounts(service, user) {
   }));
 }
 
-export async function setAccountDisabled(service, user, userId, input, { id, fail }) {
+export async function setAccountDisabled(
+  service: AdminService,
+  user: AdminUser,
+  userId: string,
+  input: unknown,
+  { id, fail }: { id: { parse(value: unknown): unknown }; fail: AdminFail },
+) {
   await service.adminPermission(user, "accounts.status");
   id.parse(userId);
   const { disabled } = z.object({ disabled: z.boolean() }).parse(input);
   if (userId === user.id && disabled) fail(409, "不能停用当前登录账号");
-  const result = await transaction(service.db, async (db) => {
-    const [target] = await query(db, "SELECT is_super_admin FROM users WHERE id=? FOR UPDATE", [
-      userId,
-    ]);
+  const result = (await transaction(service.db, async (db) => {
+    const [target] = await query<{ is_super_admin?: unknown }>(
+      db,
+      "SELECT is_super_admin FROM users WHERE id=? FOR UPDATE",
+      [userId],
+    );
     await assertAccountManagementScope(service, user, userId, "accounts.status", db, fail);
     if (target && Number(target.is_super_admin) && disabled) {
       const active = await query(
@@ -238,37 +346,44 @@ export async function setAccountDisabled(service, user, userId, input, { id, fai
       );
       if (active.length <= 1) fail(409, "不能停用最后一个超级管理员");
     }
-    const changed = await query(
+    const changed = (await query(
       db,
       `UPDATE users SET disabled_at=${disabled ? "UTC_TIMESTAMP(3)" : "NULL"} WHERE id=?`,
       [userId],
-    );
+    )) as unknown as WriteHeader;
     if (disabled) await query(db, "DELETE FROM credentials WHERE user_id=?", [userId]);
     if (changed.affectedRows)
       await service.accountChange(db, userId, user.id, disabled ? "disabled" : "enabled");
     return changed;
-  });
+  })) as WriteHeader;
   if (!result.affectedRows) fail(404, "账号不存在");
   return { id: userId, disabled };
 }
 
-export async function resetAccountPassword(service, user, userId, { id, fail }) {
+export async function resetAccountPassword(
+  service: AdminService,
+  user: AdminUser,
+  userId: string,
+  { id, fail }: { id: { parse(value: unknown): unknown }; fail: AdminFail },
+) {
   await service.adminPermission(user, "accounts.reset-password");
   id.parse(userId);
   const password = randomBytes(15).toString("base64url");
-  const result = await transaction(service.db, async (db) => {
-    const [target] = await query(db, "SELECT is_super_admin FROM users WHERE id=? FOR UPDATE", [
-      userId,
-    ]);
+  const result = (await transaction(service.db, async (db) => {
+    await query<{ is_super_admin?: unknown }>(
+      db,
+      "SELECT is_super_admin FROM users WHERE id=? FOR UPDATE",
+      [userId],
+    );
     await assertAccountManagementScope(service, user, userId, "accounts.reset-password", db, fail);
-    const changed = await query(db, "UPDATE users SET password_hash=? WHERE id=?", [
+    const changed = (await query(db, "UPDATE users SET password_hash=? WHERE id=?", [
       await hashPassword(password),
       userId,
-    ]);
+    ])) as unknown as WriteHeader;
     await query(db, "DELETE FROM credentials WHERE user_id=?", [userId]);
     if (changed.affectedRows) await service.accountChange(db, userId, user.id, "password_reset");
     return changed;
-  });
+  })) as WriteHeader;
   if (!result.affectedRows) fail(404, "账号不存在");
   return { password };
 }

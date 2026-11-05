@@ -3,7 +3,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
 import { resolveStoredMime } from "./preview-mime.js";
 import { decodeUploadedBytes, hashesEqual, parseSha256, verifyBytes } from "./file-bytes.js";
-import { HttpError } from "../http-error.js";
+import { HttpError } from "../http-error.ts";
 import {
   FILE_CHUNK_MAX,
   FILE_CHUNK_MIN,

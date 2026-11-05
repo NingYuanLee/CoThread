@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { childBindingFromToolResult } from "../server/child-agent-binding.js";
+import { childBindingFromToolResult } from "../server/child-agent-binding.ts";
 
 test("failed resume cannot occupy the task slot with the old executor", () => {
   const pending = { taskId: "task", childId: "old-child", parentEventId: 42 };

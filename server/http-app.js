@@ -17,7 +17,7 @@ import {
   registerLocalExecutorBrowserRoutes,
   registerLocalExecutorPublicRoutes,
 } from "./local-executors.js";
-import { jsonBodyLimit } from "./json-body-limit.js";
+import { jsonBodyLimit } from "./json-body-limit.ts";
 import { appOrigins } from "./runtime-config.js";
 import { EXECUTOR_LOCK_NAME, executorStatus } from "./replies.js";
 import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";

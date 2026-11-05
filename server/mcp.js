@@ -41,7 +41,7 @@ import { query } from "./db.ts";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,
-} from "./conversation-memory-integrity.js";
+} from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql } from "./file-index-visibility.js";
 
 export { MCP_TOOL_NAMES };

@@ -1,5 +1,5 @@
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 
 // Call inside the same transaction as the write/start it protects.
 export async function lockIteration(conn, threadId, projectId) {

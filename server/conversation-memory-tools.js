@@ -6,7 +6,7 @@ import { isMemorySubject } from "../shared/memory-kinds.js";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,
-} from "./conversation-memory-integrity.js";
+} from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
 import { hydrateFileIndexRoots } from "./file-index-roots.js";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";

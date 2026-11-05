@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { projectArchived } from "./memory-timeline.js";
 import { closeStaleFileIndexScanBatches } from "./file-index-discovery.js";
-import { acquireNamedLock } from "./named-lock.js";
+import { acquireNamedLock } from "./named-lock.ts";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
 
 const liveFiles = `FROM artifacts a JOIN versions v ON v.artifact_id=a.id

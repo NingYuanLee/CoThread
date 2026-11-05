@@ -2,7 +2,7 @@
 import { assertIterationWritable } from "./iteration-state.js";
 
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { publishWork } from "./work-events.js";
 import { enqueueCoordinatorEvent } from "./coordinator-events.js";
 

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createApp } from "../server/http-app.js";
-import { jsonBodyLimit } from "../server/json-body-limit.js";
-import { sweepExpired, touchWindow } from "../server/rate-window.js";
+import { jsonBodyLimit } from "../server/json-body-limit.ts";
+import { sweepExpired, touchWindow } from "../server/rate-window.ts";
 
 const MB = 1024 * 1024;
 

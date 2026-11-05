@@ -393,7 +393,7 @@ test("中断的文件识别可恢复，仍持锁的任务不会被误重排", as
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
   const { Service } = await import("../server/service.js");
-  const { acquireNamedLock } = await import("../server/named-lock.js");
+  const { acquireNamedLock } = await import("../server/named-lock.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
     await import("../server/file-index-discovery.js");

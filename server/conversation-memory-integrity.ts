@@ -1,5 +1,5 @@
 /** SQL expression: no verified source has been removed or changed. */
-export function intactConversationMemorySql(alias) {
+export function intactConversationMemorySql(alias: string): string {
   if (!/^[a-z][a-z0-9_]*$/i.test(alias)) throw new Error("Invalid SQL alias");
   return `NOT EXISTS (SELECT 1 FROM conversation_memory_source_snapshots cs
     LEFT JOIN messages cm ON cm.id=cs.message_id
@@ -7,7 +7,7 @@ export function intactConversationMemorySql(alias) {
 }
 
 /** A preserved quote remains readable after an edit; drift is a separate signal. */
-export function readableConversationMemorySql(alias) {
+export function readableConversationMemorySql(alias: string): string {
   if (!/^[a-z][a-z0-9_]*$/i.test(alias)) throw new Error("Invalid SQL alias");
   return `NOT EXISTS (SELECT 1 FROM conversation_memory_source_snapshots cs
     LEFT JOIN messages cm ON cm.id=cs.message_id

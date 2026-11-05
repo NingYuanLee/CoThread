@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { resolveMemorySourceFamily, sourceFamilyForKind } from "./memory-policy.js";
 
 const parse = (value, fallback = []) =>

@@ -4,7 +4,7 @@ import {
   observationSchema,
   validateConversationMemoryResult,
 } from "./conversation-memory-contract.js";
-import { intactConversationMemorySql } from "./conversation-memory-integrity.js";
+import { intactConversationMemorySql } from "./conversation-memory-integrity.ts";
 
 export function readConversationCandidatePayload(value) {
   if (typeof value !== "string") return value;

@@ -4,7 +4,7 @@ import { query, transaction } from "./db.ts";
 import { Service } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { listOrganizationDocuments } from "./document-organization.js";
-import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
+import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.ts";
 import { createFolder, placeArtifact } from "./documents/index.js";
 import type { PoolConnection } from "mysql2/promise";
 import type { Pool } from "mysql2/promise";

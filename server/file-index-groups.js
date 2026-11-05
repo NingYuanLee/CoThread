@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { createMemoryRelation } from "./memory-graph.js";
 import { visibleFileIndexSql } from "./file-index-visibility.js";
 

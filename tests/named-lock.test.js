@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { acquireNamedLock } from "../server/named-lock.js";
+import { acquireNamedLock } from "../server/named-lock.ts";
 import { acquireSessionLock, sessionLockName } from "../server/session-lock.js";
 
 function fixture(execute) {

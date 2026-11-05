@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HttpError } from "../server/http-error.js";
+import { HttpError } from "../server/http-error.ts";
 import {
   UNASSIGNED_TASK_NOTE,
   draftBriefClientError,

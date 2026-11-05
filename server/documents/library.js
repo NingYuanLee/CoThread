@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
-import { HttpError } from "../http-error.js";
+import { HttpError } from "../http-error.ts";
 import {
   folderRootKind,
   isCacheFolderKind,

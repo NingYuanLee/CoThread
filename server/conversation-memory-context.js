@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,
-} from "./conversation-memory-integrity.js";
+} from "./conversation-memory-integrity.ts";
 
 export class ConversationSourceChangedError extends Error {}
 

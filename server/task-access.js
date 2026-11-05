@@ -1,7 +1,7 @@
 /** 任务域：access。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
 
 import { query } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 

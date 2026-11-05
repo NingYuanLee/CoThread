@@ -1,4 +1,4 @@
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { platformSearchApiKey } from "./model-config.js";
 
 const SEARCH_URL = "https://api.deepseek.com/v1/tools/search";

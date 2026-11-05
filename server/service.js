@@ -8,7 +8,7 @@ import {
   setProjectArchived as setProjectArchivedDomain,
   users as usersDomain,
 } from "./service-admin.js";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { DocumentsService } from "./documents/service.js";
 import * as accessDomain from "./service-access.js";
 import * as membersDomain from "./service-members.js";

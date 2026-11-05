@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { acquireNamedLock } from "../server/named-lock.js";
+import { acquireNamedLock } from "../server/named-lock.ts";
 
 test("lost lock acknowledgements never leave a reentrant lock in the pool", async () => {
   const database = await testDatabase(),

@@ -15,7 +15,7 @@ import {
 import { digest } from "./auth.js";
 import { storedContentType } from "./documents/index.js";
 import { HttpError } from "./service.js";
-import { messageTurnIdForJob } from "./coordinator-turn.js";
+import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { modelDiscussion, modelProject } from "./model-context.js";
 import { agentSession } from "./agent-session.js";
 import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
@@ -93,7 +93,7 @@ import {
   captureSandboxPreview,
 } from "./preview-screenshot.js";
 import { saveVisualArtifact } from "./visual-artifacts.js";
-import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
+import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.ts";
 
 function xiaoxiangActor(job, xiaoxiangSessionId) {
   const authorizedByUserId =

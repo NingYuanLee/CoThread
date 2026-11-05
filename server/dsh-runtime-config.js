@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { composeEntries, loadOverlayPatches, loadProfile } from "@deepseek-ai/dsh-app-boot";
 import { load as loadYaml } from "js-yaml";
-import { assetPath } from "./assets.js";
+import { assetPath } from "./assets.ts";
 import { dshModelPatch } from "./model-config.js";
 
 const require = createRequire(import.meta.url);

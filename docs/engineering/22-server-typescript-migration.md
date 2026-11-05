@@ -116,14 +116,30 @@ npm test            # 集成测试需要测试库
 | -------------- | ---- | ---------------------------------------------------------------- |
 | `server/db.ts` | 195  | 连接池、`query`/`transaction` 泛型、死锁重试、事务标记与连接回收 |
 
-剩余 186 个 `.js` 文件（被引用次数统计于 2026-11-05）：
+第四批（小型纯逻辑模块，依赖已全部转换，因此能标出真类型）：
+
+| 文件                                      | 行数 | 说明                                        |
+| ----------------------------------------- | ---- | ------------------------------------------- |
+| `server/http-error.ts`                    | 16   | 带状态码的错误基类（33 处引用，收益最高）   |
+| `server/child-agent-binding.ts`           | 30   | 从工具结果判断子 Agent 绑定                 |
+| `server/agent-timing-log.ts`              | 17   | 计时日志的字段收敛                          |
+| `server/assets.ts`                        | 17   | 随包静态文件路径解析                        |
+| `server/coordinator-turn.ts`              | 21   | 消息所属「轮」的判定                        |
+| `server/rate-window.ts`                   | 20   | 滑动窗口计数与过期清理                      |
+| `server/visual-capability.ts`             | 30   | 模型图片能力开关与跳过说明                  |
+| `server/conversation-memory-integrity.ts` | 22   | 记忆来源完整性的 SQL 片段                   |
+| `server/json-body-limit.ts`               | 26   | 按路由返回请求体上限                        |
+| `server/agent-errors.ts`                  | 40   | 把 Agent 失败收敛成可诊断的代码             |
+| `server/named-lock.ts`                    | 51   | MySQL 命名锁的获取与释放（受边界规则 9 管） |
+
+剩余 174 个 `.js` 文件（被引用次数统计于 2026-11-05）：
 
 | 批次 | 范围                                                                  | 文件数 |
 | ---- | --------------------------------------------------------------------- | ------ |
-| 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 19     |
-| 4    | 被 2–4 个文件引用                                                     | 84     |
-| 5    | 被 5–9 个文件引用                                                     | 51     |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 31     |
+| 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 18     |
+| 4    | 被 2–4 个文件引用                                                     | 80     |
+| 5    | 被 5–9 个文件引用                                                     | 47     |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 28     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
 
 入口最后转：`package.json` 的 `start` / `dev:static`、systemd `ExecStart`、`scripts/ecs-*` 都写着 `server/index.js`，改名要同步改这些地方。
@@ -186,6 +202,7 @@ function isPool(db: Db): db is Pool {
 
 ## 已知坑
 
+- **测试里的「复制源文件再导入」会把 `.ts` 写坏。** `tests/assets.test.js` 曾把 `server/assets.ts` 复制成临时目录里的 `assets.mjs` 再 import——Node 只对 `.ts` 做类型擦除，改后缀后按纯 JS 解析，遇到类型标注直接 `SyntaxError`。转换某个模块后，若测试里出现 `copyFile(...) + 另一个后缀`，同步改成同样的 `.ts` 后缀。
 - **prettier 只检查改动过的文件**（`scripts/lint.js`），所以历史遗留的格式问题不会自己暴露；`.ts` 同样适用。
 - **`tmp/` 在 `.gitignore` 里，prettier 3 默认跳过它**（默认 `--ignore-path` 含 `.gitignore`），拿 `tmp/` 下的副本做格式化验证等于空跑。
 - **迁移工具按当前磁盘状态扫描**：同一批传多个文件时，前面的文件已改名，后面扫描会跳过已消失的路径。这是刻意处理，不是 bug。

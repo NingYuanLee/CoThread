@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { captureDocumentRevision, canReadHistoricalSources } from "./memory-history.js";
 const parse = (value) => (typeof value === "string" ? JSON.parse(value) : value);
 /** Only caller-declared memory is a decision basis. Merely retrieved material is never attached. */

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { acquireNamedLock } from "../server/named-lock.js";
+import { acquireNamedLock } from "../server/named-lock.ts";
 import { startReplyWorker } from "../server/replies.js";
 import { LocalSandbox } from "../server/local-sandbox.js";
 

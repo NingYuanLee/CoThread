@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { messageTurnIdForJob } from "../server/coordinator-turn.js";
+import { messageTurnIdForJob } from "../server/coordinator-turn.ts";
 test("人类发言触发的 run 用发言 id 作轮，子 Agent 唤醒的 run 单独一轮", () => {
   assert.equal(messageTurnIdForJob({ kind: "member_message", message_id: "m1" }), "m1");
   assert.equal(

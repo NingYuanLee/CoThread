@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { markInTransaction, query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { lockIteration } from "./iteration-state.js";
 import { latestVersionsByFolderRoots } from "./documents/index.js";
 import { modelResponse, responseText } from "./model-config.js";

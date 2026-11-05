@@ -1,4 +1,4 @@
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { query } from "./db.ts";
 
 /**

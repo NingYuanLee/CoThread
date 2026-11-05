@@ -16,8 +16,10 @@ test("server assets resolve beside the module when cwd is outside the release", 
     await mkdir(assets, { recursive: true });
     await mkdir(elsewhere, { recursive: true });
     await writeFile(join(assets, "agent-patch.yml"), "x");
-    const entry = join(serverDir, "assets.mjs");
-    await copyFile(new URL("../server/assets.js", import.meta.url), entry);
+    // 被测模块已是 .ts，复制时保持后缀：Node 只对 .ts 做类型擦除，
+    // 改名成 .mjs 会退回按纯 JS 解析而因类型标注报语法错误。
+    const entry = join(serverDir, "assets.ts");
+    await copyFile(new URL("../server/assets.ts", import.meta.url), entry);
     const result = spawnSync(
       process.execPath,
       [

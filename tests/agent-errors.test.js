@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentFailureCode } from "../server/agent-errors.js";
+import { agentFailureCode } from "../server/agent-errors.ts";
 
 test("runtime diagnostics identify missing dependencies without leaking raw errors", () => {
   assert.equal(

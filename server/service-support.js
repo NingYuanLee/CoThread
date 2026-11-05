@@ -26,7 +26,7 @@ export function preferredLocalExecutorJoin() {
     WHERE c.revoked_at IS NULL
   ) c ON c.user_id = u.id AND c.rn = 1`;
 }
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 export const fail = (status, message) => {
   throw new HttpError(status, message);
 };

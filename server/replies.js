@@ -1,6 +1,6 @@
 import { interruptRunningAgentEvents } from "./thread-activity.js";
 import { query, transaction } from "./db.ts";
-import { acquireNamedLock } from "./named-lock.js";
+import { acquireNamedLock } from "./named-lock.ts";
 import { createExecutorDatabase } from "./executor-access.js";
 import {
   bumpExecutorEpoch,
@@ -27,7 +27,7 @@ import { processNextContextCompression, refreshNextContextStats } from "./contex
 import { processNextLaowengContextCompression } from "./laoweng-context.js";
 import { processNextChildContextCompression } from "./child-agent-context.js";
 import { redactSecrets } from "./model-config.js";
-import { logAgentTiming } from "./agent-timing-log.js";
+import { logAgentTiming } from "./agent-timing-log.ts";
 import {
   recoverInterruptedChildAgentExecutions,
   recoverStaleChildAgentExecutions,

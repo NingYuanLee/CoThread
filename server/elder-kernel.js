@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { createUsageMeter } from "./agent-usage.js";
-import { assetPath } from "./assets.js";
+import { assetPath } from "./assets.ts";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { contextInjectionFromEvent } from "../shared/context-injection.js";
 import { elderRuntimePatch } from "./dsh-runtime-config.js";

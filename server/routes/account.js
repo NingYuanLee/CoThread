@@ -25,7 +25,7 @@ import { resolveIpLocation } from "../ip-location.js";
 import { randomUUID } from "node:crypto";
 import { randomInt } from "node:crypto";
 import { digest } from "../auth.js";
-import { sweepExpired, touchWindow } from "../rate-window.js";
+import { sweepExpired, touchWindow } from "../rate-window.ts";
 import { isProductionProcess, requestIsHttps } from "../runtime-config.js";
 
 export function createAccountSurface({ db, service, sendVerificationEmail, createHumanChallenge }) {

@@ -25,9 +25,9 @@ import {
   touchChildInferenceHeartbeat,
 } from "./task-pool.js";
 import { trackThinking } from "./agent-thinking.js";
-import { childBindingFromToolResult } from "./child-agent-binding.js";
+import { childBindingFromToolResult } from "./child-agent-binding.ts";
 import { insertUniqueAssistantMessage } from "./assistant-post.js";
-import { messageTurnIdForJob } from "./coordinator-turn.js";
+import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { countTurnSteps } from "../shared/turn-steps.js";
 import { persistChildContextStats, persistChildRunCheckpoint } from "./child-agent-session.js";
 import {
@@ -40,7 +40,7 @@ import {
   messageAddressesOthersOnly,
   otherAddressedMessageIds,
 } from "./agent-participation.js";
-import { logAgentTiming } from "./agent-timing-log.js";
+import { logAgentTiming } from "./agent-timing-log.ts";
 import {
   assertCurrentExecutorEpoch,
   assertExternalAdmitted,

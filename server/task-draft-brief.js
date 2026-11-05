@@ -6,7 +6,7 @@ import { z } from "zod/v3";
 import { TASK_DRAFT_SYSTEM_PROMPT, taskDraftPromptText } from "../shared/task-draft-brief.js";
 import { query } from "./db.ts";
 import { latestVersionsByFolderRoots } from "./documents/index.js";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { modelResponse, responseText } from "./model-config.js";
 import { describeMouthpieceAttachment } from "./mouthpiece.js";
 import { assertDocumentRefs, assertFolderRefs } from "./task-documents.js";

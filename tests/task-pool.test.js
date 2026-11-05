@@ -39,7 +39,7 @@ import {
   updateTask,
 } from "../server/task-pool.js";
 import { testDatabase } from "./database.js";
-import { childBindingFromToolResult } from "../server/child-agent-binding.js";
+import { childBindingFromToolResult } from "../server/child-agent-binding.ts";
 
 let database, db, service, project, thread, users, xiaoxiangSessionId, reportHostId;
 

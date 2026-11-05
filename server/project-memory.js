@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { query, transaction } from "./db.ts";
-import { acquireNamedLock } from "./named-lock.js";
+import { acquireNamedLock } from "./named-lock.ts";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
@@ -18,7 +18,7 @@ import { isMemorySubtype } from "../shared/memory-taxonomy.js";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,
-} from "./conversation-memory-integrity.js";
+} from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql } from "./file-index-visibility.js";
 import { resolveMemoryRetry } from "./memory-retry.js";
 

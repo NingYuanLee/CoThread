@@ -3,8 +3,8 @@ import { mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promi
 import { resolve, join } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.ts";
-import { acquireNamedLock } from "./named-lock.js";
-import { assetPath } from "./assets.js";
+import { acquireNamedLock } from "./named-lock.ts";
+import { assetPath } from "./assets.ts";
 import { dedupeSessionLogs, hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";

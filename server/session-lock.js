@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { acquireNamedLock } from "./named-lock.js";
+import { acquireNamedLock } from "./named-lock.ts";
 
 export function sessionLockName(threadId) {
   return `cothread-context:${threadId}`;

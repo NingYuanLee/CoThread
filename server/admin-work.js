@@ -1,6 +1,6 @@
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { adminAudit, requireAdminPermission } from "./admin-rbac.js";
 import { publishWork } from "./work-events.js";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";

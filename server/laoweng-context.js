@@ -1,5 +1,5 @@
 import { query, transaction } from "./db.ts";
-import { acquireNamedLock } from "./named-lock.js";
+import { acquireNamedLock } from "./named-lock.ts";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { contextUsage } from "../shared/context.js";

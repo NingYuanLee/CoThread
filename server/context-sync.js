@@ -1,6 +1,6 @@
 import { query } from "./db.ts";
 import { Service } from "./service.js";
-import { agentFailureCode } from "./agent-errors.js";
+import { agentFailureCode } from "./agent-errors.ts";
 import { redactSecrets } from "./model-config.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.js";
 

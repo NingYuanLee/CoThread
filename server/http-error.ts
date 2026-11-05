@@ -6,7 +6,10 @@
  * `server/service.js` 继续 re-export 本类，历史调用点无需改动。
  */
 export class HttpError extends Error {
-  constructor(status, message) {
+  /** HTTP 状态码，由响应层读出后写回给客户端。 */
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
     this.status = status;
   }

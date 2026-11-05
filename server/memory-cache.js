@@ -3,7 +3,7 @@ import { query } from "./db.ts";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,
-} from "./conversation-memory-integrity.js";
+} from "./conversation-memory-integrity.ts";
 
 /**
  * 方向 A：wiki_pages 是事实，三张旧摘要表（agent_member_summaries /

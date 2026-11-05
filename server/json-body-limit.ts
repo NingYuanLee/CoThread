@@ -4,8 +4,10 @@ const MB = 1024 * 1024;
  * 大多数接口不到 1mb。文件字节只出现在少数路由：
  * 分片和 MCP 一片最多约 700KB Base64；单文件内联上限 5 MiB（Base64 约 7MB）；
  * 消息附件合计与小程序源文件最多 20 MiB 原始字节（Base64 约 27MB）。
+ *
+ * 返回值作为 Express `json()` 的 `limit`，单位是字节。
  */
-export function jsonBodyLimit(method, path) {
+export function jsonBodyLimit(method: string, path: string): number {
   if (method === "POST" && /^\/api\/threads\/[^/]+\/messages$/.test(path)) return 28 * MB;
   if (method === "PUT" && /^\/api\/projects\/[^/]+\/miniprogram\/source$/.test(path))
     return 28 * MB;

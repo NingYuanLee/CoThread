@@ -6,7 +6,7 @@ import {
 } from "./iteration-state.js";
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import { publishWork } from "./work-events.js";
 
 import { withChildDispatchGate } from "./task-pool-helpers.js";

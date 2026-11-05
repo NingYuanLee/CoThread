@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "./http-error.ts";
 import type { Db } from "./types.ts";
 
 /** 任务条四个阶段：待接受、进行中、已阻塞、待验收。 */

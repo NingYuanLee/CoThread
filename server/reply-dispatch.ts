@@ -1,42 +1,69 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { query, transaction } from "./db.ts";
 import { mentionsAgent } from "../shared/agent-member.js";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
 
 // One visible assistant coordinates up to seven concurrent execution contexts.
 export const MAX_THREAD_AGENTS = 7;
 
-export async function claimReply(db, threadId, { allowUnrouted = true, skipPending = false } = {}) {
-  const candidates = threadId
+/** 认领选项。 */
+export type ClaimReplyOptions = { allowUnrouted?: boolean; skipPending?: boolean };
+
+/** 排队中的一条回复。 */
+type QueuedReply = {
+  message_id: string;
+  participation?: string | null;
+  parent_message_id?: string | null;
+  agent_slot?: number | null;
+  thread_id: string;
+  author_id: string;
+  sequence: unknown;
+  body?: unknown;
+};
+
+/** 认领结果（去掉 body，补上分配到的父消息与槽位）。 */
+export type ClaimedReply = Omit<QueuedReply, "body"> & {
+  parent_message_id: string;
+  agent_slot: number | undefined;
+};
+
+export async function claimReply(
+  db: Db,
+  threadId: string | null | undefined,
+  { allowUnrouted = true, skipPending = false }: ClaimReplyOptions = {},
+): Promise<ClaimedReply | undefined> {
+  const candidates: Array<{ thread_id: string }> = threadId
     ? [{ thread_id: threadId }]
-    : await query(
+    : await query<{ thread_id: string }>(
         db,
         `SELECT m.thread_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
      WHERE r.status='queued' ${allowUnrouted ? "" : "AND r.dispatch_ready=TRUE"} GROUP BY m.thread_id ORDER BY MIN(r.created_at)`,
       );
   for (const candidate of candidates) {
-    const job = await transaction(db, async (conn) => {
+    const job = await transaction<ClaimedReply | undefined>(db as Pool, async (conn) => {
       // Serialize admission per discussion, including across independent callers.
       // Keep the slot until runtime shutdown/checkpointing has finished.
-      const [thread] = await query(
+      const [thread] = await query<{ id: string; status?: string | null }>(
         conn,
         "SELECT id,status FROM threads WHERE id=? FOR UPDATE SKIP LOCKED",
         [candidate.thread_id],
       );
-      if (!thread || thread.status !== "active") return;
-      const [session] = await query(
+      if (!thread || thread.status !== "active") return undefined;
+      const [session] = await query<{ compact_status?: string | null }>(
         conn,
         "SELECT compact_status FROM agent_sessions WHERE thread_id=?",
         [thread.id],
       );
-      if (session?.compact_status === "running") return;
-      const active = await query(
+      if (session?.compact_status === "running") return undefined;
+      const active = await query<{ author_id: string; agent_slot?: number | null }>(
         conn,
         `SELECT r.message_id,r.parent_message_id,r.agent_slot,m.author_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
          WHERE m.thread_id=? AND (r.status='running' OR r.execution_active=TRUE)`,
         [thread.id],
       );
-      if (active.length >= MAX_THREAD_AGENTS) return;
-      const queued = await query(
+      if (active.length >= MAX_THREAD_AGENTS) return undefined;
+      const queued = await query<QueuedReply>(
         conn,
         `SELECT r.message_id,r.participation,r.parent_message_id,r.agent_slot,m.thread_id,m.author_id,m.sequence,m.body
          FROM assistant_replies r JOIN messages m ON m.id=r.message_id
@@ -48,9 +75,9 @@ export async function claimReply(db, threadId, { allowUnrouted = true, skipPendi
         if (active.some((task) => task.author_id === row.author_id)) return false;
         if (row.agent_slot && active.some((task) => task.agent_slot === row.agent_slot))
           return false;
-        return row.parent_message_id || !active.length || mentionsAgent(row.body);
+        return row.parent_message_id || !active.length || mentionsAgent(String(row.body ?? ""));
       });
-      if (!next) return;
+      if (!next) return undefined;
       const parent = next.parent_message_id || next.message_id;
       const slot =
         next.agent_slot ||
@@ -64,34 +91,42 @@ export async function claimReply(db, threadId, { allowUnrouted = true, skipPendi
         [parent, slot, "正在接入运行时", next.message_id],
       );
       const { body, ...result } = next;
+      void body;
       return { ...result, parent_message_id: parent, agent_slot: slot };
     });
     if (job) return job;
   }
+  return undefined;
 }
+
+/** 空闲检测回调。 */
+type WorkCallback = (threadId: string) => Promise<boolean | undefined>;
+
+/** 工作变化订阅。 */
+type WorkSubscription = (listener: (id?: string | null) => void) => () => void;
 
 // The owner of the hosted iteration lock keeps polling while work is active.
 // New mentions can therefore start even if a second wakeup returns "running".
 export async function drainReplies(
-  reply,
-  threadId,
-  deadline,
-  coordinate = async () => false,
-  maintain = async () => false,
-  subscribe = () => () => {},
-) {
-  const active = new Set();
+  reply: WorkCallback,
+  threadId: string,
+  deadline: number,
+  coordinate: WorkCallback = async () => false,
+  maintain: WorkCallback = async () => false,
+  subscribe: WorkSubscription = () => () => {},
+): Promise<void> {
+  const active = new Set<Promise<void>>();
   let idle = false;
-  let routing;
+  let routing: Promise<void> | undefined;
   let coordinatorIdle = false;
-  let maintaining;
+  let maintaining: Promise<void> | undefined;
   let maintenanceIdle = false;
-  let failure;
-  let replyCheck = 0,
-    coordinatorCheck = 0,
-    maintenanceCheck = 0;
+  let failure: unknown;
+  let replyCheck = 0;
+  let coordinatorCheck = 0;
+  let maintenanceCheck = 0;
   const recheckMs = 1500;
-  let wake;
+  let wake: (() => void) | undefined;
   let workRevision = 0;
   const unsubscribe = subscribe((id) => {
     if (id && id !== threadId) return;
@@ -110,7 +145,7 @@ export async function drainReplies(
             maintenanceIdle = !worked && revision === workRevision;
             maintenanceCheck = Date.now() + recheckMs;
           })
-          .catch((error) => {
+          .catch((error: unknown) => {
             failure = error;
           })
           .finally(() => {
@@ -126,7 +161,7 @@ export async function drainReplies(
             coordinatorCheck = Date.now() + recheckMs;
             if (worked) idle = false;
           })
-          .catch((error) => {
+          .catch((error: unknown) => {
             failure = error;
           })
           .finally(() => {
@@ -141,7 +176,7 @@ export async function drainReplies(
             idle = !worked && revision === workRevision;
             replyCheck = Date.now() + recheckMs;
           })
-          .catch((error) => {
+          .catch((error: unknown) => {
             failure = error;
           })
           .finally(() => active.delete(task));
@@ -151,7 +186,7 @@ export async function drainReplies(
         continue;
       }
       if (!active.size && !routing && !maintaining && coordinatorIdle && maintenanceIdle) break;
-      const notified = new Promise((resolve) => {
+      const notified = new Promise<void>((resolve) => {
         wake = resolve;
       });
       await Promise.race([

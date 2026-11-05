@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dispatch.js";
+import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dispatch.ts";
 import { processNextReply } from "../server/replies.js";
 import { openAgentRuntime, stopAgent } from "../server/agent.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.ts";

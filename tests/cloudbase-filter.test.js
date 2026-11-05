@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compileCloudbaseFilter } from "../server/cloudbase-filter.js";
+import { compileCloudbaseFilter } from "../server/cloudbase-filter.ts";
 
 const command = new Proxy(
   {},

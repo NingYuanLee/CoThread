@@ -265,15 +265,19 @@ npm test            # 集成测试需要测试库
 - `transaction(db, cb)` 的泛型在回调可能返回 `null` 时会被推成 `{}`，属性访问全部报错。显式写 `transaction<Job | null>(pool, cb)` 才正确。
 - `new Service(db)` / `acquireSessionLock(db, …)` 要的是 `Pool`，而函数签名收的是 `Db = Pool | PoolConnection`。在函数入口取一次 `const pool = db as Pool`，只在需要池的地方用。
 
-剩余 87 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第二十批：`reply-dispatch.ts`(215)、`cloudbase-filter.ts`(199)、`context-compression.ts`(256)。
 
-| 批次 | 范围                                                                            | 文件数 |
-| ---- | ------------------------------------------------------------------------------- | ------ |
-| 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）                  | 12     |
-| 4    | 被 2–4 个文件引用                                                               | 26     |
-| 5    | 被 5–9 个文件引用                                                               | 25     |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 24     |
-| 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径           | 1      |
+`documents/versions`(253 行) 与 `environment-variables`(188 行) 本轮改名后**回退**：同批 5 个文件一次报出 154 个错，超出单轮可复核的范围。回退后引用全部改回 `.js`、typecheck 归零——同批塞太多文件时，宁可少转几个也不要留下半成品。
+
+剩余 84 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+
+| 批次 | 范围                                                                            | 文件数            |
+| ---- | ------------------------------------------------------------------------------- | ----------------- |
+| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 12                |
+| 4    | 被 2–4 个文件引用                                                               | 24                |
+| 5    | 被 5–9 个文件引用                                                               | 24                |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 24                |
+| 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）          | 1（已计入批次 3） |
 
 `service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。
 

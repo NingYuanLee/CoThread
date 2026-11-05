@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { setImmediate as turn, setTimeout as delay } from "node:timers/promises";
 import { publishWork, subscribeWork, startWakeWorker } from "../server/work-events.ts";
 import { createWakeGate } from "../shared/wake-gate.js";
-import { drainReplies } from "../server/reply-dispatch.js";
+import { drainReplies } from "../server/reply-dispatch.ts";
 
 test("idle workers stop querying, wake on commits and retain notifications received during a query", async () => {
   const db = {},

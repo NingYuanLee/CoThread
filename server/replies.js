@@ -10,7 +10,7 @@ import {
   runWithExecutorFence,
 } from "./executor-fence.ts";
 import { Service, HttpError } from "./service.js";
-import { claimReply } from "./reply-dispatch.js";
+import { claimReply } from "./reply-dispatch.ts";
 import { pendingTaskUpdates } from "./agent-updates.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { synchronizeNextDiscussion } from "./context-sync.js";
@@ -23,7 +23,7 @@ import {
   reconcileNextFileIndexArtifact,
   scheduleNextFileIndexSweep,
 } from "./file-index-discovery.js";
-import { processNextContextCompression, refreshNextContextStats } from "./context-compression.js";
+import { processNextContextCompression, refreshNextContextStats } from "./context-compression.ts";
 import { processNextLaowengContextCompression } from "./laoweng-context.js";
 import { processNextChildContextCompression } from "./child-agent-context.ts";
 import { redactSecrets } from "./model-config.js";

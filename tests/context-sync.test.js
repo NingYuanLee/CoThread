@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { synchronizeDiscussionContext } from "../server/context-sync.js";
-import { drainReplies } from "../server/reply-dispatch.js";
+import { drainReplies } from "../server/reply-dispatch.ts";
 
 test("slow context maintenance does not occupy the coordinator lane", async () => {
   const gate = Promise.withResolvers();

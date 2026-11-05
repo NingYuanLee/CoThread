@@ -5,7 +5,7 @@
  * 逻辑同处一个文件、且门面必须反过来 import 内核。现在按 1.1 的方式纯移动到这里：
  * `Service extends DocumentsService`，正文逐字未改，`this` 语义不变。
  *
- * 写入一律经 `./versions.js` / `./library.js`；本文件不直接拼文档表的 SQL。
+ * 写入一律经 `./versions.ts` / `./library.js`；本文件不直接拼文档表的 SQL。
  * 与业务侧的协作（权限、迭代锁、记忆队列）继续通过传入的 `this` 与显式 import 完成。
  */
 import { randomUUID } from "node:crypto";

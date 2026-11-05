@@ -1,5 +1,5 @@
 import { HttpError } from "./service.js";
-import { compileCloudbaseFilter } from "./cloudbase-filter.js";
+import { compileCloudbaseFilter } from "./cloudbase-filter.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 
 /**

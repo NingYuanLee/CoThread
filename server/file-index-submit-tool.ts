@@ -2,12 +2,32 @@ import { createServer } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { query, transaction } from "./db.js";
+import type { AddressInfo } from "node:net";
+import type { PoolConnection } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 打开桥接所需的上下文：目标版本、其不可变字节与该文件的校验函数。 */
+export type FileIndexBridgeOptions = {
+  projectId: string;
+  versionId: string;
+  sha256: string;
+  mime: string;
+  /** 校验模型提交的参数，返回规范化后的结果。 */
+  validate: (args: unknown) => unknown;
+};
+
+/** 桥接句柄：给执行器的环境变量、取回结果、关闭。 */
+export type FileIndexBridge = {
+  env: Record<string, string>;
+  result(): Promise<unknown>;
+  close(): Promise<void>;
+};
 
 /** One tool, scoped to the immutable bytes and queue attempt that opened it. */
 export async function startFileIndexSubmissionBridge(
-  db,
-  { projectId, versionId, sha256, mime, validate },
-) {
+  db: Db,
+  { projectId, versionId, sha256, mime, validate }: FileIndexBridgeOptions,
+): Promise<FileIndexBridge> {
   const attemptId = randomUUID();
   const token = randomBytes(24).toString("hex");
   const specs = [
@@ -47,7 +67,7 @@ export async function startFileIndexSubmissionBridge(
       const request = JSON.parse(body);
       if (request.name !== specs[0].name) throw new Error("没有这个工具");
       const payload = validate(request.args || {});
-      await transaction(db, async (conn) => {
+      await transaction(db, async (conn: PoolConnection) => {
         const [file] = await query(
           conn,
           `SELECT q.version_id FROM agent_document_memory_queue q
@@ -86,16 +106,18 @@ export async function startFileIndexSubmissionBridge(
     } catch (error) {
       res
         .writeHead(400)
-        .end(JSON.stringify({ error: String(error?.message || "保存失败").slice(0, 300) }));
+        .end(
+          JSON.stringify({ error: String((error as Error)?.message || "保存失败").slice(0, 300) }),
+        );
     }
   });
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     bridge.once("error", reject);
     bridge.listen(0, "127.0.0.1", resolve);
   });
   return {
     env: {
-      COTHREAD_BRIDGE_URL: `http://127.0.0.1:${bridge.address().port}`,
+      COTHREAD_BRIDGE_URL: `http://127.0.0.1:${(bridge.address() as AddressInfo).port}`,
       COTHREAD_BRIDGE_TOKEN: token,
       COTHREAD_ALLOWED_TOOLS: JSON.stringify([specs[0].name]),
       COTHREAD_MCP_TOOLS: JSON.stringify(specs),
@@ -110,7 +132,7 @@ export async function startFileIndexSubmissionBridge(
       return typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
     },
     close: () =>
-      new Promise((resolve, reject) =>
+      new Promise<void>((resolve, reject) =>
         bridge.close((error) => (error ? reject(error) : resolve())),
       ),
   };

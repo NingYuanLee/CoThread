@@ -26,6 +26,8 @@ export function stickyChildLabel(executorId, knownIds) {
 }
 
 // 状态变更记录：与写状态的语句放在同一事务里；status 未变化则不写。
+// 只补 reason 的 JSDoc：默认值 null 会让 TS 把它推成 null，而调用方会传说明文字。
+/** @param {string | null} [reason] */
 export async function recordTaskStatusChange(
   conn,
   taskId,

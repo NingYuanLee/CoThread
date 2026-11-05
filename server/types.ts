@@ -11,3 +11,24 @@ export type Db = Pool | PoolConnection;
 
 /** SQL 参数数组。mysql2 允许的类型很宽，这里只约束成数组形状。 */
 export type SqlParams = readonly unknown[];
+
+/** 登录身份：由 `authenticate` 中间件挂在请求上。 */
+export type RequestUser = {
+  id: string;
+  /** session 是浏览器登录，api 是账号令牌。 */
+  kind: "session" | "api";
+  name?: string | null;
+  username?: string | null;
+  credential_id: string | null;
+  scope: unknown;
+  [field: string]: unknown;
+};
+
+declare global {
+  namespace Express {
+    interface Request {
+      /** 鉴权中间件挂上；未经过鉴权的路由不读它。 */
+      user: RequestUser;
+    }
+  }
+}

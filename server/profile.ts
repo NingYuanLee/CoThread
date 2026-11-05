@@ -28,7 +28,23 @@ export const profileSchema = z
   })
   .strict();
 
-export function personalProfile(user) {
+/** `personalProfile` 会读到的用户行字段；其余列不影响输出。 */
+export type ProfileUserRow = {
+  id: string;
+  /** 数据库自增序号；驱动按字符串返回，输出时再转数字。 */
+  user_number: string | number;
+  username?: string | null;
+  name?: string | null;
+  email?: string | null;
+  avatar?: string | null;
+  motto?: string | null;
+  /** JSON 列，驱动返回字符串；也兼容已被解析过的数组。 */
+  identity_tags?: string | string[] | null;
+  is_super_admin?: string | number | boolean | null;
+  ui_theme?: string | null;
+};
+
+export function personalProfile(user: ProfileUserRow) {
   return {
     id: user.id,
     user_number: Number(user.user_number),

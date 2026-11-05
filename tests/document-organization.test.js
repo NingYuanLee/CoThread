@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import { queueDocumentOrganization } from "../server/document-organization.js";
-import { processNextDocumentOrganization } from "../server/document-organization-run.js";
+import { processNextDocumentOrganization } from "../server/document-organization-run.ts";
 
 test("formal file organization is blocked before 老翁 when the official area has no documents", async () => {
   const database = await testDatabase();

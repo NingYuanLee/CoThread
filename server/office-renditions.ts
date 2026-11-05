@@ -14,20 +14,44 @@ import {
   RENDITION_MAX_ATTEMPTS,
 } from "./documents/index.js";
 import { convertToOoxml, planOfficeRendition } from "./office-convert.js";
+import type { RenditionRow } from "./documents/renditions.ts";
+import type { Db } from "./types.ts";
 
-const inflight = new Set();
+/** 确保派生文件的结果；调用方按 `status` 决定响应码。 */
+export type RenditionOutcome =
+  | {
+      status: "ready";
+      kind: string;
+      filename: string | null;
+      mime: string | null;
+      content: Buffer;
+      reason: string;
+    }
+  | { status: "pending" }
+  | { status: "unsupported"; reason: string }
+  | { status: "failed"; reason: string };
 
-function digest(buffer) {
+/** 待转换的版本：至少需要定位、源哈希、文件名与原始字节。 */
+export type RenditionVersion = {
+  id: string;
+  sha256: string;
+  filename: string;
+  content: Buffer;
+};
+
+const inflight = new Set<string>();
+
+function digest(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
-function readyResult(row) {
+function readyResult(row: RenditionRow): RenditionOutcome {
   return {
     status: "ready",
     kind: row.kind,
     filename: row.filename,
     mime: row.mime,
-    content: row.content,
+    content: row.content as Buffer,
     reason: "",
   };
 }
@@ -40,14 +64,29 @@ function readyResult(row) {
  *
  * `existing` 可传入调用方已查到的记录，避免重复查询。
  */
-export async function ensureOfficeRendition({ db, version, existing = null }) {
+export async function ensureOfficeRendition({
+  db,
+  version,
+  existing = null,
+}: {
+  db: Db;
+  version: RenditionVersion;
+  existing?: RenditionRow | null;
+}): Promise<RenditionOutcome> {
   const versionId = version.id;
   const sourceSha256 = version.sha256;
   const record = existing || (await getRendition(db, versionId, { withContent: true }));
   const fresh = record && record.source_sha256 === sourceSha256;
   if (fresh && record.status === "ready" && record.content) return readyResult(record);
 
-  const plan = planOfficeRendition(version.filename, version.content);
+  // office-convert.js 尚未转换；这里写明它「supported 为真」时的返回契约。
+  const plan = planOfficeRendition(version.filename, version.content) as {
+    supported: boolean;
+    reason: string;
+    kind: string;
+    filename: string;
+    mime: string;
+  };
   if (!plan.supported) return { status: "unsupported", reason: plan.reason };
   if (inflight.has(versionId)) return { status: "pending" };
   if (fresh && record.status === "failed" && Number(record.attempts) >= RENDITION_MAX_ATTEMPTS)
@@ -84,7 +123,7 @@ export async function ensureOfficeRendition({ db, version, existing = null }) {
       await failRendition(db, {
         versionId,
         sourceSha256,
-        error: error?.message || "转换失败",
+        error: (error as Error | undefined)?.message || "转换失败",
       }).catch(() => {});
     } finally {
       inflight.delete(versionId);

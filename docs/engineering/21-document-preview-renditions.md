@@ -23,7 +23,7 @@ WPS「在线文档」另存/导出会把 Word 97-2003 二进制 `.doc` 直接命
 - `source_sha256` 记录生成时的源内容哈希：仓库支持同一版本 ID 原位替换内容，哈希不一致即视为过期，不会用到旧派生文件；
 - `status` 为 `pending|ready|failed`，`attempts` 用于自动重试上限（3 次）。
 
-读写只在文档内核 `server/documents/renditions.js` 中，边界检查已把 `version_renditions` 列入文档表清单。
+读写只在文档内核 `server/documents/renditions.ts` 中，边界检查已把 `version_renditions` 列入文档表清单。
 
 ## 触发与状态机
 

@@ -6,6 +6,8 @@ import { publishWork } from "./work-events.js";
 import { listOrganizationDocuments } from "./document-organization.js";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
 import { createFolder, placeArtifact } from "./documents/index.js";
+import type { PoolConnection } from "mysql2/promise";
+import type { Db } from "./types.ts";
 
 const planSchema = z.object({
   documents: z
@@ -23,7 +25,32 @@ const visualVerificationSchema = z.object({
   issues: z.string().max(4000).default(""),
 });
 
-async function createPlan(db, job, documents, options = {}) {
+/** `document_organization_jobs` 的一行；只用到这里读到的列。 */
+type OrganizationJob = {
+  id: string;
+  project_id: string;
+  thread_id?: string | null;
+  scope: unknown;
+  requested_by?: string | null;
+  [column: string]: unknown;
+};
+
+/** 待整理文档的清单项。 */
+type OrganizationDocument = { artifactId: string; folderId?: string | null; title?: string };
+
+/** `processNextDocumentOrganization` 的可注入依赖，测试用。 */
+type OrganizationOptions = {
+  threadId?: string;
+  laowengOptions?: Record<string, unknown>;
+  createPlan?: (job: OrganizationJob, documents: OrganizationDocument[]) => Promise<unknown>;
+};
+
+async function createPlan(
+  db: Db,
+  job: OrganizationJob,
+  documents: OrganizationDocument[],
+  options: Record<string, unknown> = {},
+) {
   const { runLaowengTask } = await import("./laoweng-agent.js");
   return runLaowengTask(
     db,
@@ -40,7 +67,13 @@ async function createPlan(db, job, documents, options = {}) {
   );
 }
 
-async function verifyOrganization(db, job, documents, screenshot, options = {}) {
+async function verifyOrganization(
+  db: Db,
+  job: OrganizationJob,
+  documents: OrganizationDocument[],
+  screenshot: Buffer,
+  options: Record<string, unknown> = {},
+) {
   const { runLaowengTask } = await import("./laoweng-agent.js");
   return runLaowengTask(
     db,
@@ -60,8 +93,8 @@ async function verifyOrganization(db, job, documents, screenshot, options = {}) 
   );
 }
 
-export async function processNextDocumentOrganization(db, options = {}) {
-  const job = await transaction(db, async (conn) => {
+export async function processNextDocumentOrganization(db: Db, options: OrganizationOptions = {}) {
+  const job = await transaction(db, async (conn: PoolConnection) => {
     const [next] = await query(
       conn,
       `SELECT * FROM document_organization_jobs
@@ -78,7 +111,7 @@ export async function processNextDocumentOrganization(db, options = {}) {
   });
   if (!job) return false;
   try {
-    const rows = await listOrganizationDocuments(db, job);
+    const rows: OrganizationDocument[] = await listOrganizationDocuments(db, job);
     if (!rows.length) {
       await query(
         db,
@@ -96,7 +129,7 @@ export async function processNextDocumentOrganization(db, options = {}) {
         : await createPlan(db, job, rows, laowengOptions);
       const allowed = new Map(rows.map((row) => [row.artifactId, row]));
       const changed = [];
-      await transaction(db, async (conn) => {
+      await transaction(db, async (conn: PoolConnection) => {
         const [current] = await query(
           conn,
           "SELECT status FROM document_organization_jobs WHERE id=? FOR UPDATE",
@@ -172,7 +205,7 @@ export async function processNextDocumentOrganization(db, options = {}) {
       `UPDATE document_organization_jobs SET status='failed',error=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
       ["文档整理未完成，可以重试。", job.id],
     );
-    console.error("Document organization failed", { type: error.name });
+    console.error("Document organization failed", { type: (error as Error).name });
   }
   publishWork(db, job.thread_id || undefined);
   return true;

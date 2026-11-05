@@ -2,10 +2,35 @@ import { query, transaction } from "./db.js";
 import { recordTaskStatusChange } from "./task-pool.js";
 import { publishWork } from "./work-events.js";
 import { lockTaskIteration } from "./iteration-state.js";
+import type { Pool, PoolConnection } from "mysql2/promise";
+import type { Db } from "./types.ts";
 
 const terminal = new Set(["completed", "failed", "cancelled", "abandoned", "interrupted"]);
 
-function taskStatus(status) {
+/** 任务池一侧的状态。本地执行器状态比这里多，按下面的映射收敛。 */
+type PoolTaskStatus =
+  "pending_start" | "running" | "waiting" | "completed" | "blocked" | "abandoned";
+
+/** `local_executor_tasks` 的一行；只用到这里读到的列。 */
+type LocalExecutorTaskRow = {
+  id: string;
+  agent_task_id?: string | null;
+  status: string;
+  progress?: string | null;
+  output?: string | null;
+  error?: string | null;
+  assigned_to?: string | null;
+  member_id_snapshot?: string | null;
+  local_executor_id: string;
+  [column: string]: unknown;
+};
+
+/** 连接池要多包一层事务；事务连接直接复用。 */
+function isPool(db: Db): db is Pool {
+  return typeof (db as Pool).getConnection === "function";
+}
+
+function taskStatus(status: string): PoolTaskStatus {
   if (status === "queued" || status === "awaiting_approval") return "pending_start";
   if (status === "running") return "running";
   if (status === "paused") return "waiting";
@@ -17,15 +42,21 @@ function taskStatus(status) {
   return "pending_start";
 }
 
-const localExecutorActor = (localExecutorTask) => ({
+const localExecutorActor = (localExecutorTask: LocalExecutorTaskRow) => ({
   type: "human_member_local_executor",
   id: localExecutorTask.member_id_snapshot || localExecutorTask.assigned_to,
   connectorId: localExecutorTask.local_executor_id,
 });
 
-export async function syncLocalExecutorTask(conn, localExecutorTask, { publish = false } = {}) {
-  if (typeof conn.getConnection === "function")
-    return transaction(conn, (db) => syncLocalExecutorTask(db, localExecutorTask, { publish }));
+export async function syncLocalExecutorTask(
+  conn: Db,
+  localExecutorTask: LocalExecutorTaskRow,
+  { publish = false }: { publish?: boolean } = {},
+) {
+  if (isPool(conn))
+    return transaction(conn, (db: PoolConnection) =>
+      syncLocalExecutorTask(db, localExecutorTask, { publish }),
+    );
   if (!localExecutorTask?.agent_task_id) return null;
   await lockTaskIteration(conn, localExecutorTask.agent_task_id);
   const next = taskStatus(localExecutorTask.status);
@@ -34,7 +65,7 @@ export async function syncLocalExecutorTask(conn, localExecutorTask, { publish =
       ? "completed"
       : next === "blocked"
         ? "failed"
-        : next === "abandoned" || next === "cancelled"
+        : next === "abandoned"
           ? "cancelled"
           : next;
   await query(
@@ -90,7 +121,11 @@ export async function syncLocalExecutorTask(conn, localExecutorTask, { publish =
   return task || null;
 }
 
-export async function syncLocalExecutorTaskById(conn, localExecutorTaskId, options) {
+export async function syncLocalExecutorTaskById(
+  conn: Db,
+  localExecutorTaskId: string,
+  options: { publish?: boolean } = {},
+) {
   const [task] = await query(
     conn,
     "SELECT t.*,COALESCE(t.member_id_snapshot,t.assigned_to) member_id_snapshot FROM local_executor_tasks t WHERE t.id=?",
@@ -101,9 +136,15 @@ export async function syncLocalExecutorTaskById(conn, localExecutorTaskId, optio
 
 // 连接器「重试」：连接器侧记录回到 queued 后，把因本机放弃/失败/中断而结束的任务池任务重新打开，
 // 并为同一连接器新开一条执行记录；不会复活网页侧取消或已被取代的任务。
-export async function reopenLocalExecutorTask(conn, localExecutorTaskId, { publish = false } = {}) {
-  if (typeof conn.getConnection === "function")
-    return transaction(conn, (db) => reopenLocalExecutorTask(db, localExecutorTaskId, { publish }));
+export async function reopenLocalExecutorTask(
+  conn: Db,
+  localExecutorTaskId: string,
+  { publish = false }: { publish?: boolean } = {},
+) {
+  if (isPool(conn))
+    return transaction(conn, (db: PoolConnection) =>
+      reopenLocalExecutorTask(db, localExecutorTaskId, { publish }),
+    );
   const [localExecutorTask] = await query(
     conn,
     "SELECT t.*,COALESCE(t.member_id_snapshot,t.assigned_to) member_id_snapshot FROM local_executor_tasks t WHERE t.id=?",
@@ -143,6 +184,6 @@ export async function reopenLocalExecutorTask(conn, localExecutorTaskId, { publi
   return reopened || null;
 }
 
-export function localExecutorTaskIsTerminal(status) {
+export function localExecutorTaskIsTerminal(status: string): boolean {
   return terminal.has(status);
 }

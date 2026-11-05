@@ -794,7 +794,7 @@ export const documentSummarySchema = z.object({
 export async function summarizeProjectDocument(db, context, options = {}) {
   const { image, contentFingerprint, ...textContext } = context;
   const { runLaowengTask } = await import("./laoweng-agent.js");
-  const { startFileIndexSubmissionBridge } = await import("./file-index-submit-tool.js");
+  const { startFileIndexSubmissionBridge } = await import("./file-index-submit-tool.ts");
   const bridge = await startFileIndexSubmissionBridge(db, {
     projectId: context.projectId,
     versionId: context.versionId,

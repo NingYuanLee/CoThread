@@ -76,6 +76,7 @@ for (const plan of plans) {
   const sourceCanon = canonical(plan.absSource);
   const rewrites = [];
   const manual = [];
+  const docRefs = [];
 
   for (const file of allFiles) {
     if (canonical(file) === sourceCanon) continue;
@@ -83,6 +84,13 @@ for (const plan of plans) {
     if (!fs.existsSync(file)) continue;
     const text = fs.readFileSync(file, "utf8");
     if (!text.includes(".js")) continue;
+
+    // 文档不自动改：releases/ 是逐字照录的历史记录不能动，其余说明文档里的路径
+    // 属于文档维护，单独判断后手改，避免重构和文档改动混在一次批量改写里。
+    if (file.endsWith(".md")) {
+      if (text.includes(path.basename(plan.absSource))) docRefs.push(rel(file));
+      continue;
+    }
 
     // 找出所有字符串字面量里以 .js 结尾的候选项，判断是否解析到目标文件。
     // 用 replace 的回调一次性改写全部命中，避免同一文件里重复引用只改到第一处。
@@ -140,6 +148,9 @@ for (const plan of plans) {
   if (rewrites.length) {
     console.log("  示例:");
     for (const r of rewrites.slice(0, 4)) console.log(`    ${r.file}: ${r.from} → ${r.to}`);
+  }
+  if (docRefs.length) {
+    console.log(`  文档里提到旧路径（未自动改，需人工判断）: ${docRefs.join(", ")}`);
   }
 
   if (!dryRun) {

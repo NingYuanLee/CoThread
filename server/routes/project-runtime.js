@@ -23,7 +23,7 @@ import { randomBytes } from "node:crypto";
 import { joinThreadViewing } from "../thread-presence.js";
 import { trackSse } from "../sse-streams.js";
 import { getRendition } from "../documents/index.js";
-import { ensureOfficeRendition } from "../office-renditions.js";
+import { ensureOfficeRendition } from "../office-renditions.ts";
 
 export function registerProjectRuntimeRoutes(
   app,

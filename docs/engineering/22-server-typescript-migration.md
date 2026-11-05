@@ -98,20 +98,77 @@ npm test            # 集成测试需要测试库
 | `server/user-skill-credentials.ts` | 30   | 个人技能凭据读写包装               |
 | `server/types.ts`                  | 18   | 新增：共享类型                     |
 
-剩余 195 个 `.js` 文件，按被引用次数分批：
+第二批（同日晚，仍是低耦合模块；不含依然依赖未转换枢纽的文件）：
+
+| 文件                                  | 行数 | 说明                                     |
+| ------------------------------------- | ---- | ---------------------------------------- |
+| `server/profile.ts`                   | 63   | 个人资料校验 schema 与对外的资料结构     |
+| `server/documents/renditions.ts`      | 131  | 派生文件存储层（`version_renditions`）   |
+| `server/office-renditions.ts`         | 133  | 派生文件编排：单飞、写回、失败退避       |
+| `server/file-index-submit-tool.ts`    | 139  | 文件识别桥接（本地 HTTP + 令牌校验）     |
+| `server/agent-task-sync.ts`           | 189  | 本地执行器状态同步到任务池               |
+| `server/request-parts.ts`             | 80   | 分片上传路由（首个 Express 路由文件）    |
+| `server/document-organization-run.ts` | 212  | 文档整理作业执行（该能力已下线，代码在） |
+
+剩余 187 个 `.js` 文件（被引用次数统计于 2026-11-05）：
 
 | 批次 | 范围                                                                  | 文件数 |
 | ---- | --------------------------------------------------------------------- | ------ |
-| 2    | 叶模块（被 0–1 个文件引用）                                           | 52     |
-| 3    | 被 2–4 个文件引用                                                     | 82     |
-| 4    | 被 5–9 个文件引用                                                     | 40     |
-| 5    | 被 10+ 个文件引用（含 `db.js`、`service.js`、`project-memory.js`）    | 25     |
-| 6    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
+| 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 19     |
+| 4    | 被 2–4 个文件引用                                                     | 84     |
+| 5    | 被 5–9 个文件引用                                                     | 52     |
+| 6    | 被 10+ 个文件引用（含 `db.js`、`service.js`、`project-memory.js`）    | 31     |
+| 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
 
 入口最后转：`package.json` 的 `start` / `dev:static`、systemd `ExecStart`、`scripts/ecs-*` 都写着 `server/index.js`，改名要同步改这些地方。
+
+## 选文件的顺序
+
+被引用次数少只是必要条件，**还要看它依赖谁**：
+
+```text
+依赖全是已转换模块或标准库  → 现在就能标出有意义的类型
+依赖是未转换的枢纽模块      → 只能标成 unknown，等于白转，推迟
+```
+
+`server/service-notification-operations.js` 是后一种：它只是把 `service-notifications.js` 的四个函数接到 Service 方法上，参数含义完全由被调方决定。强行转换只能得到 `unknown`，所以**保留 `.js`**，等 `service-notifications.js` 转完再一起转。
+
+## 几个具体写法
+
+**事务回调要标类型。** `transaction()` 还在未转换的 `db.js` 里，回调参数推断成 `any`，`strict` 下直接报错，必须显式标注：
+
+```ts
+await transaction(db, async (conn: PoolConnection) => {
+  // conn 现在是 PoolConnection，不是 any
+});
+```
+
+**Express 路由**要 `@types/express`（`^5.0.6`，对应 express 5.3），并且 `req.user` 由鉴权中间件挂上、不在 Express 自带类型里，在 `server/types.ts` 里做了全局扩展：
+
+```ts
+declare global {
+  namespace Express {
+    interface Request {
+      user: RequestUser;
+    }
+  }
+}
+```
+
+把 `Request` 上的 `user` 声明成必填：未鉴权路由不读它，读它的地方一定经过鉴权中间件。
+
+**连接池与事务连接要靠类型守卫区分。** `conn` 既可能是池也可能是连接，`typeof conn.getConnection === "function"` 在联合类型上直接访问会报错，用守卫收窄：
+
+```ts
+function isPool(db: Db): db is Pool {
+  return typeof (db as Pool).getConnection === "function";
+}
+```
 
 ## 已知坑
 
 - **prettier 只检查改动过的文件**（`scripts/lint.js`），所以历史遗留的格式问题不会自己暴露；`.ts` 同样适用。
 - **`tmp/` 在 `.gitignore` 里，prettier 3 默认跳过它**（默认 `--ignore-path` 含 `.gitignore`），拿 `tmp/` 下的副本做格式化验证等于空跑。
 - **迁移工具按当前磁盘状态扫描**：同一批传多个文件时，前面的文件已改名，后面扫描会跳过已消失的路径。这是刻意处理，不是 bug。
+- **工具不自动改文档**：`docs/engineering/releases/` 是逐字照录的历史记录，路径必须保持当时的写法；其余说明文档里的路径属于文档维护，由人判断后再改，避免重构与文档改动混在一次批量改写里。
+- **`git show HEAD:文件 | Out-File` 恢复文件会写成 CRLF**，仓库要求 LF（`.gitattributes` 的 `*.md text eol=lf` 只覆盖部分后缀，JS 走 `* text=auto`），恢复后要再归一一次行尾。

@@ -9,6 +9,22 @@
  * 源哈希变化即视为过期，读取方不会使用旧派生文件，重新转换会重置记录。
  */
 import { query } from "../db.js";
+import type { Db } from "../types.ts";
+
+/** `version_renditions` 的一行。`content` 只在带 `withContent` 查询时存在。 */
+export type RenditionRow = {
+  version_id: string;
+  kind: string;
+  status: "pending" | "ready" | "failed";
+  source_sha256: string;
+  sha256: string | null;
+  byte_size: number | null;
+  filename: string | null;
+  mime: string | null;
+  error: string;
+  attempts: number;
+  content?: Buffer;
+};
 
 export const RENDITION_KINDS = new Set(["docx", "xlsx", "pptx"]);
 
@@ -19,7 +35,11 @@ const RENDITION_COLUMNS =
   "version_id,kind,status,source_sha256,sha256,byte_size,filename,mime,error,attempts";
 
 /** 读取派生记录；`withContent` 为真时一并取出字节。 */
-export async function getRendition(db, versionId, { withContent = false } = {}) {
+export async function getRendition(
+  db: Db,
+  versionId: string,
+  { withContent = false }: { withContent?: boolean } = {},
+): Promise<RenditionRow | null> {
   const [row] = await query(
     db,
     `SELECT ${RENDITION_COLUMNS}${withContent ? ",content" : ""}
@@ -33,7 +53,22 @@ export async function getRendition(db, versionId, { withContent = false } = {}) 
  * 声明一次转换：没有记录时插入 pending，已有记录时累计尝试次数。
  * 源哈希变化会清空旧产物并重置状态。返回更新后的记录。
  */
-export async function claimRendition(db, { versionId, kind, sourceSha256, filename, mime }) {
+export async function claimRendition(
+  db: Db,
+  {
+    versionId,
+    kind,
+    sourceSha256,
+    filename,
+    mime,
+  }: {
+    versionId: string;
+    kind: string;
+    sourceSha256: string;
+    filename: string;
+    mime: string;
+  },
+): Promise<RenditionRow | null> {
   await query(
     db,
     `INSERT INTO version_renditions(version_id,kind,status,source_sha256,filename,mime,attempts)
@@ -54,9 +89,25 @@ export async function claimRendition(db, { versionId, kind, sourceSha256, filena
 
 /** 转换成功：写入字节与哈希，状态置为 ready。 */
 export async function completeRendition(
-  db,
-  { versionId, sourceSha256, content, sha256, byteSize, filename, mime },
-) {
+  db: Db,
+  {
+    versionId,
+    sourceSha256,
+    content,
+    sha256,
+    byteSize,
+    filename,
+    mime,
+  }: {
+    versionId: string;
+    sourceSha256: string;
+    content: Buffer;
+    sha256: string;
+    byteSize: number;
+    filename: string;
+    mime: string;
+  },
+): Promise<void> {
   await query(
     db,
     `UPDATE version_renditions
@@ -67,7 +118,10 @@ export async function completeRendition(
 }
 
 /** 转换失败：记录原因，保留尝试次数供退避判断。 */
-export async function failRendition(db, { versionId, sourceSha256, error }) {
+export async function failRendition(
+  db: Db,
+  { versionId, sourceSha256, error }: { versionId: string; sourceSha256: string; error: unknown },
+): Promise<void> {
   await query(
     db,
     `UPDATE version_renditions SET status='failed',error=?

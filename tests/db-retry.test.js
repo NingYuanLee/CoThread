@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { query, transaction } from "../server/db.js";
+import { query, transaction } from "../server/db.ts";
 
 function resetError() {
   const error = new Error("connection reset");

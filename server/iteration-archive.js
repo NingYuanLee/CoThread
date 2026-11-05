@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { markInTransaction, query, transaction } from "./db.js";
+import { markInTransaction, query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { lockIteration } from "./iteration-state.js";
 import { latestVersionsByFolderRoots } from "./documents/index.js";

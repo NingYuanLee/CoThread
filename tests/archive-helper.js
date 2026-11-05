@@ -1,4 +1,4 @@
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { processNextProjectMemory } from "../server/project-memory.js";
 
 // Legacy integration scenarios exercise the final archived state. Complete both

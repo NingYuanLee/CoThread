@@ -1,4 +1,4 @@
-import { discardConnection, query } from "./db.js";
+import { discardConnection, query } from "./db.ts";
 
 // Named locks belong to the MySQL session, rather than a transaction. An
 // uncertain session must be destroyed, never returned to the pool with a lock.

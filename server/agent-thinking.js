@@ -1,5 +1,5 @@
 import { finishAgentEvent } from "./thread-activity.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { trackLiveOutput } from "./agent-live-output.js";
 import { logAgentTiming } from "./agent-timing-log.js";
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 export async function saveVisualArtifact(
   db,

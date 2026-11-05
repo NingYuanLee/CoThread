@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import { seedInitialAdmin } from "./seed.js";
 import { assertProductionWriteAllowed } from "../server/database-policy.js";
 

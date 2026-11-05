@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { withTaskIterationWrite } from "./iteration-state.js";
 
 async function mutableTask(db, taskId, operation) {

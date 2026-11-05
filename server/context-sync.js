@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { Service } from "./service.js";
 import { agentFailureCode } from "./agent-errors.js";
 import { redactSecrets } from "./model-config.js";

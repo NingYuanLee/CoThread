@@ -10,7 +10,7 @@
  * 未提供的写 NULL，与旧代码「省略该列」的结果一致。
  */
 import { randomUUID } from "node:crypto";
-import { query, transaction } from "../db.js";
+import { query, transaction } from "../db.ts";
 import { recordDocumentChange } from "./document-audit.js";
 
 export async function createArtifact(

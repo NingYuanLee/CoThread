@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.js";
 
 export function sessionLockName(threadId) {

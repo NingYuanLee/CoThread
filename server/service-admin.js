@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { hashPassword } from "./auth.js";
 import { projectImageUrlSql } from "./project-image.js";
 import { AGENT_MEMBER, AGENT_XIAOXIANG_MEMBER } from "../shared/agent-member.js";

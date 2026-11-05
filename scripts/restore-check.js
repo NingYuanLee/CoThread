@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { randomBytes } from "node:crypto";
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import { resolveDatabaseTarget, resolveTargetDatabaseUrl } from "../server/database-policy.js";
 // Deliberately limited to this project's local instance; production restore remains an explicit operator action.
 const targetName = resolveDatabaseTarget();

@@ -5,7 +5,7 @@ import {
   withTaskIterationWrite,
 } from "./iteration-state.js";
 import { randomUUID } from "node:crypto";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { publishWork } from "./work-events.js";
 

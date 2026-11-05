@@ -1,5 +1,5 @@
 import { visibleFileIndexSql } from "./file-index-visibility.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,

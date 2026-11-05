@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { Service, HttpError } from "./service.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.js";
 

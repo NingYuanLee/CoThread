@@ -11,7 +11,7 @@ import { projectThreadSideState } from "./thread-side-state.js";
 import { contextUsage } from "../shared/context.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { title, json, parseMessageRow } from "./service-support.js";
 
 export function beginIterationArchiveOperation(service, user, threadId) {

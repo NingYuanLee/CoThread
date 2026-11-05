@@ -1,4 +1,4 @@
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { generateAgentReply } from "../server/agent.js";
 import { assertProductionWriteAllowed } from "../server/database-policy.js";

@@ -1,5 +1,5 @@
 import { z } from "zod/v3";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { adminAccess } from "./admin-rbac.js";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";

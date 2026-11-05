@@ -1,4 +1,4 @@
-import { query, markInTransaction, discardConnection } from "./db.js";
+import { query, markInTransaction, discardConnection } from "./db.ts";
 
 /** Full counts and paginated identities come directly from business tables. */
 export async function readProjectFacts(

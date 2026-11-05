@@ -5,7 +5,7 @@ import { openAgentRuntime } from "../server/agent.js";
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/auth.js";
 import { Service } from "../server/service.js";

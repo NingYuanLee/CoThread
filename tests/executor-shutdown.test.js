@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { setImmediate as turn } from "node:timers/promises";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { startReplyWorker } from "../server/replies.js";
 
 test("executor keeps its named lock until in-flight lanes have drained", async () => {

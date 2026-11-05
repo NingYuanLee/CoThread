@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { testDatabase } from "../tests/database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 
 const sizes = [100, 1000, 4000, 12000];

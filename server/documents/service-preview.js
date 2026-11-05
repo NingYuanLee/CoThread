@@ -1,5 +1,5 @@
 import { posix as pathPosix } from "node:path";
-import { query } from "../db.js";
+import { query } from "../db.ts";
 import { previewConsoleProbeHtml } from "../../shared/html-preview.mjs";
 import { signPreviewTicket } from "../../shared/preview-ticket.mjs";
 

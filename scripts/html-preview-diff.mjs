@@ -1,4 +1,4 @@
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 
 const versionId = process.argv[2] || "4db2590e-bad9-4ce7-bd14-9e7c8fc616a4";

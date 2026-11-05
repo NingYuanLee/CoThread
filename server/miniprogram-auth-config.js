@@ -1,5 +1,5 @@
 import { z } from "zod/v3";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { decryptToken, encryptToken } from "./credential-vault.js";
 import { HttpError } from "./service.js";
 

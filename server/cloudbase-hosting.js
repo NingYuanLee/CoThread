@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./service.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";

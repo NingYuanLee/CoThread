@@ -1,14 +1,14 @@
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
 import type { Express } from "express";
 import type { PoolConnection } from "mysql2/promise";
-import type { Db } from "./types.ts";
+import type { Pool } from "mysql2/promise";
 
 /** `request_parts` 的一行：片号、总片数与分片内容。 */
 type RequestPartRow = { part_number: number; total_parts: number; content: Buffer };
 
-export function registerRequestParts(app: Express, db: Db): void {
+export function registerRequestParts(app: Express, db: Pool): void {
   app.post("/api/request-parts/:id/:part", async (req, res) => {
     const id = z.string().uuid().parse(req.params.id);
     const part = z.coerce.number().int().min(0).max(319).parse(req.params.part);

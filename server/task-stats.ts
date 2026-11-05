@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import type { Db } from "./types.ts";
 

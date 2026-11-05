@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 
 test(

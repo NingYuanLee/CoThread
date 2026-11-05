@@ -1,4 +1,4 @@
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError, Service } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { acquireSessionLock } from "./session-lock.js";

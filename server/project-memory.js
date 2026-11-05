@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.js";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";

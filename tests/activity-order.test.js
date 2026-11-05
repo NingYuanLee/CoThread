@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { Service } from "../server/service.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { trackThinking } from "../server/agent-thinking.js";
 import { createAgentTools } from "../server/agent-tools.js";
 test("thinking, intermediate text and tools retain actual order; final text is marked separately", async () => {

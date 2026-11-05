@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/auth.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import {
   readMiniprogramAuthConfig,
   readMiniprogramAuthRuntime,

@@ -5,7 +5,7 @@
  */
 import { z } from "zod/v3";
 import { verifyPassword, issueCredential, hashPassword } from "../auth.js";
-import { query, transaction } from "../db.js";
+import { query, transaction } from "../db.ts";
 import { HttpError } from "../service.js";
 import { personalProfile, profileSchema } from "../profile.ts";
 import {

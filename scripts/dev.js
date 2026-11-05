@@ -54,7 +54,7 @@ function bindConsoleToProgress(progress) {
 }
 
 async function announceInitialAdmin() {
-  const { createDatabase } = await import("../server/db.js");
+  const { createDatabase } = await import("../server/db.ts");
   const { prepareDevSuperAdmin } = await import("./seed.js");
   const db = await createDatabase();
   try {

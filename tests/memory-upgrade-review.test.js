@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { testDatabase } from "./database.js";
 import { migrate } from "../scripts/migrate.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import {
   queueConversationMessage,

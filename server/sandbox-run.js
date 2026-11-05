@@ -1,7 +1,7 @@
 import { finishSandboxRun } from "./thread-activity.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
 import { modelDiscussion } from "./model-context.js";
 import { resolveSandboxProvider } from "./sandbox-provider.js";

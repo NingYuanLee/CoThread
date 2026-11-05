@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod/v3";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { testDatabase } from "./database.js";
 import { loadConversationContext } from "../server/conversation-memory-context.js";

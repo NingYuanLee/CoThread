@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { upsertMemoryPage } from "./memory-pages.js";
 
 const DONE = new Set(["completed", "failed", "cancelled", "superseded"]);

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.js";
 import { assetPath } from "./assets.js";
 import { dedupeSessionLogs, hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";

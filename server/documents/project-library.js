@@ -1,4 +1,4 @@
-import { query } from "../db.js";
+import { query } from "../db.ts";
 import { randomUUID } from "node:crypto";
 import { nextDuplicateName, uniqueDisplayTitle } from "../../shared/document-name.js";
 

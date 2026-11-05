@@ -4,7 +4,7 @@
  */
 import { z } from "zod/v3";
 import { TASK_DRAFT_SYSTEM_PROMPT, taskDraftPromptText } from "../shared/task-draft-brief.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { latestVersionsByFolderRoots } from "./documents/index.js";
 import { HttpError } from "./http-error.js";
 import { modelResponse, responseText } from "./model-config.js";

@@ -8,7 +8,7 @@ import {
   responseText,
 } from "./model-config.js";
 import { saveReplyUsage } from "./agent-usage.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { mentionsAgent } from "../shared/agent-member.js";
 
 const USAGE_TOKEN_KEYS = [

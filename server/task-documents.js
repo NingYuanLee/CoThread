@@ -1,6 +1,6 @@
 /** 任务域：documents。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
 
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./http-error.js";
 
 import { folderRootKind, latestVersionsByFolderRoots } from "./documents/index.js";

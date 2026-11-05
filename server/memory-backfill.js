@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { upsertUtteranceMemory } from "./utterance-memory.js";
 import { syncTaskMemory } from "./task-memory.js";
 import { syncDocumentMemory } from "./document-memory.js";

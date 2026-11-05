@@ -1,5 +1,5 @@
 // Integration test: HTML + CSS in same folder, preview should apply styles
-import { createDatabase, query, transaction } from "../server/db.js";
+import { createDatabase, query, transaction } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { randomUUID } from "node:crypto";
 import { assertProductionWriteAllowed } from "../server/database-policy.js";
@@ -63,7 +63,7 @@ async function upsertFile(filename, content, mime) {
   const artifactId = randomUUID();
   const versionId = randomUUID();
   await transaction(db, async (conn) => {
-    const { query: q } = await import("../server/db.js");
+    const { query: q } = await import("../server/db.ts");
     await q(
       conn,
       "INSERT INTO artifacts(id,project_id,title,folder_id,created_by) VALUES(?,?,?,?,?)",

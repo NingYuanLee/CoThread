@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 
 /**

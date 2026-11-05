@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { transaction, query } from "./db.js";
+import { transaction, query } from "./db.ts";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 

@@ -1,10 +1,10 @@
 import { createServer } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import type { AddressInfo } from "node:net";
 import type { PoolConnection } from "mysql2/promise";
-import type { Db } from "./types.ts";
+import type { Pool } from "mysql2/promise";
 
 /** 打开桥接所需的上下文：目标版本、其不可变字节与该文件的校验函数。 */
 export type FileIndexBridgeOptions = {
@@ -25,7 +25,7 @@ export type FileIndexBridge = {
 
 /** One tool, scoped to the immutable bytes and queue attempt that opened it. */
 export async function startFileIndexSubmissionBridge(
-  db: Db,
+  db: Pool,
   { projectId, versionId, sha256, mime, validate }: FileIndexBridgeOptions,
 ): Promise<FileIndexBridge> {
   const attemptId = randomUUID();

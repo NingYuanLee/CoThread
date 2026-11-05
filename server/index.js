@@ -4,7 +4,7 @@ import express from "express";
 import { createServer as createHttpServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { createDatabase, query } from "./db.js";
+import { createDatabase, query } from "./db.ts";
 import { createApp } from "./app.js";
 import { registerDevServerUpgrade, stopCoThreadPreviewServers } from "./miniprogram-dev-server.js";
 import { startReplyWorker } from "./replies.js";

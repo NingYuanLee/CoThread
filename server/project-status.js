@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 /**
  * 项目现状只有一份 Markdown：随项目进程结算整份覆盖，不保留修订或来源快照。

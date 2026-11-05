@@ -8,7 +8,7 @@ import { modelConfig } from "./model-config.js";
 import { projectImageSchema, projectImageUrl, projectImageUrlSql } from "./project-image.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { ensureProjectLibraryRoots } from "./documents/index.js";
 import { fail, id, title, preferredLocalExecutorJoin } from "./service-support.js";
 

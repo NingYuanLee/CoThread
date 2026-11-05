@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { notifyTaskTransition } from "./inbox-task.js";
 
 /** Sticky 子 Agent nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */

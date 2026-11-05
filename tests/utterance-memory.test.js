@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { saveMemberUnderstandings } from "../server/project-memory.js";
 import { upsertUtteranceMemory, utteranceMemoryMarkdown } from "../server/utterance-memory.js";

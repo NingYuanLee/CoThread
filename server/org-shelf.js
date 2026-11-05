@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { requireAdminPermission } from "./admin-rbac.js";
 import { getWikiPage, listWikiPages } from "./wiki-pages.js";

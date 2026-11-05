@@ -6,7 +6,7 @@
 import { z } from "zod/v3";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { isDocumentText, readDocumentContent } from "./documents/index.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { modelConfig, modelResponse, responseText } from "./model-config.js";
 

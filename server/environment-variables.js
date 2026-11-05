@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { encryptToken, decryptToken } from "./credential-vault.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./service.js";
 
 // 变量字段只在这里增减。用户界面只能填写或清除已有字段的值。

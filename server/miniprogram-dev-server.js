@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { connect as netConnect } from "node:net";
 import { extname } from "node:path";
 import { z } from "zod/v3";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./service.js";
 import { digest, authenticate } from "./auth.js";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";

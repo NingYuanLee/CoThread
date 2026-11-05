@@ -103,10 +103,18 @@ for (const file of walk(serverDir)) {
 
   if (stem(rel(file)) === "server/db") {
     const allowed = new Set(["./database-policy", "./request-timing"]);
+    // 规则 7 防的是「数据库通用层引入业务写入副作用」。`import type` 在运行期被
+    // 完全擦除、不执行任何模块代码，因此不计入；`server/types.ts` 正是纯类型模块。
+    const runtimeSource = source.replace(/import\s+type\s+[\s\S]*?from\s*["'][^"']+["'];?/g, "");
     const imports = /\b(?:from\s*|import\s*\(\s*|import\s*)["'](\.[^"']+)["']/g;
-    for (const match of source.matchAll(imports)) {
+    for (const match of runtimeSource.matchAll(imports)) {
       if (!allowed.has(stem(match[1]))) {
-        const line = source.slice(0, match.index).split("\n").length;
+        // 行号按原始文件算，避免上面剥掉类型导入后位置偏移。
+        const probe =
+          source.indexOf(`"${match[1]}"`) >= 0
+            ? source.indexOf(`"${match[1]}"`)
+            : source.indexOf(`'${match[1]}'`);
+        const line = source.slice(0, probe < 0 ? 0 : probe).split("\n").length;
         violations.push([
           7,
           `${rel(file)}:${line}`,

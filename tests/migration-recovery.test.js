@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { migrate, migrationChecksum } from "../scripts/migrate.js";
 import { Service } from "../server/service.js";
 import { hashPassword } from "../server/auth.js";

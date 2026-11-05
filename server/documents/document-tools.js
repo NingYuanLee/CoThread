@@ -1,7 +1,7 @@
 import { z } from "zod/v3";
 import { libraryChange } from "./library.js";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
-import { query } from "../db.js";
+import { query } from "../db.ts";
 import { HttpError } from "../http-error.js";
 const id = z.string().uuid();
 export const documentToolSchemas = {

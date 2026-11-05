@@ -1,5 +1,5 @@
 import { HttpError } from "./http-error.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 /**
  * Memory lifecycle authority is determined by the source family, never by the

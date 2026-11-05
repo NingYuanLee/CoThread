@@ -1,4 +1,4 @@
-import { discardConnection } from "./db.js";
+import { discardConnection } from "./db.ts";
 
 // A worker may outlive its dedicated lock connection. Revoke its own database
 // view on detected ownership loss; never revoke the shared HTTP pool. This is

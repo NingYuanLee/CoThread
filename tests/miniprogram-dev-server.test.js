@@ -6,7 +6,7 @@ import { Readable, Writable } from "node:stream";
 import { createServer } from "node:http";
 import { testDatabase } from "./database.js";
 import "./miniprogram-ready.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import {
   saveProjectMiniProgramConfig,

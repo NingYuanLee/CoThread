@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import JSZip from "jszip";
 import { z } from "zod/v3";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { callProvider, getCloudbaseManager, resolveCloudbaseEnv } from "./cloudbase.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import {

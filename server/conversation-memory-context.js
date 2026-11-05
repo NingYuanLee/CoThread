@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { createHash } from "node:crypto";
 import {
   intactConversationMemorySql,

@@ -8,7 +8,7 @@
  * 失效规则：行上记录 `source_sha256`。同一版本 ID 被原位替换内容时（仓库支持该路径），
  * 源哈希变化即视为过期，读取方不会使用旧派生文件，重新转换会重置记录。
  */
-import { query } from "../db.js";
+import { query } from "../db.ts";
 import type { Db } from "../types.ts";
 
 /** `version_renditions` 的一行。`content` 只在带 `withContent` 查询时存在。 */

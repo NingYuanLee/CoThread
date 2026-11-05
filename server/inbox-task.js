@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { notify } from "./service-notifications.js";
 
 async function taskRow(db, taskId) {

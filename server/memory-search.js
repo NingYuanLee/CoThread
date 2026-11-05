@@ -1,4 +1,4 @@
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { memoryNeighborhood, noteMemoryRecall } from "./memory-graph.js";
 import { MEMORY_SUBJECT_LABELS, isMemorySubject } from "../shared/memory-kinds.js";
 import { MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";

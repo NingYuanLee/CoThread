@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { contextBudget, contextUsage } from "../shared/context.js";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { compactElderHome, elderInstruction, elderToolNames } from "./elder-kernel.js";

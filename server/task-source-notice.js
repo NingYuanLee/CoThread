@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 const STATUS_LABEL = {
   draft: "草稿",

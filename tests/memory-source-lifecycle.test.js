@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import {
   queueConversationMessage,
@@ -27,7 +27,7 @@ import { callMcpTool } from "../server/mcp.js";
 import { createTask } from "../server/task-commands.js";
 import { readTaskDecisionEvidence } from "../server/memory-decisions.js";
 import { createArtifact } from "../server/documents/versions.js";
-import { transaction } from "../server/db.js";
+import { transaction } from "../server/db.ts";
 import { askWikiQuestion } from "../server/wiki-questions.js";
 
 async function setup() {

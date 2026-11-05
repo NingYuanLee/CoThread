@@ -6,7 +6,7 @@ import { redactSecrets } from "./model-config.js";
 import { deepseekFetch, deepseekSearch } from "./deepseek-web.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import {
   controlFromExecutionRun,
   parentDialogueMode,

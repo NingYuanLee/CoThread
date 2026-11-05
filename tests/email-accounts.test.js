@@ -12,7 +12,7 @@ after(async () => {
 afterEach(async () => {
   await database?.reset();
 });
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { createApp } from "../server/app.js";
 
 test("email registration, binding and password recovery verify codes without replacing account names", async () => {

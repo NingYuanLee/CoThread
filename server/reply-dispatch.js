@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { mentionsAgent } from "../shared/agent-member.js";
 
 // One visible assistant coordinates up to seven concurrent execution contexts.

@@ -15,7 +15,7 @@ import {
 } from "../iteration-archive.js";
 import { parseStoredImage } from "../project-image.js";
 import { z } from "zod/v3";
-import { query, transaction } from "../db.js";
+import { query, transaction } from "../db.ts";
 import { HttpError } from "../service.js";
 import { retryReply } from "../reply-actions.js";
 import { signPreviewTicket, splitPreviewAssetPath } from "../../shared/preview-ticket.mjs";

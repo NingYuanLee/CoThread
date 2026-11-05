@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { Service } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { listOrganizationDocuments } from "./document-organization.js";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.js";
 import { createFolder, placeArtifact } from "./documents/index.js";
 import type { PoolConnection } from "mysql2/promise";
-import type { Db } from "./types.ts";
+import type { Pool } from "mysql2/promise";
 
 const planSchema = z.object({
   documents: z
@@ -46,7 +46,7 @@ type OrganizationOptions = {
 };
 
 async function createPlan(
-  db: Db,
+  db: Pool,
   job: OrganizationJob,
   documents: OrganizationDocument[],
   options: Record<string, unknown> = {},
@@ -68,7 +68,7 @@ async function createPlan(
 }
 
 async function verifyOrganization(
-  db: Db,
+  db: Pool,
   job: OrganizationJob,
   documents: OrganizationDocument[],
   screenshot: Buffer,
@@ -93,7 +93,7 @@ async function verifyOrganization(
   );
 }
 
-export async function processNextDocumentOrganization(db: Db, options: OrganizationOptions = {}) {
+export async function processNextDocumentOrganization(db: Pool, options: OrganizationOptions = {}) {
   const job = await transaction(db, async (conn: PoolConnection) => {
     const [next] = await query(
       conn,

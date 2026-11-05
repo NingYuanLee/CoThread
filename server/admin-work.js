@@ -1,5 +1,5 @@
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { adminAudit, requireAdminPermission } from "./admin-rbac.js";
 import { publishWork } from "./work-events.js";

@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createTask, acceptTask, updateTask, cancelTask } from "../server/task-pool.js";
 import { processNextProjectMemory } from "../server/project-memory.js";

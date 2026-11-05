@@ -1,6 +1,6 @@
 /** 任务域：queries。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
 
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 import { withParsedTask } from "./task-pool-helpers.js";
 

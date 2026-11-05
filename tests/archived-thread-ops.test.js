@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/app.js";
 import { hashPassword } from "../server/auth.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { testDatabase } from "./database.js";
 
 let database, server, base, owner, viewer, projectId;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 const observers = new WeakMap();
 const caches = new WeakMap();
 const localOutputs = new WeakMap();

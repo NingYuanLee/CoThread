@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 
 /**
  * Consume one committed document change and its derived work atomically.

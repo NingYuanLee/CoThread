@@ -1,4 +1,4 @@
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { assertIterationWritable } from "./iteration-state.js";
 
 function isPool(db) {

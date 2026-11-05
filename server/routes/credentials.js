@@ -4,7 +4,7 @@
  */
 import { accountCredential } from "../auth.js";
 import { decryptToken } from "../credential-vault.js";
-import { query } from "../db.js";
+import { query } from "../db.ts";
 import { HttpError } from "../service.js";
 import { handleMcp } from "../mcp.js";
 import { MCP_CAPABILITIES } from "../../shared/mcp-capabilities.js";

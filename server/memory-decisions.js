@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod/v3";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { captureDocumentRevision, canReadHistoricalSources } from "./memory-history.js";
 const parse = (value) => (typeof value === "string" ? JSON.parse(value) : value);

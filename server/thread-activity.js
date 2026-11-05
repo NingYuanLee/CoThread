@@ -1,4 +1,4 @@
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 
 /** 调用方须传入已有事务的连接。消息和排序时间在同一事务中提交。 */
 export async function recordMessageActivity(conn, messageId) {

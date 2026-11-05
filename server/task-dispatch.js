@@ -1,7 +1,7 @@
 /** 任务域：dispatch。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
 import { assertIterationWritable } from "./iteration-state.js";
 
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 
 import { enqueueCoordinatorEvent } from "./coordinator-events.js";
 

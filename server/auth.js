@@ -6,7 +6,7 @@ import {
   createHash,
 } from "node:crypto";
 import { promisify } from "node:util";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { encryptToken, decryptToken } from "./credential-vault.js";
 import { readPreviewTicket, splitPreviewAssetPath } from "../shared/preview-ticket.mjs";
 const scrypt = promisify(scryptCallback);

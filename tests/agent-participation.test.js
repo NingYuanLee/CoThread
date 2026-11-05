@@ -1,7 +1,7 @@
 import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { testDatabase } from "./database.js";
 import {
   decideParticipation,

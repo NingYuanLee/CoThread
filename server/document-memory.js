@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import JSZip from "jszip";
 import sharp from "sharp";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 import { renderFileIndex } from "./file-index-format.js";
 import { ensureFileIndexRoots } from "./file-index-roots.js";

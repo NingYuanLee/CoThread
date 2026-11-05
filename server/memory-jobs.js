@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { MEMORY_JOBS, MEMORY_JOB_KEYS } from "../shared/memory-jobs.js";
 import { HttpError } from "./service.js";
 import { readFileIndexJobs } from "./file-index-jobs.js";

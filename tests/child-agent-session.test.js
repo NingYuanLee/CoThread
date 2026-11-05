@@ -11,7 +11,7 @@ import {
   checkpointFromHistory,
 } from "../server/child-agent-session.js";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createTask } from "../server/task-pool.js";
 

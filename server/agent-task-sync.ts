@@ -1,4 +1,4 @@
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { recordTaskStatusChange } from "./task-pool.js";
 import { publishWork } from "./work-events.js";
 import { lockTaskIteration } from "./iteration-state.js";
@@ -10,6 +10,9 @@ const terminal = new Set(["completed", "failed", "cancelled", "abandoned", "inte
 /** 任务池一侧的状态。本地执行器状态比这里多，按下面的映射收敛。 */
 type PoolTaskStatus =
   "pending_start" | "running" | "waiting" | "completed" | "blocked" | "abandoned";
+
+/** `agent_tasks` 的一行；只是把查询结果原样交给调用方。 */
+type AgentTaskRow = Record<string, unknown>;
 
 /** `local_executor_tasks` 的一行；只用到这里读到的列。 */
 type LocalExecutorTaskRow = {
@@ -52,7 +55,7 @@ export async function syncLocalExecutorTask(
   conn: Db,
   localExecutorTask: LocalExecutorTaskRow,
   { publish = false }: { publish?: boolean } = {},
-) {
+): Promise<AgentTaskRow | null> {
   if (isPool(conn))
     return transaction(conn, (db: PoolConnection) =>
       syncLocalExecutorTask(db, localExecutorTask, { publish }),
@@ -140,7 +143,7 @@ export async function reopenLocalExecutorTask(
   conn: Db,
   localExecutorTaskId: string,
   { publish = false }: { publish?: boolean } = {},
-) {
+): Promise<AgentTaskRow | null> {
   if (isPool(conn))
     return transaction(conn, (db: PoolConnection) =>
       reopenLocalExecutorTask(db, localExecutorTaskId, { publish }),

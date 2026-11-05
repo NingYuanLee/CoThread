@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 function pathFromFolders(folderId, byId) {
   const seen = new Set();

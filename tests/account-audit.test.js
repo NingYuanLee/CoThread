@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { createApp } from "../server/http-app.js";
 import { issueCredential } from "../server/auth.js";
 import { saveAdminRole, assignAdminRoles } from "../server/admin-rbac.js";

@@ -1,5 +1,5 @@
 import { interruptRunningAgentEvents } from "./thread-activity.js";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.js";
 import { createExecutorDatabase } from "./executor-access.js";
 import {

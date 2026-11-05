@@ -7,7 +7,7 @@ import { registerProjectRuntimeRoutes } from "./routes/project-runtime.js";
 import { registerProjectWorkspaceRoutes } from "./routes/project-workspace.js";
 import { ZodError } from "zod/v3";
 import { authenticate, authenticatePreviewTicket } from "./auth.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { Service } from "./service.js";
 import { registerRequestParts } from "./request-parts.ts";
 import { currentTiming, requestTiming } from "./request-timing.js";

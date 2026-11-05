@@ -1,6 +1,6 @@
 import { resolve, relative, sep } from "node:path";
 import { rename, mkdir } from "node:fs/promises";
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import { releaseSandbox } from "../server/agent-sandbox.js";
 import { digest } from "../server/auth.js";
 import { assertProductionWriteAllowed } from "../server/database-policy.js";

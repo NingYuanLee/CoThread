@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { LocalSandbox } from "../server/local-sandbox.js";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { executeRun } from "../server/sandbox-run.js";
 import { randomUUID } from "node:crypto";

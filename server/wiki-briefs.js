@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 function briefText(title) {
   return ("《" + String(title || "记忆条目").trim() + "》有更新").slice(0, 160);

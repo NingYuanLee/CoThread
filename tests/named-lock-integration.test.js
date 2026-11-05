@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { acquireNamedLock } from "../server/named-lock.js";
 
 test("lost lock acknowledgements never leave a reentrant lock in the pool", async () => {

@@ -2,7 +2,7 @@ import * as zlib from "node:zlib";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.js";
 import { contextUsage } from "../shared/context.js";

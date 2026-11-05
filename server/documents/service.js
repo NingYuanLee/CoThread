@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { posix as pathPosix } from "node:path";
 import JSZip from "jszip";
 import { z } from "zod/v3";
-import { query, transaction } from "../db.js";
+import { query, transaction } from "../db.ts";
 import { HttpError } from "../http-error.js";
 import { AGENT_MEMBER } from "../../shared/agent-member.js";
 import { decodeUploadedBytes, verifyBytes } from "./file-bytes.js";

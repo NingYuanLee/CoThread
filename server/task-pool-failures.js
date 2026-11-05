@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 const PLATFORM_FAILURE =
   /任务已停止|迭代已归档|权限不足|没有权限|限流|too many requests|rate limit|service unavailable|temporarily unavailable|timeout|timed out|\b5\d\d\b|econnreset|econnrefused|网络错误|网络中断|服务不可用/i;

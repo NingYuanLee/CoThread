@@ -1,5 +1,5 @@
 import { attachMessageQuotes } from "./message-quotes.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { discussionText } from "../shared/context.js";
 
 // The runtime deduplicates delivery receipts; the database survives hosted

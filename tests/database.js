@@ -1,6 +1,6 @@
 import mysql from "mysql2/promise";
 import { readFile, readdir } from "node:fs/promises";
-import { createDatabase } from "../server/db.js";
+import { createDatabase } from "../server/db.ts";
 import { resolveConfiguredTestDatabaseUrl } from "../server/database-policy.js";
 import { migrate, migrationChecksum } from "../scripts/migrate.js";
 

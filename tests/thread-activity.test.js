@@ -2,7 +2,7 @@ import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query, transaction } from "../server/db.js";
+import { query, transaction } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import {
   finishAgentEvent,

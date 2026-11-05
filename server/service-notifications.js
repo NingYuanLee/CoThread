@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { ALL_INBOX_KINDS, INBOX_KINDS, inboxCategory, inboxNeedsThread } from "../shared/inbox.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { projectImageUrlSql } from "./project-image.js";
 
 const TASK_AND_CHAT = [...INBOX_KINDS.chat, ...INBOX_KINDS.task];

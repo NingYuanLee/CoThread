@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query, transaction } from "../server/db.js";
+import { query, transaction } from "../server/db.ts";
 import { createExecutorDatabase } from "../server/executor-access.js";
 import { Service } from "../server/service.js";
 import { acquireNamedLock } from "../server/named-lock.js";

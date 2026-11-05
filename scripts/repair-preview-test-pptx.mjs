@@ -1,6 +1,6 @@
 // 用 pptxgenjs 生成可被 PowerPoint 打开的 PPTX，并替换库中「预览测试.pptx」的内容
 import { createHash } from "node:crypto";
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import PptxGenJS from "pptxgenjs";
 import { assertProductionWriteAllowed } from "../server/database-policy.js";
 

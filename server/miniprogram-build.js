@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join, relative, sep, resolve as resolvePath } from "node:path";
 import JSZip from "jszip";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { HttpError } from "./service.js";
 import { miniprogramSnapshot, miniprogramWorkspaceFolders } from "./miniprogram-workspace.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";

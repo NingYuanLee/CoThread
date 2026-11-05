@@ -10,7 +10,7 @@ import {
 } from "../shared/agent-member.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import * as iterationState from "./iteration-state.js";
 import { publishWork } from "./work-events.js";
 import { queueConversationMessage } from "./conversation-memory-store.js";

@@ -1,4 +1,4 @@
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 
 const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 const USAGE_TOTALS = [

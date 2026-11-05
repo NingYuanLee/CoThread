@@ -1,6 +1,6 @@
 import { z } from "zod/v3";
 import { createHash, randomUUID } from "node:crypto";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.js";
 import {
   loadConversationContext,

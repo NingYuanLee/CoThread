@@ -60,7 +60,7 @@ import {
   setEnvironmentVariable,
 } from "../environment-variables.js";
 import { z } from "zod/v3";
-import { query } from "../db.js";
+import { query } from "../db.ts";
 import { HttpError } from "../service.js";
 import { completeFileUpload, putFileUploadChunk, startFileUpload } from "../documents/index.js";
 import {

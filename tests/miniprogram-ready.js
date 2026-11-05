@@ -1,4 +1,4 @@
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { setCloudbaseManagerFactory } from "../server/cloudbase.js";
 import { saveProjectMiniProgramSecret } from "../server/miniprogram-config.js";
 import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.js";

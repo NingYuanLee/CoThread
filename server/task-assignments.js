@@ -1,7 +1,7 @@
 /** 任务域：assignments。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
 import { lockTaskIteration } from "./iteration-state.js";
 
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { publishWork } from "./work-events.js";
 

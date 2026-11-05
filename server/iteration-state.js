@@ -1,4 +1,4 @@
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.js";
 
 // Call inside the same transaction as the write/start it protects.

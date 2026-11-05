@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 function normalizedIp(value = "") {
   const ip = value.split(",")[0].trim();

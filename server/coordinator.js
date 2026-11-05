@@ -1,7 +1,7 @@
 import { validDocumentSummarySql } from "./file-index-visibility.js";
 import { createHash } from "node:crypto";
 import { finishAgentEvent } from "./thread-activity.js";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { clearPromptState, readPromptState, writePromptState } from "./thread-prompt-state.ts";
 import { Service } from "./service.js";
 import { AGENT_XIAOXIANG_MEMBER, mentionsAgent } from "../shared/agent-member.js";

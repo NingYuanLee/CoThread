@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 const storage = new AsyncLocalStorage();
 

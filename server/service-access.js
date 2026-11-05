@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { requireAdminPermission } from "./admin-rbac.js";
 import { fail, id } from "./service-support.js";
 

@@ -37,7 +37,7 @@ import { MCP_CAPABILITIES, MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js"
 import { searchProjectMemory } from "./memory-search.js";
 import { FILE_CHUNK_SIZE, FILE_MAX_BYTES, MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
 import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./documents/index.js";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,

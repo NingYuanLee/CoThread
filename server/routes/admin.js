@@ -2,7 +2,7 @@ import {
   ADMIN_PERMISSION_TREE,
   adminPermissionForRequest,
 } from "../../shared/admin-permissions.js";
-import { query } from "../db.js";
+import { query } from "../db.ts";
 import { HttpError } from "../service.js";
 import {
   adminAccess,

@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { mentionsUser } from "../shared/mentions.js";
 
 const visibleMessage = "NOT (m.source='human' AND m.agent_task_id IS NOT NULL)";

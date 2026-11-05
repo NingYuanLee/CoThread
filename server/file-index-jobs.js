@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.js";
 import { projectArchived } from "./memory-timeline.js";
 import { closeStaleFileIndexScanBatches } from "./file-index-discovery.js";

@@ -7,7 +7,7 @@
  *
  * 与成员发言一致：先落进度/事实，再由扫描生成待处理单元；不再在业务事务里写队列。
  */
-import { query, transaction } from "./db.js";
+import { query, transaction } from "./db.ts";
 import {
   isImportantIteration,
   isImportantTask,

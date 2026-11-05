@@ -3,7 +3,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dispatch.js";
 import { processNextReply } from "../server/replies.js";

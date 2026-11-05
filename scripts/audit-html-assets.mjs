@@ -1,4 +1,4 @@
-import { createDatabase, query } from "../server/db.js";
+import { createDatabase, query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 
 const db = await createDatabase();

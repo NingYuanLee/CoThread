@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
 import { resolve, join, dirname, sep } from "node:path";
 import { assetPath } from "./assets.js";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { query } from "./db.js";
+import { query } from "./db.ts";
 import { contextInjectionFromEvent } from "../shared/context-injection.js";
 import { Service, HttpError } from "./service.js";
 import { createAgentTools } from "./agent-tools.js";

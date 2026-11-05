@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { query } from "../server/db.js";
+import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import { createVersion, replaceVersionContent } from "../server/documents/versions.js";

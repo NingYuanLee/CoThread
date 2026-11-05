@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query } from "./db.ts";
 
 // One bounded preview per reference, never recursively copy quoted conversations.
 export async function attachMessageQuotes(db, messages) {

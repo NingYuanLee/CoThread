@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { transaction } from "../server/db.js";
+import { transaction } from "../server/db.ts";
 
 test("an uncertain transaction is destroyed instead of returning to the pool", async () => {
   for (const stage of ["begin", "rollback"]) {

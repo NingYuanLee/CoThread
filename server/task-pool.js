@@ -76,7 +76,7 @@ export {
   askTaskQuestion,
   answerTaskQuestion,
 } from "./task-commands.js";
-export { getTask, listTasks, listTaskQuestions } from "./task-queries.js";
+export { getTask, listTasks, listTaskQuestions } from "./task-queries.ts";
 export {
   reassignTask,
   acceptTask,

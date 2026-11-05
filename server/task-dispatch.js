@@ -10,7 +10,7 @@ import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import { MAX_Child } from "./task-policy.ts";
 import { documentsForTaskInstruction } from "./task-documents.js";
-import { getTask } from "./task-queries.js";
+import { getTask } from "./task-queries.ts";
 import { buildChildTaskBrief } from "../shared/prompt-blocks.js";
 import { DEFAULT_PERSONA_KEY, personaByKey, personaPrompt } from "../shared/agent-personas.js";
 import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";

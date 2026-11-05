@@ -901,7 +901,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
       [candidateId],
     );
     if (subject === "utterance") {
-      const { refreshMemberSummaryCache } = await import("./memory-cache.js");
+      const { refreshMemberSummaryCache } = await import("./memory-cache.ts");
       await refreshMemberSummaryCache(conn, candidate.projectId, payload.memberId);
     }
     if (subject === "discussion") {

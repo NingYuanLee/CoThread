@@ -21,9 +21,9 @@ import {
   assertHumanMemberAuthorization,
   assertXiaoxiangCanOperateTask,
 } from "./task-access.js";
-import { getTask } from "./task-queries.js";
+import { getTask } from "./task-queries.ts";
 import { createTask } from "./task-commands.js";
-import { notifyTaskAssigned } from "./inbox-task.js";
+import { notifyTaskAssigned } from "./inbox-task.ts";
 import { idleChildCount } from "./task-dispatch.js";
 export async function reassignTask(db, taskId, actor, target, reason, messageId) {
   assertTarget(target.type, target.id);

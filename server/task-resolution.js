@@ -16,7 +16,7 @@ import {
   arrangeableStatuses,
 } from "./task-policy.ts";
 import { adoptCurrentIterationXiaoxiang, assertXiaoxiangCanOperateTask } from "./task-access.js";
-import { getTask } from "./task-queries.js";
+import { getTask } from "./task-queries.ts";
 import { idleChildCount } from "./task-dispatch.js";
 export async function rejectionReviewActor(db, taskId, conn = db) {
   const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=?", [taskId]);

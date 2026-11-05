@@ -26,7 +26,7 @@ import {
   assertHumanMemberAuthorization,
   assertXiaoxiangCanOperateTask,
 } from "./task-access.js";
-import { getTask } from "./task-queries.js";
+import { getTask } from "./task-queries.ts";
 import { idleChildCount } from "./task-dispatch.js";
 import { recordTaskCreationDecision } from "./memory-decisions.js";
 import { DEFAULT_PERSONA_KEY, personaByKey } from "../shared/agent-personas.js";

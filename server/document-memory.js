@@ -396,7 +396,7 @@ export async function syncDocumentMemory(db, { projectId, artifactId, versionId,
     sources: [{ kind: "document_version", id: versionId, label: row.filename }],
   });
   if (pageId && row.summary) {
-    const { refreshDocumentSummaryCache } = await import("./memory-cache.js");
+    const { refreshDocumentSummaryCache } = await import("./memory-cache.ts");
     await refreshDocumentSummaryCache(db, projectId, versionId).catch(() => {});
   }
   if (pageId) await ensureFileIndexRoots(db, projectId, createdBy);

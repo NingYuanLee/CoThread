@@ -559,7 +559,7 @@ export async function loadProjectSummary(db, projectId) {
     [projectId],
   );
   // 项目现状只有一份 Markdown：有就用它，不再拼接来源待核实提示。
-  const { memoryExcerpt } = await import("./memory-cache.js");
+  const { memoryExcerpt } = await import("./memory-cache.ts");
   const { readProjectStatus } = await import("./project-status.ts");
   const status = await readProjectStatus(db, projectId);
   const body = String(status?.body || "").trim();
@@ -621,7 +621,7 @@ export async function loadProjectWikiIndexes(db, projectId) {
   const members = Array.isArray(memberUnderstandings) ? memberUnderstandings : [];
   const pending = Array.isArray(pendingDocuments) ? pendingDocuments : [];
   const { memorySection, memoryExcerpt, summarizeUtterancePages } =
-    await import("./memory-cache.js");
+    await import("./memory-cache.ts");
   // 发言记忆为事实：wiki 有该成员的发言记忆就用它覆盖缓存摘要。
   const utteranceRows = await query(
     db,
@@ -707,7 +707,7 @@ export async function loadProjectWikiIndexes(db, projectId) {
 }
 
 export async function loadMemberUnderstanding(db, projectId, userId) {
-  const { readMemberUnderstanding } = await import("./memory-cache.js");
+  const { readMemberUnderstanding } = await import("./memory-cache.ts");
   const memory = await readMemberUnderstanding(db, projectId, userId);
   if (!memory) return null;
   return {
@@ -2754,7 +2754,7 @@ export async function applyProjectMemoryResult(
         );
     }
   });
-  const { refreshMemberSummaryCache, refreshProjectGuideCache } = await import("./memory-cache.js");
+  const { refreshMemberSummaryCache, refreshProjectGuideCache } = await import("./memory-cache.ts");
   const speakers = new Set();
   for (const item of result?.entries || [])
     if (item.subject === "utterance" && item.aboutUserId) speakers.add(item.aboutUserId);

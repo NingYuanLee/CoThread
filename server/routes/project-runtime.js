@@ -17,7 +17,7 @@ import { parseStoredImage } from "../project-image.ts";
 import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
 import { HttpError } from "../service.js";
-import { retryReply } from "../reply-actions.js";
+import { retryReply } from "../reply-actions.ts";
 import { signPreviewTicket, splitPreviewAssetPath } from "../../shared/preview-ticket.mjs";
 import { randomBytes } from "node:crypto";
 import { joinThreadViewing } from "../thread-presence.ts";

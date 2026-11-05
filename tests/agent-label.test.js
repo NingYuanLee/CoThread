@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeAgentAction as label } from "../shared/agent-label.js";
 import { coordinatorLogButtonLabel } from "../web/agent-label.ts";
-import { trackThinking } from "../server/agent-thinking.js";
+import { trackThinking } from "../server/agent-thinking.ts";
 
 test("action labels distinguish scripts from shell commands without inventing web tools", () => {
   for (const command of [

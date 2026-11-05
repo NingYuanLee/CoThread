@@ -89,7 +89,7 @@ export async function upsertUtteranceMemory(
     ]);
   }
   await attachSources(db, pageId, messageIds.slice(-MAX_SOURCES));
-  const { refreshMemberSummaryCache } = await import("./memory-cache.js");
+  const { refreshMemberSummaryCache } = await import("./memory-cache.ts");
   await refreshMemberSummaryCache(db, projectId, memberId).catch(() => {});
   return { pageId, created };
 }

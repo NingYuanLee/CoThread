@@ -14,7 +14,7 @@ import {
 import { processNextProjectMemory } from "../server/project-memory.js";
 import { searchProjectMemory } from "../server/memory-search.js";
 import { readProjectMemory } from "../server/memory-timeline.js";
-import { readMemberUnderstanding } from "../server/memory-cache.js";
+import { readMemberUnderstanding } from "../server/memory-cache.ts";
 import { startConversationToolBridge } from "../server/conversation-memory-tools.js";
 import { runLaowengTask } from "../server/laoweng-agent.js";
 import {

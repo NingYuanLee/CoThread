@@ -24,7 +24,7 @@ import {
   tasksAwaitingChildLaunch,
   touchChildInferenceHeartbeat,
 } from "./task-pool.js";
-import { trackThinking } from "./agent-thinking.js";
+import { trackThinking } from "./agent-thinking.ts";
 import { childBindingFromToolResult } from "./child-agent-binding.ts";
 import { insertUniqueAssistantMessage } from "./assistant-post.ts";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";

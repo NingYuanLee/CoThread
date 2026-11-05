@@ -145,7 +145,7 @@ export async function processNextReply(db, generate, _decide = undefined, thread
   return true;
 }
 
-export { retryReply } from "./reply-actions.js";
+export { retryReply } from "./reply-actions.ts";
 
 export const COORDINATOR_LANE_CONCURRENCY = 3;
 export const EXECUTOR_LOCK_NAME = "cothread-executor";

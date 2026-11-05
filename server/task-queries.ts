@@ -3,18 +3,30 @@
 import { query } from "./db.ts";
 
 import { withParsedTask } from "./task-pool-helpers.ts";
+import type { Db } from "./types.ts";
 
-export async function getTask(db, id) {
-  const [task] = await query(db, "SELECT * FROM agent_tasks WHERE id=?", [id]);
-  return task ? withParsedTask(task) : null;
+/** 任务行。 */
+type Row = Record<string, unknown>;
+
+/** `listTasks` 的筛选条件。 */
+export type ListTasksOptions = {
+  status?: string | null;
+  targetId?: string | null;
+  originThreadId?: string | null;
+  limit?: number | string | null;
+};
+
+export async function getTask(db: Db, id: string): Promise<Row | null> {
+  const [task] = await query<Row>(db, "SELECT * FROM agent_tasks WHERE id=?", [id]);
+  return task ? ((withParsedTask(task) as Row | null) ?? null) : null;
 }
 
 export async function listTasks(
-  db,
-  projectId,
-  { status, targetId, originThreadId, limit = 100 } = {},
+  db: Db,
+  projectId: string,
+  { status, targetId, originThreadId, limit = 100 }: ListTasksOptions = {},
 ) {
-  const values = [projectId];
+  const values: unknown[] = [projectId];
   const filters = ["project_id=?"];
   if (status) {
     filters.push("status=?");
@@ -29,7 +41,7 @@ export async function listTasks(
     values.push(originThreadId);
   }
   values.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
-  return query(
+  return query<Row>(
     db,
     `SELECT t.*,
     r.status run_status, r.progress run_progress, r.executor_id, r.heartbeat_at, r.started_at run_started_at,
@@ -50,8 +62,8 @@ export async function listTasks(
   );
 }
 
-export async function listTaskQuestions(db, taskId) {
-  return query(db, "SELECT * FROM agent_task_questions WHERE task_id=? ORDER BY created_at", [
+export async function listTaskQuestions(db: Db, taskId: string) {
+  return query<Row>(db, "SELECT * FROM agent_task_questions WHERE task_id=? ORDER BY created_at", [
     taskId,
   ]);
 }

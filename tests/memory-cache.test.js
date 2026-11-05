@@ -11,7 +11,7 @@ import {
   loadProjectWikiIndexes,
 } from "../server/project-memory.js";
 import { upsertMemoryPage } from "../server/memory-pages.js";
-import { refreshProjectGuideCache } from "../server/memory-cache.js";
+import { refreshProjectGuideCache } from "../server/memory-cache.ts";
 import { createVersion } from "../server/documents/versions.js";
 
 async function setup() {

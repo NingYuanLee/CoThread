@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { Service } from "../server/service.js";
 import { query } from "../server/db.ts";
-import { trackThinking } from "../server/agent-thinking.js";
+import { trackThinking } from "../server/agent-thinking.ts";
 import { createAgentTools } from "../server/agent-tools.js";
 test("thinking, intermediate text and tools retain actual order; final text is marked separately", async () => {
   const database = await testDatabase(),

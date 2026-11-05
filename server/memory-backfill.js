@@ -128,7 +128,7 @@ export async function backfillProjectMemory(db, { projectId, createdBy = null } 
     const queued = await queueConversationThread(db, projectId, thread.id, { backfill: true });
     if (queued.queued) result.discussionQueuedThreads += 1;
   }
-  const { refreshAllCaches } = await import("./memory-cache.js");
+  const { refreshAllCaches } = await import("./memory-cache.ts");
   await refreshAllCaches(db, projectId);
   return result;
 }

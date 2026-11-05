@@ -27,7 +27,7 @@ import {
   CHILD_STALE_HEARTBEAT_SECONDS,
 } from "./task-policy.ts";
 import { adoptCurrentIterationXiaoxiang } from "./task-access.js";
-import { getTask } from "./task-queries.js";
+import { getTask } from "./task-queries.ts";
 import { childDispatchSnapshot } from "./task-dispatch.js";
 export async function touchChildRunHeartbeat(db, executorId, { progress } = {}) {
   if (!executorId) return false;

@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { notifyTaskTransition } from "./inbox-task.js";
+import { notifyTaskTransition } from "./inbox-task.ts";
 
 /** Sticky 子 Agent nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */
 export async function stickyChildExecutorIds(conn, originThreadId) {

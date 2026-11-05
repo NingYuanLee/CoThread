@@ -2,26 +2,64 @@ import { finishAgentEvent } from "./thread-activity.ts";
 import { query } from "./db.ts";
 import { trackLiveOutput } from "./agent-live-output.ts";
 import { logAgentTiming } from "./agent-timing-log.ts";
+import type { LiveOutputTracker } from "./agent-live-output.ts";
+import type { Db } from "./types.ts";
+
+/** INSERT 的写入结果头。 */
+type WriteHeader = { insertId?: unknown };
+
+/** 一个正在进行的阶段（思考 / 回复正文）。 */
+type ThinkingPhase = {
+  kind: string;
+  text: string;
+  id?: string;
+  /** 建事件那一笔的 promise，供 live 输出等它拿到 event id。 */
+  ready?: Promise<unknown>;
+};
+
+/** `trackThinking` 的可选依赖。 */
+export type TrackThinkingOptions = {
+  updateReplyProgress?: boolean;
+  agentTaskId?: string | null;
+  onVisibleText?: (text: string) => unknown;
+};
+
+/** 思考追踪器的对外接口（与迁移前一致：notify / flush / close）。 */
+export type ThinkingTracker = {
+  notify(notification: unknown): void;
+  flush(): Promise<void>;
+  close(status?: string, finalText?: string): Promise<void>;
+};
+
+/** 是否把可见正文当作最终回复发布。 */
+export type FinishThinkingOptions = { visible?: boolean };
 
 // All model phases share the same event sequence as actual tool calls.
-export function trackThinking(db, messageId, sessionId, options = {}) {
+export function trackThinking(
+  db: Db,
+  messageId: string,
+  sessionId: string,
+  options: TrackThinkingOptions = {},
+): ThinkingTracker {
   const started = performance.now();
   let firstChunk = false;
-  let queue = Promise.resolve(),
-    phase,
-    lastPhase,
-    timer,
-    failure,
-    closed = false;
+  let queue: Promise<unknown> = Promise.resolve();
+  let phase: ThinkingPhase | undefined;
+  let lastPhase: ThinkingPhase | undefined;
+  let timer: NodeJS.Timeout | undefined;
+  let failure: unknown;
+  let closed = false;
   const updateReply = options.updateReplyProgress !== false;
   const agentTaskId = options.agentTaskId || null;
-  const enqueue = (task) => {
-    queue = queue.then(task).catch((error) => {
+
+  const enqueue = (task: () => Promise<unknown>): Promise<unknown> => {
+    queue = queue.then(task).catch((error: unknown) => {
       failure ||= error;
     });
     return queue;
   };
-  const received = () => {
+
+  const received = (): void => {
     if (firstChunk) return;
     firstChunk = true;
     const receivedAt = new Date();
@@ -39,12 +77,13 @@ export function trackThinking(db, messageId, sessionId, options = {}) {
       elapsedMs: Math.round(performance.now() - started),
     });
   };
-  const flushText = () => {
+
+  const flushText = (): void => {
     clearTimeout(timer);
     timer = undefined;
     if (!phase) return;
-    const current = phase,
-      text = current.text;
+    const current = phase;
+    const text = current.text;
     enqueue(async () => {
       if (current.id)
         await query(db, "UPDATE agent_events SET output=? WHERE id=? AND status='running'", [
@@ -53,12 +92,18 @@ export function trackThinking(db, messageId, sessionId, options = {}) {
         ]);
     });
   };
-  const publishVisible = async (text) => {
+
+  const publishVisible = async (text: unknown): Promise<void> => {
     const visible = String(text || "").trim();
     if (!visible || visible === "NO_VISIBLE_MESSAGE" || !options.onVisibleText) return;
     await options.onVisibleText(visible);
   };
-  const finish = (status = "completed", finalText, { visible = true } = {}) => {
+
+  const finish = (
+    status: string = "completed",
+    finalText?: unknown,
+    { visible = true }: FinishThinkingOptions = {},
+  ): void => {
     clearTimeout(timer);
     timer = undefined;
     if (!phase) return;
@@ -83,18 +128,20 @@ export function trackThinking(db, messageId, sessionId, options = {}) {
         );
     });
   };
-  const begin = (kind) => {
+
+  const begin = (kind: string): void => {
     finish();
-    phase = { kind, text: "", id: undefined };
-    const current = phase;
+    const started_phase: ThinkingPhase = { kind, text: "", id: undefined };
+    phase = started_phase;
+    const current = started_phase;
     current.ready = enqueue(async () => {
       if (!messageId) return;
-      const result = await query(
+      const result = (await query(
         db,
         "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input) VALUES(?,?,?,?,'running','{}')",
         [messageId, sessionId, agentTaskId, kind],
-      );
-      current.id = result.insertId;
+      )) as unknown as WriteHeader;
+      current.id = result.insertId as string;
       if (updateReply)
         await query(
           db,
@@ -103,6 +150,7 @@ export function trackThinking(db, messageId, sessionId, options = {}) {
         );
     });
   };
+
   const live = trackLiveOutput(db, messageId, sessionId, {
     cursor: () => {
       const current = phase || lastPhase;
@@ -111,10 +159,20 @@ export function trackThinking(db, messageId, sessionId, options = {}) {
       );
     },
   });
+
   return {
-    notify(n) {
-      if (closed || n.method !== "session.event" || n.params?.sessionId !== sessionId) return;
-      const e = n.params.event;
+    notify(raw: unknown): void {
+      const n = raw as {
+        method?: string;
+        params?: { sessionId?: string; event?: Record<string, unknown> };
+      } | null;
+      if (closed || n?.method !== "session.event" || n.params?.sessionId !== sessionId) return;
+      const e = n.params.event as
+        | {
+            type?: string;
+            data?: { chunk?: { type?: string; text?: unknown } };
+          }
+        | undefined;
       if (e?.type === "step/start") {
         if (!phase) begin("thinking");
       } else if (e?.type === "assistant/chunk") {
@@ -125,31 +183,37 @@ export function trackThinking(db, messageId, sessionId, options = {}) {
             : c?.type === "text-delta"
               ? "assistant_text"
               : undefined;
-        if (kind && typeof c.text === "string") {
+        if (kind && typeof c?.text === "string") {
           if (c.text.length) received();
           if (phase?.kind !== kind) {
             begin(kind);
             live.beginPhase(kind);
           }
-          phase.text = (phase.text + c.text).slice(0, kind === "thinking" ? 16000 : 32000);
+          const activePhase = phase as ThinkingPhase;
+          activePhase.text = (activePhase.text + c.text).slice(
+            0,
+            kind === "thinking" ? 16000 : 32000,
+          );
           if (!timer) {
             timer = setTimeout(flushText, 300);
             timer.unref?.();
           }
         }
-      } else if (["assistant/message", "tool/call", "step/end", "turn/end"].includes(e?.type)) {
-        if (e.type === "tool/call") received();
+      } else if (
+        ["assistant/message", "tool/call", "step/end", "turn/end"].includes(String(e?.type))
+      ) {
+        if (e?.type === "tool/call") received();
         finish("completed");
       }
-      live.notify(n);
+      live.notify(raw);
     },
-    async flush() {
+    async flush(): Promise<void> {
       flushText();
       await queue;
       await live.flush();
       if (failure) throw failure;
     },
-    async close(status, finalText) {
+    async close(status?: string, finalText?: string): Promise<void> {
       if (closed) return;
       closed = true;
       const finalPhase = phase || lastPhase;

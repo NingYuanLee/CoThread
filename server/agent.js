@@ -1,5 +1,5 @@
 import { discussionText, pendingMessages, AUTO_COMPACT_AT } from "../shared/context.js";
-import { trackThinking } from "./agent-thinking.js";
+import { trackThinking } from "./agent-thinking.ts";
 import { createServer } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";

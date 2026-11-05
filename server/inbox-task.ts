@@ -1,8 +1,20 @@
 import { query } from "./db.ts";
 import { notify } from "./service-notifications.ts";
+import type { Db } from "./types.ts";
 
-async function taskRow(db, taskId) {
-  const [task] = await query(
+/** 任务行里本文件会读的列。 */
+export type InboxTaskRow = {
+  id: string;
+  title?: string | null;
+  project_id?: string | null;
+  origin_thread_id?: string | null;
+  source_user_id?: string | null;
+  target_type?: string | null;
+  target_id?: string | null;
+};
+
+async function taskRow(db: Db, taskId: string): Promise<InboxTaskRow | null> {
+  const [task] = await query<InboxTaskRow>(
     db,
     "SELECT id,title,project_id,origin_thread_id,source_user_id,target_type,target_id FROM agent_tasks WHERE id=?",
     [taskId],
@@ -11,7 +23,13 @@ async function taskRow(db, taskId) {
   return task;
 }
 
-export async function notifyTaskTransition(db, taskId, fromStatus, toStatus, inboxKind = null) {
+export async function notifyTaskTransition(
+  db: Db,
+  taskId: string,
+  fromStatus: string | null | undefined,
+  toStatus: string | null | undefined,
+  inboxKind: string | null = null,
+): Promise<void> {
   if (!toStatus || toStatus === fromStatus) return;
   const task = await taskRow(db, taskId);
   if (!task) return;
@@ -20,7 +38,7 @@ export async function notifyTaskTransition(db, taskId, fromStatus, toStatus, inb
     await notify(
       db,
       task.source_user_id,
-      task.project_id,
+      task.project_id as string,
       "task_failed",
       `你发起的任务「${title}」已失败。`,
       task.origin_thread_id,
@@ -32,7 +50,7 @@ export async function notifyTaskTransition(db, taskId, fromStatus, toStatus, inb
     await notify(
       db,
       task.source_user_id,
-      task.project_id,
+      task.project_id as string,
       "task_blocked",
       same ? `你发起的任务「${title}」已阻塞，需要你处理。` : `你发起的任务「${title}」已阻塞。`,
       task.origin_thread_id,
@@ -41,7 +59,7 @@ export async function notifyTaskTransition(db, taskId, fromStatus, toStatus, inb
       await notify(
         db,
         task.target_id,
-        task.project_id,
+        task.project_id as string,
         "task_decision",
         `任务「${title}」堵住了，需要你处理。`,
         task.origin_thread_id,
@@ -51,14 +69,18 @@ export async function notifyTaskTransition(db, taskId, fromStatus, toStatus, inb
     await notify(
       db,
       task.source_user_id,
-      task.project_id,
+      task.project_id as string,
       "task_completed",
       `你发起的任务「${title}」已完成。`,
       task.origin_thread_id,
     );
 }
 
-export async function notifyTaskAssigned(db, task, previousTargetId) {
+export async function notifyTaskAssigned(
+  db: Db,
+  task: InboxTaskRow | null | undefined,
+  previousTargetId: string | null | undefined,
+): Promise<void> {
   if (!task?.origin_thread_id || !task.project_id) return;
   if (task.target_type !== "human_member" || !task.target_id) return;
   if (task.target_id === previousTargetId) return;

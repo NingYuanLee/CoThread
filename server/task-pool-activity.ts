@@ -1,10 +1,27 @@
 import { query } from "./db.ts";
 import { notifyTaskTransition } from "./inbox-task.ts";
+import type { Db } from "./types.ts";
+
+/** 一组行。 */
+type Row = Record<string, unknown>;
+
+/** 触发状态变更的主体。 */
+export type StatusActor = {
+  type?: string | null;
+  id?: string | null;
+  statusActorType?: string | null;
+  statusActorId?: string | null;
+  connectorId?: string | null;
+  statusConnectorId?: string | null;
+};
 
 /** Sticky 子 Agent nickname index: first appearance on the thread keeps 大娃/二娃/… forever. */
-export async function stickyChildExecutorIds(conn, originThreadId) {
+export async function stickyChildExecutorIds(
+  conn: Db,
+  originThreadId: string | null | undefined,
+): Promise<string[]> {
   if (!originThreadId) return [];
-  const rows = await query(
+  const rows = await query<{ executor_id: string }>(
     conn,
     `SELECT r.executor_id FROM agent_task_execution_runs r
     JOIN agent_tasks t ON t.id=r.task_id
@@ -18,32 +35,32 @@ export async function stickyChildExecutorIds(conn, originThreadId) {
 
 export const CHILD_EXECUTOR_NAMES = ["大娃", "二娃", "三娃", "四娃", "五娃", "六娃", "七娃"];
 
-export function stickyChildLabel(executorId, knownIds) {
+export function stickyChildLabel(executorId: unknown, knownIds: string[]): string | null {
   if (!executorId) return null;
-  const index = knownIds.indexOf(executorId);
+  const index = knownIds.indexOf(executorId as string);
   if (index >= 0 && index < CHILD_EXECUTOR_NAMES.length) return CHILD_EXECUTOR_NAMES[index];
   return `子 Agent-${String(executorId).slice(0, 8)}`;
 }
 
 // 状态变更记录：与写状态的语句放在同一事务里；status 未变化则不写。
-// 只补 reason 的 JSDoc：默认值 null 会让 TS 把它推成 null，而调用方会传说明文字。
-/** @param {string | null} [reason] */
 export async function recordTaskStatusChange(
-  conn,
-  taskId,
-  fromStatus,
-  actor,
-  reason = null,
-  inboxKind = null,
-) {
-  const [row] = await query(conn, "SELECT status FROM agent_tasks WHERE id=?", [taskId]);
+  conn: Db,
+  taskId: string,
+  fromStatus: string | null,
+  actor: StatusActor | null | undefined,
+  reason: string | null = null,
+  inboxKind: string | null = null,
+): Promise<string | null> {
+  const [row] = await query<{ status: string }>(conn, "SELECT status FROM agent_tasks WHERE id=?", [
+    taskId,
+  ]);
   if (!row || row.status === (fromStatus ?? null)) return null;
   const actorType = actor?.statusActorType || actor?.type || "system";
   const actorId = actor?.statusActorId || actor?.id || null;
   if (actorType !== "system" && !actorId)
     throw new Error(`任务状态变更缺少操作者 ID：${actorType}`);
   const connectorId = actor?.connectorId || actor?.statusConnectorId || null;
-  let actorName = null;
+  let actorName: string | null = null;
   if (
     [
       "human_member_local_executor",
@@ -52,13 +69,19 @@ export async function recordTaskStatusChange(
       "human_member_mcp",
     ].includes(actorType)
   ) {
-    const [user] = await query(conn, "SELECT name FROM users WHERE id=?", [actorId]);
+    const [user] = await query<{ name?: string | null }>(
+      conn,
+      "SELECT name FROM users WHERE id=?",
+      [actorId],
+    );
     actorName = user?.name || null;
   }
   if (actorType === "child_agent") {
-    const [task] = await query(conn, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [
-      taskId,
-    ]);
+    const [task] = await query<{ origin_thread_id?: string | null }>(
+      conn,
+      "SELECT origin_thread_id FROM agent_tasks WHERE id=?",
+      [taskId],
+    );
     const known = await stickyChildExecutorIds(conn, task?.origin_thread_id);
     if (actorId && !known.includes(actorId)) known.push(actorId);
     actorName = stickyChildLabel(actorId, known);
@@ -82,8 +105,8 @@ export async function recordTaskStatusChange(
   return row.status;
 }
 
-export async function listTaskStatusEvents(db, taskId) {
-  const rows = await query(
+export async function listTaskStatusEvents(db: Db, taskId: string) {
+  const rows = await query<Row>(
     db,
     `SELECT e.*,COALESCE(e.actor_name_snapshot,member_user.name,connector_user.name) actor_name
     FROM agent_task_status_events e
@@ -93,7 +116,11 @@ export async function listTaskStatusEvents(db, taskId) {
     WHERE e.task_id=? ORDER BY e.id`,
     [taskId],
   );
-  const [task] = await query(db, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [taskId]);
+  const [task] = await query<{ origin_thread_id?: string | null }>(
+    db,
+    "SELECT origin_thread_id FROM agent_tasks WHERE id=?",
+    [taskId],
+  );
   const childIds = await stickyChildExecutorIds(db, task?.origin_thread_id);
   return rows.map((row) => ({
     ...row,
@@ -105,8 +132,8 @@ export async function listTaskStatusEvents(db, taskId) {
   }));
 }
 
-export async function taskExecutionSnapshot(db, projectId) {
-  return query(
+export async function taskExecutionSnapshot(db: Db, projectId: string) {
+  return query<Row>(
     db,
     `SELECT t.id task_id,t.origin_thread_id,t.title,t.goal,t.task_type,t.status task_status,t.source_type,t.source_user_id,
     t.created_by_type,t.created_by_id,t.target_type,t.target_id,t.claimed_by_type,t.claimed_by_id,t.execution_mode,t.execution_agent_type,
@@ -117,8 +144,8 @@ export async function taskExecutionSnapshot(db, projectId) {
   );
 }
 
-export async function listAssignmentEvents(db, taskId) {
-  return query(
+export async function listAssignmentEvents(db: Db, taskId: string) {
+  return query<Row>(
     db,
     `SELECT e.*,COALESCE(member_user.name,connector_user.name) actor_name
     FROM agent_task_assignment_events e
@@ -130,8 +157,8 @@ export async function listAssignmentEvents(db, taskId) {
   );
 }
 
-export async function listTaskExecutionRuns(db, taskId) {
-  const rows = await query(
+export async function listTaskExecutionRuns(db: Db, taskId: string) {
+  const rows = await query<Row>(
     db,
     `SELECT r.*,owner.name executor_owner_name,member.name executor_member_name
     FROM agent_task_execution_runs r
@@ -141,7 +168,11 @@ export async function listTaskExecutionRuns(db, taskId) {
     WHERE r.task_id=? ORDER BY r.created_at DESC`,
     [taskId],
   );
-  const [task] = await query(db, "SELECT origin_thread_id FROM agent_tasks WHERE id=?", [taskId]);
+  const [task] = await query<{ origin_thread_id?: string | null }>(
+    db,
+    "SELECT origin_thread_id FROM agent_tasks WHERE id=?",
+    [taskId],
+  );
   const ids = await stickyChildExecutorIds(db, task?.origin_thread_id);
   return rows.map((row) => ({
     ...row,
@@ -153,13 +184,24 @@ export async function listTaskExecutionRuns(db, taskId) {
   }));
 }
 
-export async function listTaskUpdates(db, taskId) {
-  return query(db, "SELECT * FROM agent_task_pool_updates WHERE task_id=? ORDER BY created_at", [
-    taskId,
-  ]);
+export async function listTaskUpdates(db: Db, taskId: string) {
+  return query<Row>(
+    db,
+    "SELECT * FROM agent_task_pool_updates WHERE task_id=? ORDER BY created_at",
+    [taskId],
+  );
 }
 
-export function mergeTaskActivity({ updates = [], statusHistory = [], executionRuns = [] } = {}) {
+/** 把成员更新、状态变更、执行记录合成一条时间线。 */
+export function mergeTaskActivity({
+  updates = [],
+  statusHistory = [],
+  executionRuns = [],
+}: {
+  updates?: Row[];
+  statusHistory?: Row[];
+  executionRuns?: Row[];
+} = {}): Array<Row & { kind: string; at: unknown }> {
   return [
     ...updates.map((item) => ({ ...item, kind: "member_update", at: item.created_at })),
     ...statusHistory.map((item) => ({ ...item, kind: "status_change", at: item.created_at })),

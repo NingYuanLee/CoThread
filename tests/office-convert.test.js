@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
 import { buildEncryptedOfficeFile, buildLegacyWordFile } from "./legacy-doc-fixture.js";
-import { convertToOoxml, isOoxmlRendition, planOfficeRendition } from "../server/office-convert.js";
+import { convertToOoxml, isOoxmlRendition, planOfficeRendition } from "../server/office-convert.ts";
 
 async function buildDocxFixture() {
   const zip = new JSZip();

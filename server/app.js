@@ -1,5 +1,5 @@
 import { createApp as createHttpApp } from "./http-app.js";
-import { executeRun } from "./sandbox-run.js";
+import { executeRun } from "./sandbox-run.ts";
 import { stopAgent } from "./agent.js";
 import { resolveSandboxProvider } from "./sandbox-provider.ts";
 

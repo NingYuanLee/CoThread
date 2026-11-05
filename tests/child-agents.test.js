@@ -8,7 +8,7 @@ import { Service } from "../server/service.js";
 import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dispatch.js";
 import { processNextReply } from "../server/replies.js";
 import { openAgentRuntime, stopAgent } from "../server/agent.js";
-import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
+import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.ts";
 import { agentSession } from "../server/agent-session.ts";
 import {
   processNextChildContextCompression,

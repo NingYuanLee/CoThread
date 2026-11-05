@@ -13,7 +13,7 @@ import {
   getRendition,
   RENDITION_MAX_ATTEMPTS,
 } from "./documents/index.js";
-import { convertToOoxml, planOfficeRendition } from "./office-convert.js";
+import { convertToOoxml, planOfficeRendition } from "./office-convert.ts";
 import type { RenditionRow } from "./documents/index.js";
 import type { Db } from "./types.ts";
 
@@ -84,6 +84,7 @@ export async function ensureOfficeRendition({
     supported: boolean;
     reason: string;
     kind: string;
+    inputExtension: string;
     filename: string;
     mime: string;
   };

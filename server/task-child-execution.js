@@ -10,7 +10,7 @@ import {
   recordTaskStatusChange,
   stickyChildExecutorIds,
   stickyChildLabel,
-} from "./task-pool-activity.js";
+} from "./task-pool-activity.ts";
 import {
   classifyTaskFailure,
   failureSignature,

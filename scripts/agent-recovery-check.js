@@ -1,7 +1,7 @@
 import { resolve, relative, sep } from "node:path";
 import { rename, mkdir } from "node:fs/promises";
 import { createDatabase, query } from "../server/db.ts";
-import { releaseSandbox } from "../server/agent-sandbox.js";
+import { releaseSandbox } from "../server/agent-sandbox.ts";
 import { digest } from "../server/auth.ts";
 import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 assertProductionWriteAllowed();

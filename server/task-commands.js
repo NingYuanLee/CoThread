@@ -10,7 +10,7 @@ import { HttpError } from "./http-error.ts";
 import { publishWork } from "./work-events.ts";
 
 import { withChildDispatchGate } from "./task-pool-helpers.ts";
-import { recordTaskStatusChange } from "./task-pool-activity.js";
+import { recordTaskStatusChange } from "./task-pool-activity.ts";
 
 import { closeEndedTaskRuns } from "./task-pool-recovery.ts";
 import { ASSIGN_HUMAN_AUTH, TASK_ENDED, TASK_UPDATE_STATUSES } from "./task-policy.ts";

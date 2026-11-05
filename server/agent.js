@@ -10,7 +10,7 @@ import { query } from "./db.ts";
 import { contextInjectionFromEvent } from "../shared/context-injection.js";
 import { Service, HttpError } from "./service.js";
 import { createAgentTools } from "./agent-tools.js";
-import { releaseSandbox } from "./agent-sandbox.js";
+import { releaseSandbox } from "./agent-sandbox.ts";
 import { agentSession } from "./agent-session.ts";
 import { deliverTaskUpdates } from "./agent-updates.ts";
 import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.ts";

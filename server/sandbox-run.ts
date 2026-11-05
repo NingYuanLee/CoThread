@@ -5,16 +5,58 @@ import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
 import { modelDiscussion } from "./model-context.ts";
 import { resolveSandboxProvider } from "./sandbox-provider.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 一次命令执行落在沙箱上的能力面。 */
+type RunSandbox = {
+  sandboxId: string;
+  files: {
+    makeDir(path: string): Promise<unknown>;
+    write(path: string, data: unknown): Promise<unknown>;
+  };
+  commands: {
+    run(
+      command: string,
+      options: { cwd: string; timeoutMs: number },
+    ): Promise<{ exitCode: number; stdout?: string; stderr?: string }>;
+  };
+  kill(): Promise<unknown>;
+};
+
+/** `executeRun` 用到的 Service 视图。 */
+export type SandboxRunService = {
+  db: Pool;
+  thread(user: SandboxRunUser, threadId: string, write?: boolean, db?: Db): Promise<unknown>;
+  context(user: SandboxRunUser, threadId: string, db?: Db): Promise<Record<string, unknown>>;
+  project(user: SandboxRunUser, projectId: string): Promise<{ versions: Array<{ id: string }> }>;
+  version(
+    user: SandboxRunUser,
+    versionId: string,
+  ): Promise<{
+    id: string;
+    content: unknown;
+    title?: unknown;
+    version?: unknown;
+    filename?: unknown;
+  }>;
+};
+
+/** 发起执行的人。 */
+export type SandboxRunUser = { id: string; kind?: string | null };
+
+/** 已启动回调收到的执行信息。 */
+export type SandboxRunStarted = { id: string; status: string };
 
 export async function executeRun(
-  service,
-  user,
-  threadId,
-  input,
-  kind = "command",
-  provider,
-  onStarted,
-) {
+  service: SandboxRunService,
+  user: SandboxRunUser,
+  threadId: string,
+  input: Record<string, unknown>,
+  kind: string = "command",
+  provider?: unknown,
+  onStarted?: (started: SandboxRunStarted) => unknown,
+): Promise<{ id: string; status: string; output: string }> {
   // 不传 provider 时按 COTHREAD_SANDBOX_PROVIDER 解析；显式传入优先（测试用 stub）。
   const sandboxProvider = resolveSandboxProvider(provider);
   const command = z.string().trim().min(1).max(8000).parse(input.command);
@@ -27,24 +69,27 @@ export async function executeRun(
       [threadId],
     );
     if (active) throw new HttpError(409, "当前迭代已有执行任务");
-    const context = modelDiscussion(await service.context(user, threadId, db));
+    const threadContext = modelDiscussion(await service.context(user, threadId, db)) as Record<
+      string,
+      unknown
+    >;
     await query(
       db,
       "INSERT INTO sandbox_runs(id,thread_id,requested_by,kind,status,input) VALUES(?,?,?,?,'running',?)",
       [runId, threadId, user.id, kind, command],
     );
-    return context;
+    return threadContext;
   });
   onStarted?.({ id: runId, status: "running" });
-  const progress = async (text) =>
+  const progress = async (text: string): Promise<unknown> =>
     query(service.db, "UPDATE sandbox_runs SET progress=? WHERE id=?", [text, runId]);
-  let sandbox;
+  let sandbox: RunSandbox | undefined;
   let output = "";
   let status = "failed";
   let stage = "create";
   try {
     await progress("正在准备本机工作区");
-    sandbox = await sandboxProvider.create();
+    sandbox = (await sandboxProvider.create()) as RunSandbox;
     await query(service.db, "UPDATE sandbox_runs SET sandbox_id=? WHERE id=?", [
       sandbox.sandboxId,
       runId,
@@ -54,12 +99,15 @@ export async function executeRun(
     await progress("正在准备讨论和文档副本");
     await sandbox.files.makeDir(cwd);
     await sandbox.files.write(`${cwd}/context.json`, JSON.stringify(context, null, 2));
-    const project = await service.project(user, context.project_id);
-    const manifest = [];
+    const project = await service.project(user, context.project_id as string);
+    const manifest: Array<Record<string, unknown>> = [];
     // Every immutable version gets its own safe ID-based filename; no client paths enter shell commands.
     for (const meta of project.versions.slice(0, 40)) {
       const version = await service.version(user, meta.id);
-      await sandbox.files.write(`${cwd}/${version.id}`, new Uint8Array(version.content).buffer);
+      await sandbox.files.write(
+        `${cwd}/${version.id}`,
+        new Uint8Array(version.content as never).buffer,
+      );
       manifest.push({
         id: version.id,
         title: version.title,
@@ -84,11 +132,12 @@ export async function executeRun(
       error instanceof HttpError
         ? error.message
         : "沙箱执行失败。请检查服务可用性；群聊与文档数据不受影响。";
+    const failure = error as { name?: string; exitCode?: unknown } | null;
     console.error("Sandbox run failed", {
       kind,
       stage,
-      type: error.name,
-      exitCode: error.exitCode ?? null,
+      type: failure?.name,
+      exitCode: failure?.exitCode ?? null,
     });
   } finally {
     await progress(sandbox ? "正在回收沙箱" : "正在保存执行状态");

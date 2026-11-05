@@ -251,13 +251,20 @@ npm test            # 集成测试需要测试库
 
 至此 `server/` 已过半：**102 个 `.ts` / 97 个 `.js`**。
 
-剩余 97 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第十八批（5 个模块，984 行）：`agent-sandbox`(230)、`office-convert`(223)、`task-pool-activity`(210)、`thread-reads`(163)、`sandbox-run`(158)。
+
+本批两个要点：
+
+- `agent-sandbox` 里 `provider.connect` 是可选方法（单次执行的适配器只需要 `create`），但恢复持久工作区时必须能连。用一个局部 `ConnectableProvider` 类型在调用处收窄，不做全局放宽。
+- `task-pool-activity` 的 `recordTaskStatusChange` 之前靠 JSDoc 提示 `reason` 类型，转成 `.ts` 后改成真正的参数类型，`agent-task-sync` 的两处报错随之消失。
+
+剩余 92 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                            | 文件数 |
 | ---- | ------------------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）                  | 12     |
-| 4    | 被 2–4 个文件引用                                                               | 31     |
-| 5    | 被 5–9 个文件引用                                                               | 30     |
+| 4    | 被 2–4 个文件引用                                                               | 28     |
+| 5    | 被 5–9 个文件引用                                                               | 28     |
 | 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 24     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径           | 1      |
 

@@ -18,7 +18,7 @@ import {
   stickyChildExecutorIds,
   stickyChildLabel,
   taskExecutionSnapshot,
-} from "./task-pool-activity.js";
+} from "./task-pool-activity.ts";
 import { classifyTaskFailure } from "./task-pool-failures.ts";
 import {
   closeEndedTaskRuns,

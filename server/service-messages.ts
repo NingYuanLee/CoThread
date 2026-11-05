@@ -1,6 +1,6 @@
 import { recordMessageActivity } from "./thread-activity.ts";
 import { attachMessageQuotes } from "./message-quotes.ts";
-import { markThreadRead as saveThreadRead, threadReadSummary } from "./thread-reads.js";
+import { markThreadRead as saveThreadRead, threadReadSummary } from "./thread-reads.ts";
 import { isViewingThread } from "./thread-presence.ts";
 import {
   AGENT_LAOWENG_PROFILE,

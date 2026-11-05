@@ -1,9 +1,35 @@
 import { query } from "./db.ts";
 import { mentionsUser } from "../shared/mentions.js";
+import type { Db } from "./types.ts";
 
 const visibleMessage = "NOT (m.source='human' AND m.agent_task_id IS NOT NULL)";
 
-export async function markThreadRead(db, userId, threadId, sequence) {
+/** 一条线程的未读汇总。 */
+export type ThreadReadSummary = {
+  lastReadSequence: string;
+  unreadCount: number;
+  unreadMention: boolean;
+  unreadMentionCount: number;
+  unreadChat: number;
+  unreadTask: number;
+};
+
+/** 带未读状态的线程。 */
+export type ThreadWithReads<T> = T & {
+  last_read_sequence: string;
+  unread_count: number;
+  unread_mention: boolean;
+  unread_mention_count: number;
+  unread_chat: number;
+  unread_task: number;
+};
+
+export async function markThreadRead(
+  db: Db,
+  userId: string,
+  threadId: string,
+  sequence: string,
+): Promise<void> {
   await query(
     db,
     "INSERT INTO thread_reads(thread_id, user_id, last_read_sequence, read_at) VALUES(?,?,?,UTC_TIMESTAMP(3)) AS incoming ON DUPLICATE KEY UPDATE read_at=IF(incoming.last_read_sequence>thread_reads.last_read_sequence, incoming.read_at, thread_reads.read_at), last_read_sequence=GREATEST(thread_reads.last_read_sequence, incoming.last_read_sequence)",
@@ -18,25 +44,29 @@ export async function markThreadRead(db, userId, threadId, sequence) {
   );
 }
 
-export async function threadReadSummary(db, userId, threadId) {
-  const [read] = await query(
+export async function threadReadSummary(
+  db: Db,
+  userId: string,
+  threadId: string,
+): Promise<ThreadReadSummary> {
+  const [read] = await query<{ last_read_sequence?: unknown }>(
     db,
     "SELECT last_read_sequence FROM thread_reads WHERE thread_id=? AND user_id=?",
     [threadId, userId],
   );
   const last = read?.last_read_sequence || "0";
-  const [count] = await query(
+  const [count] = await query<{ n: unknown }>(
     db,
     "SELECT COUNT(*) n FROM messages m WHERE m.thread_id=? AND m.sequence>? AND m.author_id<>? AND " +
       visibleMessage,
     [threadId, last, userId],
   );
-  const [mention] = await query(
+  const [mention] = await query<{ n: unknown }>(
     db,
     "SELECT COUNT(*) n FROM notifications n JOIN messages m ON m.id=n.message_id WHERE n.user_id=? AND n.thread_id=? AND n.kind='mention' AND m.sequence>?",
     [userId, threadId, last],
   );
-  const [inbox] = await query(
+  const [inbox] = await query<{ chat_unread?: unknown; task_unread?: unknown }>(
     db,
     `SELECT SUM(kind='mention') chat_unread,
       SUM(kind IN ('task_assigned','task_decision','task_blocked','task_completed','task_failed')) task_unread
@@ -54,18 +84,23 @@ export async function threadReadSummary(db, userId, threadId) {
   };
 }
 
-export async function attachThreadReads(db, userId, threads) {
-  if (!threads?.length) return threads || [];
+/** 给一列线程补上未读数与未读提及。 */
+export async function attachThreadReads<T extends { id: string }>(
+  db: Db,
+  userId: string,
+  threads: T[],
+): Promise<Array<ThreadWithReads<T>>> {
+  if (!threads?.length) return (threads || []) as Array<ThreadWithReads<T>>;
   const ids = threads.map((thread) => thread.id);
   const marks = ids.map(() => "?").join(",");
-  const reads = await query(
+  const reads = await query<{ thread_id: string; last_read_sequence: unknown }>(
     db,
     "SELECT thread_id, last_read_sequence FROM thread_reads WHERE user_id=? AND thread_id IN (" +
       marks +
       ")",
     [userId, ...ids],
   );
-  const counts = await query(
+  const counts = await query<{ thread_id: string; unread_count: unknown }>(
     db,
     "SELECT m.thread_id, COUNT(*) unread_count FROM messages m LEFT JOIN thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id IN (" +
       marks +
@@ -74,15 +109,19 @@ export async function attachThreadReads(db, userId, threads) {
       " GROUP BY m.thread_id",
     [userId, ...ids, userId],
   );
-  const mentions = await query(
+  const mentions = await query<{ thread_id: string; mention_count: unknown }>(
     db,
     "SELECT n.thread_id, COUNT(*) mention_count FROM notifications n JOIN messages m ON m.id=n.message_id LEFT JOIN thread_reads r ON r.thread_id=n.thread_id AND r.user_id=n.user_id WHERE n.user_id=? AND n.kind='mention' AND n.thread_id IN (" +
       marks +
       ") AND m.sequence>COALESCE(r.last_read_sequence, 0) GROUP BY n.thread_id",
     [userId, ...ids],
   );
-  const [person] = await query(db, "SELECT name, email, username FROM users WHERE id=?", [userId]);
-  const unreadBodies = await query(
+  const [person] = await query<{ name?: string; email?: string; username?: string }>(
+    db,
+    "SELECT name, email, username FROM users WHERE id=?",
+    [userId],
+  );
+  const unreadBodies = await query<{ thread_id: string; body: unknown }>(
     db,
     "SELECT m.thread_id, m.body FROM messages m LEFT JOIN thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id IN (" +
       marks +
@@ -90,9 +129,9 @@ export async function attachThreadReads(db, userId, threads) {
       visibleMessage,
     [userId, ...ids, userId],
   );
-  const bodyMentionMap = new Map();
+  const bodyMentionMap = new Map<string, number>();
   for (const row of unreadBodies) {
-    if (!person || !mentionsUser(row.body, person)) continue;
+    if (!person || !mentionsUser(String(row.body || ""), person)) continue;
     bodyMentionMap.set(row.thread_id, (bodyMentionMap.get(row.thread_id) || 0) + 1);
   }
   const readMap = new Map(reads.map((row) => [row.thread_id, String(row.last_read_sequence)]));
@@ -100,7 +139,7 @@ export async function attachThreadReads(db, userId, threads) {
   const mentionMap = new Map(
     mentions.map((row) => [row.thread_id, Number(row.mention_count) || 0]),
   );
-  const inbox = await query(
+  const inbox = await query<{ thread_id: string; chat_unread?: unknown; task_unread?: unknown }>(
     db,
     `SELECT thread_id, SUM(kind='mention') chat_unread,
       SUM(kind IN ('task_assigned','task_decision','task_blocked','task_completed','task_failed')) task_unread

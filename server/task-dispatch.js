@@ -6,7 +6,7 @@ import { query, transaction } from "./db.ts";
 import { enqueueCoordinatorEvent } from "./coordinator-events.ts";
 
 import { composeTaskInstruction } from "./task-pool-helpers.ts";
-import { recordTaskStatusChange } from "./task-pool-activity.js";
+import { recordTaskStatusChange } from "./task-pool-activity.ts";
 
 import { MAX_Child } from "./task-policy.ts";
 import { documentsForTaskInstruction } from "./task-documents.ts";

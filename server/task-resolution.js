@@ -6,7 +6,7 @@ import { HttpError } from "./http-error.ts";
 import { publishWork } from "./work-events.ts";
 
 import { parseDocumentRefs, withChildDispatchGate } from "./task-pool-helpers.ts";
-import { recordTaskStatusChange } from "./task-pool-activity.js";
+import { recordTaskStatusChange } from "./task-pool-activity.ts";
 
 import {
   TASK_ENDED,

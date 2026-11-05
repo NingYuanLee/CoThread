@@ -6,7 +6,7 @@ import {
   confirmIterationArchive,
 } from "./iteration-archive.js";
 import { attachMessageQuotes } from "./message-quotes.ts";
-import { threadReadSummary } from "./thread-reads.js";
+import { threadReadSummary } from "./thread-reads.ts";
 import { projectThreadSideState } from "./thread-side-state.ts";
 import { contextUsage } from "../shared/context.js";
 import { randomUUID } from "node:crypto";

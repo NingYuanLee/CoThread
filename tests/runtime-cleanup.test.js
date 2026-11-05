@@ -6,7 +6,7 @@ import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { claimReply } from "../server/reply-dispatch.js";
 import { openAgentRuntime } from "../server/agent.js";
-import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
+import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.ts";
 import { registerSandboxProvider } from "../server/sandbox-provider.ts";
 import { acquireSessionLock, sessionLockName } from "../server/session-lock.ts";
 

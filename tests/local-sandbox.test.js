@@ -4,7 +4,7 @@ import { LocalSandbox } from "../server/local-sandbox.js";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { executeRun } from "../server/sandbox-run.js";
+import { executeRun } from "../server/sandbox-run.ts";
 import { randomUUID } from "node:crypto";
 
 test("local runner scopes files and scrubs service credentials", async () => {

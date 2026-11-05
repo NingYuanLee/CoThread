@@ -18,7 +18,7 @@ import { HttpError } from "./service.js";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { modelDiscussion, modelProject } from "./model-context.ts";
 import { agentSession } from "./agent-session.ts";
-import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.js";
+import { acquireSandbox, safeRemotePath, shellQuote } from "./agent-sandbox.ts";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import {
   loadMemberUnderstanding,

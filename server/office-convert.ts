@@ -23,7 +23,10 @@ const DEFAULT_TIMEOUT_MS = Math.max(
   Number(process.env.COTHREAD_OFFICE_CONVERT_TIMEOUT_MS) || 120_000,
 );
 
-const TARGETS = {
+/** 一个转换目标的元数据。 */
+type TargetSpec = { kind: string; inputExtension: string; mime: string };
+
+const TARGETS: Record<string, TargetSpec> = {
   word: {
     kind: "docx",
     inputExtension: "doc",
@@ -42,7 +45,7 @@ const TARGETS = {
 };
 
 /** 已安装 @deepseek-ai/libreoffice-kit 时直接用它，无需配置环境变量。 */
-function installedKitCli() {
+function installedKitCli(): string {
   try {
     return createRequire(import.meta.url).resolve("@deepseek-ai/libreoffice-kit/cli");
   } catch {
@@ -67,32 +70,44 @@ export function officeConverterStatus() {
  * 判断这个版本是否需要生成预览派生文件。
  * 返回 { supported:true, kind, inputExtension, mime, filename, reason } 或不支持的原因。
  */
-export function planOfficeRendition(filename, content) {
-  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content || "");
+export function planOfficeRendition(filename: unknown, content: unknown) {
+  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ""), "utf8");
   if (!bytes.length) return { supported: false, reason: "文件为空。" };
   if (bytes.length > MAX_INPUT_BYTES)
     return { supported: false, reason: "文件超过预览转换大小限制（8 MiB）。" };
   if (sniffBinaryFormat(bytes) !== "cfb")
     return { supported: false, reason: "该文件已是 OOXML 或不是旧版二进制 Office。" };
-  const legacy = extractLegacyOfficeDocument({ filename, content: bytes });
-  const target = TARGETS[legacy.kind];
-  if (!target) return { supported: false, reason: legacy.reason || "该文件暂不支持预览转换。" };
+  const legacy = extractLegacyOfficeDocument({ filename: String(filename ?? ""), content: bytes });
+  const target = TARGETS[String((legacy as { kind?: unknown }).kind || "")];
+  if (!target)
+    return {
+      supported: false,
+      reason: (legacy as { reason?: string }).reason || "该文件暂不支持预览转换。",
+    };
   return {
     supported: true,
     kind: target.kind,
     inputExtension: target.inputExtension,
     mime: target.mime,
     filename: renditionFilename(filename, target.kind),
-    reason: legacy.reason || "",
+    reason: String((legacy as { reason?: unknown }).reason || ""),
   };
 }
 
-function renditionFilename(filename, kind) {
+function renditionFilename(filename: unknown, kind: string): string {
   const base = String(filename || "document").replace(/\.[^.]+$/, "") || "document";
   return `${base}.${kind}`;
 }
 
-function converterCommand({ inputPath, outputPath, workDir }) {
+function converterCommand({
+  inputPath,
+  outputPath,
+  workDir,
+}: {
+  inputPath: string;
+  outputPath: string;
+  workDir: string;
+}): { command: string; args: string[]; expectedPath: string } {
   const cli = process.env.COTHREAD_DSOFFICE_CLI || installedKitCli();
   if (cli)
     return {
@@ -112,7 +127,7 @@ function converterCommand({ inputPath, outputPath, workDir }) {
       "--nofirststartwizard",
       `-env:UserInstallation=file:///${profile}`,
       "--convert-to",
-      outputPath.split(".").pop(),
+      outputPath.split(".").pop() as string,
       "--outdir",
       workDir,
       inputPath,
@@ -121,7 +136,15 @@ function converterCommand({ inputPath, outputPath, workDir }) {
   };
 }
 
-function runProcess({ command, args, timeoutMs }) {
+function runProcess({
+  command,
+  args,
+  timeoutMs,
+}: {
+  command: string;
+  args: string[];
+  timeoutMs: number;
+}): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: "ignore", windowsHide: true });
     let settled = false;
@@ -136,7 +159,7 @@ function runProcess({ command, args, timeoutMs }) {
       settled = true;
       clearTimeout(timer);
       reject(
-        error.code === "ENOENT"
+        (error as NodeJS.ErrnoException).code === "ENOENT"
           ? new Error("未找到转换后端：请安装 LibreOffice 或配置 COTHREAD_DSOFFICE_CLI")
           : error,
       );
@@ -152,20 +175,20 @@ function runProcess({ command, args, timeoutMs }) {
 }
 
 /** 校验产物是目标 OOXML（ZIP 容器且包含对应主文档部件）。 */
-export function isOoxmlRendition(buffer, kind) {
+export function isOoxmlRendition(buffer: unknown, kind: unknown): boolean {
   if (!Buffer.isBuffer(buffer) || buffer.length < 4) return false;
   if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) return false;
-  const markers = {
+  const markers: Record<string, string> = {
     docx: "word/document.xml",
     xlsx: "xl/workbook.xml",
     pptx: "ppt/presentation.xml",
   };
-  const marker = markers[kind];
+  const marker = markers[kind as string];
   return marker ? buffer.includes(Buffer.from(marker, "latin1")) : false;
 }
 
 /** 旧版二进制 Office 被截断时（下载不完整）补零到扇区边界，否则转换器会拒收。 */
-function withSectorPadding(content) {
+function withSectorPadding(content: Buffer): Buffer {
   const remainder = content.length % 512;
   return remainder === 0 ? content : Buffer.concat([content, Buffer.alloc(512 - remainder)]);
 }
@@ -173,7 +196,15 @@ function withSectorPadding(content) {
 /**
  * 执行一次转换。成功返回 { content, filename, mime }，失败抛错（由调用方记录原因）。
  */
-export async function convertToOoxml({ content, plan, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export async function convertToOoxml({
+  content,
+  plan,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: {
+  content: Buffer;
+  plan: TargetSpec & { supported?: boolean; reason?: string; filename: string };
+  timeoutMs?: number;
+}): Promise<{ content: Buffer; filename: string; mime: string }> {
   if (!plan?.supported) throw new Error(plan?.reason || "该文件不支持预览转换");
   const workDir = await mkdtemp(join(tmpdir(), "cothread-rendition-"));
   try {

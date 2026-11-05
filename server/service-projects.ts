@@ -1,4 +1,4 @@
-import { attachThreadReads } from "./thread-reads.js";
+import { attachThreadReads } from "./thread-reads.ts";
 import {
   AGENT_LAOWENG_PROFILE,
   AGENT_XIAOXIANG_MEMBER,
@@ -326,7 +326,11 @@ export async function projectOperation(
           lastThreadTitle: projectSummary.lastThreadTitle || null,
         }
       : null,
-    threads: await attachThreadReads(service.db, user.id, threads),
+    threads: await attachThreadReads(
+      service.db,
+      user.id,
+      threads as Array<Record<string, unknown> & { id: string }>,
+    ),
     members: [
       ...members.map((row) => {
         const {

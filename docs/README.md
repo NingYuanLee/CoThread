@@ -27,7 +27,14 @@
 - [11-agent-prompt-context.md](engineering/11-agent-prompt-context.md)：六段提示词、来源模式、持久会话及调用预览的改造契约（实现与验收状态见正文）
 - [12-project-memory.md](engineering/12-project-memory.md)：项目记忆（老翁持续整理、双区条目、迭代清算、全屏弹窗入口）的实现契约
 - [13-laoweng-workloads.md](engineering/13-laoweng-workloads.md)：老翁的工作面、五类维护任务、项目记忆写入场景、调度与接口
+- [14-project-memory-usability.md](engineering/14-project-memory-usability.md)：项目记忆可用性评估（走查结论、已知限制与待验项）
 - [15-chat-scroll-and-composer.md](engineering/15-chat-scroll-and-composer.md)：会话滚动、底栏高度契约与「回到最新」按钮
+- [16-conversation-memory-design.md](engineering/16-conversation-memory-design.md)：关键发言与核心议题的联合分析（窗口、候选、待观察问题与重核）
+- [17-file-index-design.md](engineering/17-file-index-design.md)：文件索引（根索引、单文件索引、关联索引）、识别队列与提取策略
+- [18-project-process-design.md](engineering/18-project-process-design.md)：项目进程条目与每项目一份的项目现状正文
+- [19-memory-upgrade-review.md](engineering/19-memory-upgrade-review.md)：记忆作业升级的缺陷修复台账与验证记录
+- [20-memory-source-lifecycle-plan.md](engineering/20-memory-source-lifecycle-plan.md)：按来源治理记忆（两态、三来源、出处固定与检索）
+- [21-document-preview-renditions.md](engineering/21-document-preview-renditions.md)：旧版 Office（OLE2）预览派生文件的生成与失效
 
 用户能看见的行为变了，同时改 `public/docs.html` 和对应的工程说明。只改内部实现时只改工程说明。表结构以 `migrations/` 为准。长期产品资料放进 `product/`。一次测量、复盘或待办不要留在 `docs/`。
 

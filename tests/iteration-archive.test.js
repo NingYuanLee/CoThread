@@ -16,7 +16,7 @@ import {
   suggestArchiveContinuation,
   suggestArchivePriorities,
 } from "../server/iteration-archive.js";
-import { issueCredential } from "../server/auth.js";
+import { issueCredential } from "../server/auth.ts";
 import { createAgentTools } from "../server/agent-tools.js";
 
 let database, db, service, leader, creator, admin, project, thread;

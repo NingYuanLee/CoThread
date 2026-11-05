@@ -4,7 +4,7 @@ import {
   previewContentType,
   resolveStoredMime,
   storedContentType,
-} from "../server/documents/preview-mime.js";
+} from "../server/documents/preview-mime.ts";
 
 test("preview prefers filename over stored text/plain", () => {
   assert.equal(previewContentType("text/plain", "index.html"), "text/html; charset=utf-8");

@@ -19,7 +19,7 @@ import {
   intactConversationMemorySql,
   readableConversationMemorySql,
 } from "./conversation-memory-integrity.ts";
-import { visibleFileIndexSql } from "./file-index-visibility.js";
+import { visibleFileIndexSql } from "./file-index-visibility.ts";
 import { resolveMemoryRetry } from "./memory-retry.ts";
 
 export async function loadProjectMembers(db, projectId, throughSequence) {
@@ -2649,7 +2649,7 @@ export async function applyProjectMemoryResult(
       }
     }
     for (const pageId of [...created, ...updated]) {
-      const { resolveMemorySourceFamily } = await import("./memory-policy.js");
+      const { resolveMemorySourceFamily } = await import("./memory-policy.ts");
       await query(conn, "UPDATE wiki_pages SET source_family=? WHERE id=?", [
         await resolveMemorySourceFamily(conn, projectId, pageId),
         pageId,

@@ -9,7 +9,7 @@ import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { publishWork } from "./work-events.ts";
 
-import { withChildDispatchGate } from "./task-pool-helpers.js";
+import { withChildDispatchGate } from "./task-pool-helpers.ts";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import { closeEndedTaskRuns } from "./task-pool-recovery.js";

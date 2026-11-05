@@ -42,7 +42,7 @@ import {
   intactConversationMemorySql,
   readableConversationMemorySql,
 } from "./conversation-memory-integrity.ts";
-import { visibleFileIndexSql } from "./file-index-visibility.js";
+import { visibleFileIndexSql } from "./file-index-visibility.ts";
 
 export { MCP_TOOL_NAMES };
 

@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query, transaction } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/app.js";
-import { issueCredential } from "../server/auth.js";
+import { issueCredential } from "../server/auth.ts";
 import {
   ignoreProjectMemorySignal,
   noteProjectMemorySignal,

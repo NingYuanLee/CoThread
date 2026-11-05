@@ -1,4 +1,4 @@
-import { validDocumentSummarySql } from "./file-index-visibility.js";
+import { validDocumentSummarySql } from "./file-index-visibility.ts";
 import { createHash } from "node:crypto";
 import { finishAgentEvent } from "./thread-activity.ts";
 import { query, transaction } from "./db.ts";
@@ -26,7 +26,7 @@ import {
 } from "./task-pool.js";
 import { trackThinking } from "./agent-thinking.js";
 import { childBindingFromToolResult } from "./child-agent-binding.ts";
-import { insertUniqueAssistantMessage } from "./assistant-post.js";
+import { insertUniqueAssistantMessage } from "./assistant-post.ts";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { countTurnSteps } from "../shared/turn-steps.js";
 import { persistChildContextStats, persistChildRunCheckpoint } from "./child-agent-session.js";
@@ -45,7 +45,7 @@ import {
   assertCurrentExecutorEpoch,
   assertExternalAdmitted,
   isExecutorEpochLost,
-} from "./executor-fence.js";
+} from "./executor-fence.ts";
 import {
   buildDiscussionTurn,
   COTHREAD_SYSTEM_TEXT,

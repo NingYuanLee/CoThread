@@ -34,9 +34,9 @@ import {
   utcDateKey,
 } from "./project-library.js";
 import { libraryChange } from "./library.js";
-import { previewContentType, resolveStoredMime } from "./preview-mime.js";
+import { previewContentType, resolveStoredMime } from "./preview-mime.ts";
 import { recordDocumentChange } from "./document-audit.js";
-import { asPreviewHtml, previewAssetInFolder, walkPreviewSubfolders } from "./service-preview.js";
+import { asPreviewHtml, previewAssetInFolder, walkPreviewSubfolders } from "./service-preview.ts";
 import {
   clearArtifactOfficialLink,
   clearArtifactSourceLink,

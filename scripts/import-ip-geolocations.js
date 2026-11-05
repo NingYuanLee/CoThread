@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createDatabase, query } from "../server/db.ts";
-import { ipv4ToLong } from "../server/ip-location.js";
+import { ipv4ToLong } from "../server/ip-location.ts";
 import { migrate } from "./migrate.js";
 import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 

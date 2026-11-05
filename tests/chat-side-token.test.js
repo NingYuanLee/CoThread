@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/http-app.js";
-import { issueCredential } from "../server/auth.js";
+import { issueCredential } from "../server/auth.ts";
 
 const collections = ["reviews", "runs", "replies", "updates", "requests", "localExecutorTasks"];
 test("opted chat snapshots skip unchanged side state but resync changes, deletion and scope", async () => {

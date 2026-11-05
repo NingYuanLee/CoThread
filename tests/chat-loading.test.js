@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { createApp } from "../server/app.js";
 import { Service } from "../server/service.js";
-import { issueCredential } from "../server/auth.js";
+import { issueCredential } from "../server/auth.ts";
 import { createResourceCache } from "../shared/resource-cache.js";
 
 test("chat views omit repeated binary data and lazy resources retain authorization", async () => {

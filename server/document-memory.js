@@ -247,7 +247,7 @@ async function upsertPage(
     [pageId, projectId, DEFAULT_MEMORY_SUBTYPES.document, clean, text, createdBy, createdBy],
   );
   if (changed) {
-    const { assertCanSupersedeMemory } = await import("./memory-policy.js");
+    const { assertCanSupersedeMemory } = await import("./memory-policy.ts");
     assertCanSupersedeMemory({ sourceFamily: "project_file", automatedFileMaintenance: true });
     await query(db, "UPDATE wiki_pages SET status='superseded' WHERE id=?", [registered.id]);
     const { createMemoryRelation } = await import("./memory-graph.js");

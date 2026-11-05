@@ -1,14 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db.ts";
 import { publishWork } from "./work-events.ts";
+import type { Db } from "./types.ts";
+
+/** 入队一条协调者事件所需字段。 */
+export type CoordinatorEventInput = {
+  threadId?: string | null;
+  kind?: string | null;
+  messageId?: string | null;
+  taskId?: string | null;
+  payload?: { runId?: unknown; [field: string]: unknown } | null;
+};
 
 export async function enqueueCoordinatorEvent(
-  db,
-  { threadId, kind, messageId = null, taskId = null, payload = null },
-) {
+  db: Db,
+  { threadId, kind, messageId = null, taskId = null, payload = null }: CoordinatorEventInput = {},
+): Promise<string | null> {
   if (!threadId || !kind) return null;
   if (kind === "child_result" && taskId) {
-    const [dup] = await query(
+    const [dup] = await query<{ id: string }>(
       db,
       `SELECT id FROM coordinator_events
        WHERE thread_id=? AND kind='child_result' AND task_id=? AND status IN ('queued','running')

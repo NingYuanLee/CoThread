@@ -103,7 +103,7 @@ test("日志发现贯穿新增、同版本内容更新与删除，并保护旧�
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { replaceVersionContent, recordDocumentChange } =
     await import("../server/documents/index.js");
-  const { visibleFileIndexSql } = await import("../server/file-index-visibility.js");
+  const { visibleFileIndexSql } = await import("../server/file-index-visibility.ts");
   const { listFileIndexIssues, listFileIndexDiscoveryHistory } =
     await import("../server/file-index-jobs.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =

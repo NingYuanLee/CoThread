@@ -176,7 +176,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 - 全量测试需同步当前接口和配置契约：本地执行器请求使用 `/local-executor/` 和 `/local-executor-tasks/`；114 号迁移已将旧 `connector_tasks` 更名，历史作者修复逻辑的测试需要映射到当前表名，但历史迁移文件不变。`enabled` 由 AppID 派生，不能再用 `enabled: false` 夹具代表未配置；先保存 AppID，再测试云环境、托管路径或运行时密钥读取。CloudBase 密钥对必须完整保存，缺失凭据的发布历史用例应构造真正无凭据场景；管理客户端缓存计数须排除保存凭据时的环境校验调用。公开认证配置新增字段、代码上传密钥文案变更也需同步断言，不能放宽生产校验让旧断言通过。
 
 - 小程序模式在运行时代码中已存在，`shared/dialogue-mode.d.ts` 却未声明 `miniprogram`；Admin 启动回调还漏了实际使用的 `force` 参数。先以 `tsc` 结果校验声明和调用契约，再打包。
-- VM 测试转换 `server/local-sandbox.js` 后，`./executor-fence.js` 必须相对生产模块解析，使用 `createRequire(new URL("../server/local-sandbox.js", import.meta.url))`；相对测试文件解析会报模块不存在。格式化导致的换行变化，应修正测试的空白匹配，不改变生产行为。
+- VM 测试转换 `server/local-sandbox.js` 后，`./executor-fence.ts` 必须相对生产模块解析，使用 `createRequire(new URL("../server/local-sandbox.js", import.meta.url))`；相对测试文件解析会报模块不存在。格式化导致的换行变化，应修正测试的空白匹配，不改变生产行为。
 - 首次保存 CloudBase 配置时，不能先加载尚不存在的完整运行时配置；已有凭据配置好后才核对环境与 AppID 的归属。凭据保存将 SecretId 留在提示字段、SecretKey 加密存储，调用凭据校验前必须重新拼回完整凭据，不能拿仅含 SecretKey 的存储载荷去校验。实现见[小程序配置](../../server/miniprogram-config.js)。
 - CloudBase SDK 工厂按项目环境缓存，不能断言每个操作都新建实例。本次凭据注入测试覆盖的调用应复用 1 个数据面客户端，管理操作复用 manager、账号环境枚举单独创建，共 2 个 manager；见[凭据回归测试](../../tests/cloudbase-tool-credentials.test.js)。
 

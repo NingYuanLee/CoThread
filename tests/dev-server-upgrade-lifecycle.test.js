@@ -4,7 +4,7 @@ import http from "node:http";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 import { setImmediate as turn } from "node:timers/promises";
-import { digest } from "../server/auth.js";
+import { digest } from "../server/auth.ts";
 import { registerDevServerUpgrade } from "../server/miniprogram-dev-server.js";
 
 async function harness({ select, touch, credential, member } = {}) {

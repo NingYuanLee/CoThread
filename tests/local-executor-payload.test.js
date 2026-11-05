@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/http-app.js";
-import { issueCredential } from "../server/auth.js";
+import { issueCredential } from "../server/auth.ts";
 import { modelDiscussion } from "../server/model-context.ts";
 
 test("browser chat and startup omit connector result blobs while full context retains them", async () => {

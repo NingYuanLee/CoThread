@@ -2,7 +2,7 @@
  * API 令牌与 MCP 凭据，以及 /mcp 无状态端点。
  * 注册点与原先内联时一致：在鉴权中间件之后、末尾 404 之前。
  */
-import { accountCredential } from "../auth.js";
+import { accountCredential } from "../auth.ts";
 import { decryptToken } from "../credential-vault.ts";
 import { query } from "../db.ts";
 import { HttpError } from "../service.js";

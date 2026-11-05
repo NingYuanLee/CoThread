@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ipv4ToLong, resolveIpLocation } from "../server/ip-location.js";
+import { ipv4ToLong, resolveIpLocation } from "../server/ip-location.ts";
 
 test("ipv4ToLong encodes dotted quads", () => {
   assert.equal(ipv4ToLong("0.0.0.0"), 0);

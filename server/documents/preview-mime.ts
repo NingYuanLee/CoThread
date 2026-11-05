@@ -1,4 +1,4 @@
-const PREVIEW_MIME_BY_EXT = {
+const PREVIEW_MIME_BY_EXT: Record<string, string> = {
   html: "text/html; charset=utf-8",
   htm: "text/html; charset=utf-8",
   css: "text/css; charset=utf-8",
@@ -15,7 +15,7 @@ const PREVIEW_MIME_BY_EXT = {
   woff2: "font/woff2",
 };
 
-const STORED_MIME_BY_EXT = {
+const STORED_MIME_BY_EXT: Record<string, string> = {
   html: "text/html",
   htm: "text/html",
   css: "text/css",
@@ -34,7 +34,8 @@ const STORED_MIME_BY_EXT = {
   zip: "application/zip",
 };
 
-export function normalizeUploadMime(mime) {
+/** 规范化上传声明的 MIME；非法或空返回 undefined。 */
+export function normalizeUploadMime(mime: unknown): string | undefined {
   const current = String(mime || "").trim();
   if (!current) return undefined;
   const type = current.split(";")[0].trim().toLowerCase();
@@ -42,7 +43,7 @@ export function normalizeUploadMime(mime) {
   return type;
 }
 
-function fileExt(filename) {
+function fileExt(filename: unknown): string {
   return (
     String(filename || "")
       .split(".")
@@ -51,7 +52,8 @@ function fileExt(filename) {
   );
 }
 
-export function storedContentType(filename) {
+/** 按扩展名给出入库后应记录的 Content-Type。 */
+export function storedContentType(filename: unknown): string {
   const ext = fileExt(filename);
   if (STORED_MIME_BY_EXT[ext]) return STORED_MIME_BY_EXT[ext];
   if (
@@ -63,7 +65,8 @@ export function storedContentType(filename) {
   return "application/octet-stream";
 }
 
-export function resolveStoredMime(filename, mime) {
+/** 已上传声明的 MIME 与扩展名推断冲突时，以扩展名为准的两个特例。 */
+export function resolveStoredMime(filename: unknown, mime: unknown): string {
   const inferred = storedContentType(filename);
   const current = normalizeUploadMime(mime);
   if (!current || current === "application/octet-stream") return inferred;
@@ -71,7 +74,8 @@ export function resolveStoredMime(filename, mime) {
   return current;
 }
 
-export function previewContentType(mime, filename) {
+/** 预览响应头：已知扩展名优先，其余补 charset。 */
+export function previewContentType(mime: unknown, filename: unknown): string {
   const ext = fileExt(filename);
   if (PREVIEW_MIME_BY_EXT[ext]) return PREVIEW_MIME_BY_EXT[ext];
   const normalized = String(mime || "").trim();

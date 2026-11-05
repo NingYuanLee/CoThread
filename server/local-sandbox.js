@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
-import { assertExternalAdmitted } from "./executor-fence.js";
+import { assertExternalAdmitted } from "./executor-fence.ts";
 
 const execute = promisify(execFile);
 const outputLimit = 6 * 1024 * 1024;

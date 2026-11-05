@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { hashPassword, issueCredential, verifyPassword } from "../server/auth.js";
+import { hashPassword, issueCredential, verifyPassword } from "../server/auth.ts";
 import { createApp } from "../server/http-app.js";
 import { listAccountChanges, listAccountLogins } from "../server/account-audit.js";
 

@@ -6,7 +6,7 @@ import {
   parseDocumentRefs,
   withChildDispatchGate,
   withParsedTask,
-} from "./task-pool-helpers.js";
+} from "./task-pool-helpers.ts";
 import {
   listAssignmentEvents,
   listTaskExecutionRuns,

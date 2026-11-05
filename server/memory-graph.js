@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { query } from "./db.ts";
 import { HttpError } from "./service.js";
 import { MEMORY_DIRECTED_RELATIONS, MEMORY_RELATION_LABELS } from "../shared/memory-kinds.js";
-import { visibleFileIndexSql, historicalFileIndexSql } from "./file-index-visibility.js";
+import { visibleFileIndexSql, historicalFileIndexSql } from "./file-index-visibility.ts";
 
 const RELATIONS = Object.keys(MEMORY_RELATION_LABELS);
 /** derives / supersedes 是单向边，防环只看有向边。 */

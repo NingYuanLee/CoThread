@@ -32,7 +32,7 @@ import { persistChildContextStats } from "./child-agent-session.js";
 import { touchChildInferenceHeartbeat } from "./task-pool.js";
 import { acquireSessionLock } from "./session-lock.ts";
 import { logAgentTiming } from "./agent-timing-log.ts";
-import { insertUniqueAssistantMessage } from "./assistant-post.js";
+import { insertUniqueAssistantMessage } from "./assistant-post.ts";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
 
 const running = new Map();

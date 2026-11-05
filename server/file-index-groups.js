@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { createMemoryRelation } from "./memory-graph.js";
-import { visibleFileIndexSql } from "./file-index-visibility.js";
+import { visibleFileIndexSql } from "./file-index-visibility.ts";
 
 function stableId(projectId, first, second) {
   const pair = [first, second].sort().join(":");

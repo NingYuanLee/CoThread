@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeLaowengSessionTurns } from "../server/laoweng-session-turns.js";
+import { mergeLaowengSessionTurns } from "../server/laoweng-session-turns.ts";
 
 test("维护会话按输入和最终输出关联单轮记录，压缩丢失时恢复实际消息", () => {
   const history = [

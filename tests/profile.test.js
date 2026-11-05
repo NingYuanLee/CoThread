@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { createApp } from "../server/app.js";
 import { Service } from "../server/service.js";
-import { issueCredential, hashPassword } from "../server/auth.js";
+import { issueCredential, hashPassword } from "../server/auth.ts";
 
 test("personal profiles persist, validate input, and only allow the current browser user to edit", async () => {
   const database = await testDatabase();

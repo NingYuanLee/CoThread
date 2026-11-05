@@ -5,7 +5,7 @@ import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { publishWork } from "./work-events.ts";
 
-import { composeTaskInstruction } from "./task-pool-helpers.js";
+import { composeTaskInstruction } from "./task-pool-helpers.ts";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import { ASSIGN_HUMAN_AUTH, TASK_ENDED } from "./task-policy.ts";

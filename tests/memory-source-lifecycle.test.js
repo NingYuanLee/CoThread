@@ -17,7 +17,7 @@ import {
   resolveMemorySourceFamily,
   sourceFamilyForSources,
   canSupersedeMemory,
-} from "../server/memory-policy.js";
+} from "../server/memory-policy.ts";
 import { upsertMemoryPage } from "../server/memory-pages.js";
 import { readProjectFacts } from "../server/project-facts.ts";
 import { syncDocumentMemory } from "../server/document-memory.js";

@@ -6,7 +6,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { migrate, migrationChecksum } from "../scripts/migrate.js";
 import { Service } from "../server/service.js";
-import { hashPassword } from "../server/auth.js";
+import { hashPassword } from "../server/auth.ts";
 import { createApp } from "../server/app.js";
 import { createArtifact } from "../server/documents/versions.js";
 

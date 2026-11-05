@@ -8,7 +8,7 @@ import {
   openExecutorFence,
   revokeExecutorFence,
   runWithExecutorFence,
-} from "./executor-fence.js";
+} from "./executor-fence.ts";
 import { Service, HttpError } from "./service.js";
 import { claimReply } from "./reply-dispatch.js";
 import { pendingTaskUpdates } from "./agent-updates.js";

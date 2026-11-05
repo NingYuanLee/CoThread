@@ -2,7 +2,7 @@ import { AGENT_XIAOXIANG_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js"
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { hashPassword } from "./auth.js";
+import { hashPassword } from "./auth.ts";
 
 import { fail, id, title } from "./service-support.ts";
 

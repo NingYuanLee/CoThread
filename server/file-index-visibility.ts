@@ -1,11 +1,16 @@
+/** 文件索引页面的可见性 SQL。`alias` 是调用方查询里的可信标识符。 */
+function assertAlias(alias: string): void {
+  if (!/^[a-z][a-z0-9_]*$/i.test(alias)) throw new Error("Invalid SQL alias");
+}
+
 /**
  * A derived file page is usable only while the exact version it describes is
  * still the current, non-recycled version of a live artifact. Registry rows
  * survive physical deletion, so an orphaned page is not accidentally exposed.
  * `alias` is a trusted SQL identifier supplied by the calling query.
  */
-export function visibleFileIndexSql(alias) {
-  if (!/^[a-z][a-z0-9_]*$/i.test(alias)) throw new Error("Invalid SQL alias");
+export function visibleFileIndexSql(alias: string): string {
+  assertAlias(alias);
   return `(NOT EXISTS (
     SELECT 1 FROM file_index_entries fi
     LEFT JOIN artifacts fa ON fa.id=fi.artifact_id AND fa.project_id=fi.project_id
@@ -90,8 +95,8 @@ export function visibleFileIndexSql(alias) {
   ))`;
 }
 
-export function visibleFileSourceSql(alias) {
-  if (!/^[a-z][a-z0-9_]*$/i.test(alias)) throw new Error("Invalid SQL alias");
+export function visibleFileSourceSql(alias: string): string {
+  assertAlias(alias);
   return `(${alias}.source_kind<>'document_version' OR EXISTS (
     SELECT 1 FROM versions source_version JOIN artifacts source_artifact ON source_artifact.id=source_version.artifact_id
     LEFT JOIN version_recycle source_recycle ON source_recycle.version_id=source_version.id
@@ -101,8 +106,8 @@ export function visibleFileSourceSql(alias) {
 }
 
 /** Old revisions are allowed; deleted/recycled/purged files remain inaccessible. */
-export function historicalFileIndexSql(alias) {
-  if (!/^[a-z][a-z0-9_]*$/i.test(alias)) throw new Error("Invalid SQL alias");
+export function historicalFileIndexSql(alias: string): string {
+  assertAlias(alias);
   return `NOT EXISTS (SELECT 1 FROM wiki_page_sources hs
     LEFT JOIN versions hv ON hs.source_kind='document_version' AND hv.id=hs.source_id
     LEFT JOIN artifacts ha ON ha.id=hv.artifact_id AND ha.project_id=${alias}.project_id
@@ -113,11 +118,12 @@ export function historicalFileIndexSql(alias) {
     LEFT JOIN artifacts ha ON ha.id=hm.artifact_id AND ha.project_id=hg.project_id
     WHERE hg.page_id=${alias}.id AND (ha.id IS NULL OR ha.deleted_at IS NOT NULL OR ha.purged_at IS NOT NULL))`;
 }
+
 /** Summary cache is not authoritative when an immutable-looking version ID
  * has been replaced in place. Historical versions without a registry entry
  * retain their prior behavior. Aliases are trusted identifiers. */
-export function validDocumentSummarySql(versionAlias) {
-  if (!/^[a-z][a-z0-9_]*$/i.test(versionAlias)) throw new Error("Invalid SQL alias");
+export function validDocumentSummarySql(versionAlias: string): string {
+  assertAlias(versionAlias);
   return `NOT EXISTS (SELECT 1 FROM file_index_entries summary_index
     WHERE summary_index.indexed_version_id=${versionAlias}.id AND summary_index.summary_sha256 IS NOT NULL
       AND (NOT (summary_index.summary_sha256 <=> ${versionAlias}.sha256)

@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { createApp } from "../server/http-app.js";
-import { issueCredential } from "../server/auth.js";
+import { issueCredential } from "../server/auth.ts";
 import { assignAdminRoles, saveAdminRole } from "../server/admin-rbac.js";
 import { clearPlatformModelSettings, modelConfig } from "../server/model-config.js";
 import {

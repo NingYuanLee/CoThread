@@ -4,7 +4,7 @@
  * 公开路由与需登录路由分两次注册，鉴权中间件仍由 http-app 在两者之间挂载。
  */
 import { z } from "zod/v3";
-import { verifyPassword, issueCredential, hashPassword } from "../auth.js";
+import { verifyPassword, issueCredential, hashPassword } from "../auth.ts";
 import { query, transaction } from "../db.ts";
 import { HttpError } from "../service.js";
 import { personalProfile, profileSchema } from "../profile.ts";
@@ -21,10 +21,10 @@ import {
 } from "../environment-variables.js";
 import { loginLanding } from "../org-shelf.js";
 import { UI_THEMES, normalizeUiTheme } from "../../shared/ui-theme.js";
-import { resolveIpLocation } from "../ip-location.js";
+import { resolveIpLocation } from "../ip-location.ts";
 import { randomUUID } from "node:crypto";
 import { randomInt } from "node:crypto";
-import { digest } from "../auth.js";
+import { digest } from "../auth.ts";
 import { sweepExpired, touchWindow } from "../rate-window.ts";
 import { isProductionProcess, requestIsHttps } from "../runtime-config.ts";
 

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { createDatabase, query } from "../server/db.ts";
-import { hashPassword } from "../server/auth.js";
+import { hashPassword } from "../server/auth.ts";
 import {
   initialAdminPath,
   loginMemoPath,

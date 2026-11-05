@@ -1,4 +1,4 @@
-import { visibleFileIndexSql } from "./file-index-visibility.js";
+import { visibleFileIndexSql } from "./file-index-visibility.ts";
 import { query } from "./db.ts";
 import {
   intactConversationMemorySql,

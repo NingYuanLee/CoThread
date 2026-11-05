@@ -9,7 +9,7 @@ import {
   nativeHistoryFromCheckpoint,
   nativeHistoryFromLiveHome,
 } from "./child-agent-session.js";
-import { mergeLaowengSessionTurns } from "./laoweng-session-turns.js";
+import { mergeLaowengSessionTurns } from "./laoweng-session-turns.ts";
 
 export async function readLaowengTaskSession(service, user, projectId, task) {
   const scopedTask = normalizeLaowengTask(task);

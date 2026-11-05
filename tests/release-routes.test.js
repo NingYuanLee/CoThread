@@ -7,7 +7,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/app.js";
-import { hashPassword } from "../server/auth.js";
+import { hashPassword } from "../server/auth.ts";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { saveProjectMiniProgramConfig } from "../server/miniprogram-config.js";

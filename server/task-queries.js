@@ -2,7 +2,7 @@
 
 import { query } from "./db.ts";
 
-import { withParsedTask } from "./task-pool-helpers.js";
+import { withParsedTask } from "./task-pool-helpers.ts";
 
 export async function getTask(db, id) {
   const [task] = await query(db, "SELECT * FROM agent_tasks WHERE id=?", [id]);

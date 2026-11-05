@@ -177,14 +177,31 @@ npm test            # 集成测试需要测试库
 | `server/documents/read-text.ts`         | 136  | 文本正文分页与二进制拒读                   |
 | `server/conversation-memory-context.ts` | 186  | 联合分析窗口装填与来源完整性校验           |
 
-剩余 144 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第八批（12 个，含被 37 处引用的 `auth.ts`）：
+
+| 文件                                  | 行数 | 说明                                             |
+| ------------------------------------- | ---- | ------------------------------------------------ |
+| `server/auth.ts`                      | 221  | 口令哈希、令牌签发、Bearer/cookie 鉴权与预览票据 |
+| `server/file-index-visibility.ts`     | 131  | 文件索引可见性的 SQL 片段                        |
+| `server/memory-policy.ts`             | 108  | 记忆来源族与「谁能作废」判定                     |
+| `server/documents/service-preview.ts` | 109  | 预览 HTML 的 base 注入与资源路径重写             |
+| `server/task-source-notice.ts`        | 105  | 任务来源人的 @ 提醒                              |
+| `server/executor-fence.ts`            | 105  | 执行器代次围栏（AsyncLocalStorage）              |
+| `server/laoweng-session-turns.ts`     | 100  | 老翁会话轮次合并进历史                           |
+| `server/task-pool-helpers.ts`         | 99   | 引用解析、任务书拼装、派活提示                   |
+| `server/documents/preview-mime.ts`    | 86   | 上传/预览的 MIME 归一                            |
+| `server/ip-location.ts`               | 84   | IP 归属地查询（IPv4 → 整数区间）                 |
+| `server/assistant-post.ts`            | 83   | 助手消息去重落库                                 |
+| `server/coordinator-events.ts`        | 40   | 协调者事件入队（含 child_result 去重）           |
+
+剩余 132 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                  | 文件数 |
 | ---- | --------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 17     |
-| 4    | 被 2–4 个文件引用                                                     | 60     |
-| 5    | 被 5–9 个文件引用                                                     | 39     |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 27     |
+| 4    | 被 2–4 个文件引用                                                     | 53     |
+| 5    | 被 5–9 个文件引用                                                     | 36     |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 25     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
 
 入口最后转：`package.json` 的 `start` / `dev:static`、systemd `ExecStart`、`scripts/ecs-*` 都写着 `server/index.js`，改名要同步改这些地方。

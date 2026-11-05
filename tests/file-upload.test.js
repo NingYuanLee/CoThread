@@ -2,11 +2,11 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { createApp } from "../server/app.js";
-import { hashPassword } from "../server/auth.js";
+import { hashPassword } from "../server/auth.ts";
 import { query } from "../server/db.ts";
 import { testDatabase } from "./database.js";
 import { FILE_CHUNK_SIZE, MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
-import { resolveStoredMime } from "../server/documents/preview-mime.js";
+import { resolveStoredMime } from "../server/documents/preview-mime.ts";
 
 let database, server, base, cookie, token, projectId, threadId;
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");

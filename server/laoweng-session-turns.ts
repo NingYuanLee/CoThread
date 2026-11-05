@@ -1,4 +1,23 @@
-function utc(value) {
+/** 历史消息的最小形状；本文件会补充 createdAt 与 usage。 */
+type HistoryMessage = {
+  role?: string;
+  text?: string;
+  createdAt?: string;
+  usage?: unknown;
+  [field: string]: unknown;
+};
+
+/** 一次记录下来的老翁会话轮次。 */
+type TurnRow = {
+  id: string;
+  input_text?: unknown;
+  output_text?: unknown;
+  started_at?: unknown;
+  finished_at?: unknown;
+  usage_stats?: unknown;
+};
+
+function utc(value: unknown): string | undefined {
   if (!value) return undefined;
   const text = String(value);
   const normalized = text.replace(" ", "T");
@@ -6,7 +25,7 @@ function utc(value) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
 }
 
-function parseUsage(value) {
+function parseUsage(value: unknown): unknown {
   if (!value) return undefined;
   try {
     return typeof value === "string" ? JSON.parse(value) : value;
@@ -16,7 +35,10 @@ function parseUsage(value) {
 }
 
 /** Match both sides of a recorded turn in order; append it if the snapshot omitted it. */
-export function mergeLaowengSessionTurns(history, turns) {
+export function mergeLaowengSessionTurns(
+  history: HistoryMessage[],
+  turns: TurnRow[],
+): HistoryMessage[] {
   const messages = history.map((message) => ({ ...message }));
   let cursor = messages.length;
   for (const turn of [...turns].reverse()) {
@@ -53,7 +75,7 @@ export function mergeLaowengSessionTurns(history, turns) {
       }
       cursor = match;
     } else {
-      const inserted = [
+      const inserted: HistoryMessage[] = [
         {
           id: `turn-${turn.id}-input`,
           role: "user",

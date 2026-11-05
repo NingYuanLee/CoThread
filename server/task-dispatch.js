@@ -3,9 +3,9 @@ import { assertIterationWritable } from "./iteration-state.ts";
 
 import { query, transaction } from "./db.ts";
 
-import { enqueueCoordinatorEvent } from "./coordinator-events.js";
+import { enqueueCoordinatorEvent } from "./coordinator-events.ts";
 
-import { composeTaskInstruction } from "./task-pool-helpers.js";
+import { composeTaskInstruction } from "./task-pool-helpers.ts";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import { MAX_Child } from "./task-policy.ts";

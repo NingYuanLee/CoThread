@@ -6,7 +6,7 @@ import { extname } from "node:path";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { HttpError } from "./service.js";
-import { digest, authenticate } from "./auth.js";
+import { digest, authenticate } from "./auth.ts";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import {

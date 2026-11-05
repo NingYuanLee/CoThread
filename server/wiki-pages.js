@@ -4,7 +4,7 @@ import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { refreshParticipantBriefs } from "./wiki-briefs.ts";
 import { projectArchived } from "./memory-timeline.js";
-import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
+import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.ts";
 import {
   intactConversationMemorySql,
   readableConversationMemorySql,

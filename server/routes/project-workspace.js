@@ -98,7 +98,7 @@ import {
   taskSourceMentionToken,
   taskStatusLabel,
   withTaskSourceMention,
-} from "../task-source-notice.js";
+} from "../task-source-notice.ts";
 import {
   deleteProjectGitRemote,
   listPlatformRepositories,

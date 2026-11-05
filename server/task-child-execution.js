@@ -4,7 +4,7 @@ import { assertIterationWritable } from "./iteration-state.ts";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { publishWork } from "./work-events.ts";
-import { enqueueCoordinatorEvent } from "./coordinator-events.js";
+import { enqueueCoordinatorEvent } from "./coordinator-events.ts";
 
 import {
   recordTaskStatusChange,

@@ -4,7 +4,7 @@ import { query } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 
 import { folderRootKind, latestVersionsByFolderRoots } from "./documents/index.js";
-import { parseDocumentRefs } from "./task-pool-helpers.js";
+import { parseDocumentRefs } from "./task-pool-helpers.ts";
 
 export async function assertDocumentRefs(conn, projectId, refs) {
   const ids = parseDocumentRefs(refs);

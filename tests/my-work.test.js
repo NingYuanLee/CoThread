@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/http-app.js";
-import { issueCredential } from "../server/auth.js";
+import { issueCredential } from "../server/auth.ts";
 import { adminAccess } from "../server/admin-rbac.js";
 import { IMPLICIT_ADMIN_PERMISSIONS } from "../shared/admin-permissions.js";
 import { listMyProjects, listMyWork, myTaskDetail } from "../server/my-work.js";

@@ -85,7 +85,7 @@ export async function upsertMemoryPage(
       [randomUUID(), pageId, sourceKind, source.id, String(source.label || "").slice(0, 240)],
     );
   }
-  const { sourceFamilyForSources } = await import("./memory-policy.js");
+  const { sourceFamilyForSources } = await import("./memory-policy.ts");
   await query(db, "UPDATE wiki_pages SET source_family=? WHERE id=?", [
     sourceFamily || sourceFamilyForSources(sources),
     pageId,

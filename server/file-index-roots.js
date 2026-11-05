@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { query } from "./db.ts";
 import { folderRootKindInList } from "./documents/index.js";
-import { visibleFileIndexSql } from "./file-index-visibility.js";
+import { visibleFileIndexSql } from "./file-index-visibility.ts";
 
 const ROOTS = {
   project_official: [

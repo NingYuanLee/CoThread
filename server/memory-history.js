@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { resolveMemorySourceFamily, sourceFamilyForKind } from "./memory-policy.js";
+import { resolveMemorySourceFamily, sourceFamilyForKind } from "./memory-policy.ts";
 
 const parse = (value, fallback = []) =>
   typeof value === "string" ? JSON.parse(value) : value || fallback;

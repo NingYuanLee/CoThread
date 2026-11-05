@@ -2,9 +2,34 @@ const CHILD_DISPATCH_STATUSES = ["pending_assignment", "queued", "running", "wai
 const CHILD_DISPATCH_HINT =
   "任务已定，create_task 会尽量在同一次调用内启动并绑定 子 Agent。见到 execution_agent_id 之前不要对成员说已经派人干活。";
 
-export function parseDocumentRefs(value) {
+/** 任务行里本文件会用到的字段；其余列原样透传。 */
+export type TaskRow = {
+  title?: unknown;
+  goal?: unknown;
+  constraints?: unknown;
+  document_refs?: unknown;
+  folder_refs?: unknown;
+  task_type?: string | null;
+  target_type?: string | null;
+  execution_agent_type?: string | null;
+  execution_agent_id?: unknown;
+  status?: string | null;
+  [column: string]: unknown;
+};
+
+/** 引用文档（或文件夹）的最小信息。 */
+export type RefItem = {
+  id?: string;
+  title?: unknown;
+  name?: unknown;
+  filename?: unknown;
+  version?: unknown;
+};
+
+/** 把 JSON 列或已解析的数组统一成去重后的字符串数组。 */
+export function parseDocumentRefs(value: unknown): string[] {
   if (value == null || value === "") return [];
-  let parsed = value;
+  let parsed: unknown = value;
   if (typeof value === "string") {
     try {
       parsed = JSON.parse(value);
@@ -13,12 +38,16 @@ export function parseDocumentRefs(value) {
     }
   }
   return Array.isArray(parsed)
-    ? [...new Set(parsed.filter((id) => typeof id === "string" && id))]
+    ? [...new Set(parsed.filter((id): id is string => typeof id === "string" && Boolean(id)))]
     : [];
 }
 
-export function composeTaskInstruction(task, documents = [], folders = []) {
-  const parts = [task.title, "", task.goal];
+export function composeTaskInstruction(
+  task: TaskRow,
+  documents: RefItem[] = [],
+  folders: RefItem[] = [],
+): string {
+  const parts: unknown[] = [task.title, "", task.goal];
   if (task.constraints) parts.push("", `约束：${task.constraints}`);
   if (folders.length) {
     parts.push("", "引用文件夹：");
@@ -37,7 +66,7 @@ export function composeTaskInstruction(task, documents = [], folders = []) {
   return parts.join("\n");
 }
 
-export function withParsedTask(task) {
+export function withParsedTask(task: TaskRow | null | undefined): TaskRow | null | undefined {
   if (!task) return task;
   return {
     ...task,
@@ -46,7 +75,7 @@ export function withParsedTask(task) {
   };
 }
 
-export function isXiaoxiangOwnResponsibility(task) {
+export function isXiaoxiangOwnResponsibility(task: TaskRow): boolean {
   return (
     task.task_type === "assist" ||
     task.target_type === "xiaoxiang" ||
@@ -54,10 +83,14 @@ export function isXiaoxiangOwnResponsibility(task) {
   );
 }
 
-export function withChildDispatchGate(task, extra = {}) {
+/** 补上「要不要派子 Agent」的提示字段。 */
+export function withChildDispatchGate(
+  task: TaskRow | null | undefined,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
   if (!task) return extra;
   const needsDispatch =
-    CHILD_DISPATCH_STATUSES.includes(task.status) &&
+    CHILD_DISPATCH_STATUSES.includes(task.status as string) &&
     isXiaoxiangOwnResponsibility(task) &&
     !task.execution_agent_id;
   return needsDispatch

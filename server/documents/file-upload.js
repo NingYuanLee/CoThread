@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
-import { resolveStoredMime } from "./preview-mime.js";
+import { resolveStoredMime } from "./preview-mime.ts";
 import { decodeUploadedBytes, hashesEqual, parseSha256, verifyBytes } from "./file-bytes.js";
 import { HttpError } from "../http-error.ts";
 import {

@@ -1,4 +1,4 @@
-import { validDocumentSummarySql } from "./file-index-visibility.js";
+import { validDocumentSummarySql } from "./file-index-visibility.ts";
 import { finishAgentEvent } from "./thread-activity.ts";
 import { documentTool } from "./documents/index.js";
 import { z } from "zod/v3";
@@ -12,7 +12,7 @@ import {
   parentDialogueMode,
   writeDeniedReason,
 } from "../shared/request-control.js";
-import { digest } from "./auth.js";
+import { digest } from "./auth.ts";
 import { storedContentType } from "./documents/index.js";
 import { HttpError } from "./service.js";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";

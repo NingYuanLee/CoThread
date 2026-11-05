@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { insertUniqueAssistantMessage } from "../server/assistant-post.js";
+import { insertUniqueAssistantMessage } from "../server/assistant-post.ts";
 import { childExecutorName, stickyActorIds } from "../web/ui-labels.ts";
 
 test("insertUniqueAssistantMessage posts the same body only once under concurrency", async () => {

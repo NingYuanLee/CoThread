@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { digest } from "../auth.js";
+import { digest } from "../auth.ts";
 import { INLINE_FILE_MAX_BYTES, sha256HexPattern } from "../../shared/upload-limits.js";
 
 function fail(status, message) {

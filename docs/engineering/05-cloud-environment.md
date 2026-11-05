@@ -141,7 +141,7 @@ bash -n scripts/ecs-codedeploy-start.sh
 
 - 边界：已运行的插件子进程不会因为调用失败自动重连（只在配置或凭据变更时重连），长驻 App 里可能持续失败；发布时用上面的新进程路径即可，不需要改插件配置。临时目录与 `sitecustomize.py` 用完即删，不要把 AK/SK 写进任何文件。长期修法应让 SDK 不传空 `proxies`，或在系统代理中排除 `*.aliyuncs.com`，不要长期依赖临时补丁。
 
-在 ECS 用独立 `node --input-type=module` 脚本只读核对数据库时，显式设置 `COTHREAD_DB_TARGET=prod`；独立脚本不会自动继承 `server/index.js --production` 的目标推断。否则会报“缺少或无效的 COTHREAD_DB_TARGET”，这不代表正式网站的数据库连接失败。诊断只打印布尔状态、迁移名称及脱敏配置，不输出数据库认证串或模型密钥。
+在 ECS 用独立 `node --input-type=module` 脚本只读核对数据库时，显式设置 `COTHREAD_DB_TARGET=prod`；独立脚本不会自动继承 `server/index.ts --production` 的目标推断。否则会报“缺少或无效的 COTHREAD_DB_TARGET”，这不代表正式网站的数据库连接失败。诊断只打印布尔状态、迁移名称及脱敏配置，不输出数据库认证串或模型密钥。
 
 ### 发布完成的验收证据
 

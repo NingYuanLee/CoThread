@@ -1,7 +1,7 @@
 param([ValidateSet('start','stop')][string]$Action = 'start')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
-$entry = Join-Path $projectRoot 'server/index.js'
+$entry = Join-Path $projectRoot 'server/index.ts'
 $pidFile = Join-Path $projectRoot '.local/app.pid'
 $existing = $null
 if (Test-Path -LiteralPath $pidFile) {

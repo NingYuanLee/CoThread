@@ -141,7 +141,7 @@ if (portIndex >= 0) {
   ensureLocalMysql();
   if (await announceInitialAdmin()) process.env.COTHREAD_ADMIN_ANNOUNCED = "1";
 
-  const apiEntry = resolve(projectRoot, "server/index.js");
+  const apiEntry = resolve(projectRoot, "server/index.ts");
   const viteEntry = resolve(projectRoot, "scripts/vite-app.mjs");
   let shuttingDown = false;
   let api;

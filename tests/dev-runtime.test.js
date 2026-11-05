@@ -13,7 +13,7 @@ import http from "node:http";
 import net from "node:net";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const apiEntry = resolve(root, "server/index.js");
+const apiEntry = resolve(root, "server/index.ts");
 const viteEntry = resolve(root, "scripts/vite-app.mjs");
 
 test("dev gateway reuses TCP connections for Vite modules", () => {

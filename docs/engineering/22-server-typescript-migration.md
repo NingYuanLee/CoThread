@@ -361,15 +361,24 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 `file-upload` 里值得记的一处：这个文件真正调用的 Service 方法只有 5 个（`thread` / `member` / `assertOfficialOrganizing` / `uploadCacheDraft` / `uploadOfficialDocument`）。我先用索引签名 `Record<string, (...args) => ...>` 接，结果 `service.uploadCacheDraft` 的类型变成 `unknown`，反而更糟。改成把这 5 个方法**显式声明成最小契约**，问题消失——迁移期的 Service 视图应当按实际调用点写，不是按「随便什么方法都能调」写。
 
-剩余 59 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第三十三批：`index.ts`(236 行) —— **入口文件，批次 7 的最后一项**。至此 `server/index.js` 的改名没有留下任何需要人工跟进的部署侧路径：
 
-| 批次 | 范围                                                                                | 文件数            |
-| ---- | ----------------------------------------------------------------------------------- | ----------------- |
-| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                           | 10                |
-| 4    | 被 2–4 个文件引用                                                                   | 14                |
-| 5    | 被 5–9 个文件引用                                                                   | 16                |
-| 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18                |
-| 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）              | 1（已计入批次 3） |
+- `package.json` 的 `start` / `dev:static` 已改为 `node … server/index.ts`
+- `scripts/dev-runtime.js` 的进程识别标记同时保留 `server\index.js` 与 `server\index.ts`——迁移期可能还有旧进程在跑，认不出会误判成"非本项目进程"
+- `docs/engineering/05-cloud-environment.md` 里现行运维命令已改；**发布记录 `releases/2026-11-04.md` 保持原样**（那是历史事实，不能回改）
+
+`vite` 也踩到和 playwright 同一个坑：我先手写了 `ViteDevServer` 形状，结果和 `vite` 官方类型对不上（`middlewares` 类型不兼容）。改成 `import("vite").ViteDevServer` 才对——**有官方类型的依赖不要自己造形状**，这已经是我第二次犯。
+
+**启动烟测**（不只是类型通过）：`node server/index.ts --api-only` 实际跑起来，输出 `coThread Server 已启动：http://127.0.0.1:3100`，随后是常规执行器日志。这比"`tsc` 通过 + 单测通过"更进一步，证明 Node 的类型剥离在该入口上确实可用。
+
+剩余 58 个 `.js` 文件（被引用次数实测于 2026-11-05；入口一项已完成，批次 7 从表中移除）：
+
+| 批次 | 范围                                                                                | 文件数 |
+| ---- | ----------------------------------------------------------------------------------- | ------ |
+| 3    | 叶模块剩余（被 0–1 个文件引用）                                                     | 9      |
+| 4    | 被 2–4 个文件引用                                                                   | 14     |
+| 5    | 被 5–9 个文件引用                                                                   | 16     |
+| 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18     |
 
 `service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。
 

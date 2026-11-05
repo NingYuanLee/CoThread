@@ -92,8 +92,8 @@ if (!healthProbe) {
 }
 if (releasedPreviews) console.log(`共序重启：已停止 ${releasedPreviews} 个 Admin 预览`);
 const app = createApp(db);
-let vite;
-let server;
+let vite: import("vite").ViteDevServer | undefined;
+let server: import("node:http").Server | undefined;
 if (production) {
   const dist = resolve("dist");
   app.use(
@@ -124,6 +124,7 @@ if (production) {
     },
     appType: "spa",
   });
+  const devVite = vite;
   const indexPath = resolve("index.html");
   let indexTemplate = readFileSync(indexPath, "utf8");
   app.use(async (req, res, next) => {
@@ -132,14 +133,14 @@ if (production) {
     if (path.startsWith("/api") || path === "/mcp" || path.startsWith("/mcp/")) return next();
     if (/\.[a-zA-Z0-9]+($|\?)/.test(path)) return next();
     try {
-      const html = await vite.transformIndexHtml(req.originalUrl, indexTemplate);
+      const html = await devVite.transformIndexHtml(req.originalUrl, indexTemplate);
       res.status(200).set("Content-Type", "text/html").end(html);
     } catch (err) {
-      vite.ssrFixStacktrace(err);
+      devVite.ssrFixStacktrace(err as Error);
       next(err);
     }
   });
-  app.use(vite.middlewares);
+  app.use(devVite.middlewares);
   server = httpServer;
 } else {
   server = createHttpServer(app);
@@ -163,11 +164,14 @@ if (vite) {
     try {
       console.log("正在预热前端入口…");
       for (const url of ["/@vite/client", "/web/main.tsx"]) {
-        await vite.warmupRequest(url);
+        await vite?.warmupRequest(url);
       }
       console.log("前端入口已预热。");
     } catch (err) {
-      console.warn("前端预热失败（可忽略，首屏可能稍慢）:", err?.message || err);
+      console.warn(
+        "前端预热失败（可忽略，首屏可能稍慢）:",
+        (err as { message?: string } | null)?.message || err,
+      );
     }
   })();
 }
@@ -203,12 +207,12 @@ const shutdown = createShutdown({
   closeServer: () => {
     // server.close() 只停止接收新连接，不会主动结束已建立的 SSE；先结束登记过的长连接。
     endSseStreams();
-    const httpClosed = new Promise((resolve, reject) => {
+    const httpClosed = new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
     const streamsClosed = stopLiveOutputStreams(db).then(() => server.closeIdleConnections());
-    let graceTimer;
-    const connectionsClosed = new Promise((resolve) => {
+    let graceTimer: NodeJS.Timeout | undefined;
+    const connectionsClosed = new Promise<void>((resolve) => {
       const finish = () => {
         clearTimeout(graceTimer);
         resolve();

@@ -82,7 +82,7 @@ test(
         [
           "--import",
           pathToFileURL(control).href,
-          fileURLToPath(new URL("../server/index.js", import.meta.url)),
+          fileURLToPath(new URL("../server/index.ts", import.meta.url)),
           "--production",
           "--health-probe",
         ],

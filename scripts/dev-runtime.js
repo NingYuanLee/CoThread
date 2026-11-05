@@ -36,6 +36,7 @@ export function looksLikeTrackedDevCommand(commandLine) {
     .replaceAll("/", "\\");
   return [
     "server\\index.js",
+    "server\\index.ts",
     "scripts\\vite-app.mjs",
     "scripts\\dev.js",
     "scripts\\vite-only.mjs",

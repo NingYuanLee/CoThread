@@ -1,5 +1,5 @@
 import { processNextProjectMemory } from "./project-memory.js";
-import { processNextLaowengContextCompression } from "./laoweng-context.js";
+import { processNextLaowengContextCompression } from "./laoweng-context.ts";
 import { processNextChildContextCompression } from "./child-agent-context.ts";
 import { query } from "./db.ts";
 import {

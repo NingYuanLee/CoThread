@@ -381,14 +381,21 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 顺带把 `RequestUser.scope` 从 `unknown` 收紧成 `string | null`：多个领域视图都要求这个形状，`unknown` 会让 `Service` 和 `req.user` 都传不进这些函数。
 
-剩余 56 个 `.js` 文件（被引用次数实测于 2026-11-05；入口已完成）：
+第三十五批：`laoweng-context.ts`(168 行)。**最后一个 200 行以内的文件**——此后剩余全部是 270 行以上的中等/大模块。
+
+这个文件上一轮（第二十四批）曾改名后回退，原因是它依赖 `child-agent-session` 的原生 history 结构。本轮补完的关键有两条：
+
+- `messages` 在图里被三种来源反复赋值（checkpoint 快照 / 现场 jsonl / 会话轮次合并），类型必须用第一次赋值的 `typeof messages` 传播，每次重赋值处断言回这个类型，而不是各写各的。
+- `transaction(db, cb)` 的回调可能返回 `null` 时，泛型会退化成 `{}`；显式写 `transaction<LaowengJob | null>(pool, cb)` 后 `job.project_id` / `job.task` / `job.id` 才有类型。
+
+剩余 55 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                                | 文件数 |
 | ---- | ----------------------------------------------------------------------------------- | ------ |
-| 3    | 叶模块剩余（被 0–1 个文件引用）                                                     | 8      |
-| 4    | 被 2–4 个文件引用                                                                   | 14     |
+| 4    | 被 2–4 个文件引用                                                                   | 13     |
 | 5    | 被 5–9 个文件引用                                                                   | 16     |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18     |
+| 其余 | 被 0–1 个文件引用（270 行以上的独立模块）                                           | 8      |
 
 `service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。
 

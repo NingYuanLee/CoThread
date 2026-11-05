@@ -26,7 +26,7 @@ import {
   processNextLaowengContextCompression,
   queueLaowengContextCompression,
   readLaowengTaskSession,
-} from "../server/laoweng-context.js";
+} from "../server/laoweng-context.ts";
 
 test("老翁 keeps a durable DSH session per maintenance agent and validates structured output", async () => {
   try {

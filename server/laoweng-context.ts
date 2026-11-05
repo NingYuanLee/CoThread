@@ -10,10 +10,31 @@ import {
   nativeHistoryFromLiveHome,
 } from "./child-agent-session.js";
 import { mergeLaowengSessionTurns } from "./laoweng-session-turns.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
 
-export async function readLaowengTaskSession(service, user, projectId, task) {
-  const scopedTask = normalizeLaowengTask(task);
-  if (!LAOWENG_MAINTENANCE_TASKS.includes(scopedTask)) throw new HttpError(400, "请指定维护任务");
+/** 认领到的压缩任务。 */
+type LaowengJob = {
+  id: string;
+  project_id: string;
+  task: string;
+};
+
+/** 本文件真正调用的 Service 方法（迁移期最小契约）。 */
+type LaowengContextService = {
+  db: Db;
+  project(user: unknown, projectId: string): Promise<unknown>;
+};
+
+export async function readLaowengTaskSession(
+  service: LaowengContextService,
+  user: unknown,
+  projectId: string,
+  task: unknown,
+) {
+  const scopedTask = normalizeLaowengTask(task as string | null | undefined);
+  if (!LAOWENG_MAINTENANCE_TASKS.includes(String(scopedTask)))
+    throw new HttpError(400, "请指定维护任务");
   await service.project(user, projectId);
   const [row] = await query(
     service.db,
@@ -24,15 +45,15 @@ export async function readLaowengTaskSession(service, user, projectId, task) {
   let messages = nativeHistoryFromCheckpoint(row?.checkpoint, {
     sessionId: row?.session_id,
     includeMetadata: true,
-  });
+  } as never);
   const nativeHome = `laoweng-${scopedTask}-${projectId}`;
-  if (!messages.length) messages = await nativeHistoryFromLiveHome(nativeHome);
+  if (!messages.length) messages = (await nativeHistoryFromLiveHome(nativeHome)) as typeof messages;
   else {
     // 快照只有派生正文时，从原生 session.v4.jsonl 补回时间与用量。
     messages = mergeNativeMetadata(
       messages,
-      await nativeHistoryFromLiveHome(nativeHome, row?.session_id),
-    );
+      (await nativeHistoryFromLiveHome(nativeHome, row?.session_id)) as never,
+    ) as typeof messages;
   }
   if (row?.session_id) {
     const turns = await query(
@@ -41,7 +62,7 @@ export async function readLaowengTaskSession(service, user, projectId, task) {
       FROM agent_laoweng_session_turns WHERE project_id=? AND task=? AND session_id=? ORDER BY started_at,id`,
       [projectId, scopedTask, row.session_id],
     );
-    messages = mergeLaowengSessionTurns(messages, turns);
+    messages = mergeLaowengSessionTurns(messages, turns) as typeof messages;
   }
   const events = await query(
     service.db,
@@ -72,12 +93,18 @@ export async function readLaowengTaskSession(service, user, projectId, task) {
   };
 }
 
-export async function queueLaowengContextCompression(service, user, projectId, task) {
+export async function queueLaowengContextCompression(
+  service: LaowengContextService,
+  user: { id: string; kind?: string | null },
+  projectId: string,
+  task: unknown,
+) {
   if (user.kind !== "session") throw new HttpError(403, "需要登录后操作");
-  const scopedTask = normalizeLaowengTask(task);
-  if (!LAOWENG_MAINTENANCE_TASKS.includes(scopedTask)) throw new HttpError(400, "请指定维护任务");
+  const scopedTask = normalizeLaowengTask(task as string | null | undefined);
+  if (!LAOWENG_MAINTENANCE_TASKS.includes(String(scopedTask)))
+    throw new HttpError(400, "请指定维护任务");
   await service.project(user, projectId);
-  const result = await transaction(service.db, async (db) => {
+  const result = await transaction(service.db as Pool, async (db) => {
     const [session] = await query(
       db,
       `SELECT id,compact_status FROM agent_project_sessions
@@ -95,11 +122,18 @@ export async function queueLaowengContextCompression(service, user, projectId, t
     );
     return { status: "queued" };
   });
-  publishWork(service.db);
+  publishWork(service.db, undefined);
   return result;
 }
 
-export async function processNextLaowengContextCompression(db, options = {}) {
+export async function processNextLaowengContextCompression(
+  db: Db,
+  options: {
+    projectId?: string | null;
+    task?: unknown;
+    laowengOptions?: Record<string, unknown>;
+  } = {},
+) {
   const filters = ["compact_status='queued'"];
   const params = [];
   if (options.projectId) {
@@ -108,7 +142,7 @@ export async function processNextLaowengContextCompression(db, options = {}) {
   }
   if (options.task) {
     filters.push("task=?");
-    params.push(normalizeLaowengTask(options.task));
+    params.push(normalizeLaowengTask(options.task as string | null | undefined));
   }
   const [candidate] = await query(
     db,
@@ -118,12 +152,14 @@ export async function processNextLaowengContextCompression(db, options = {}) {
   );
   if (!candidate) return false;
   const { compactLaowengSession, laowengSessionScope } = await import("./laoweng-agent.js");
-  const scope = laowengSessionScope(candidate.task, { projectId: candidate.project_id });
+  const scope = laowengSessionScope(candidate.task, {
+    projectId: candidate.project_id,
+  }) as { task: string; scopeId: string };
   const lockName = `cothread-laoweng:${scope.task}:${scope.scopeId}`.slice(0, 64);
-  const lock = await acquireNamedLock(db, lockName);
+  const lock = await acquireNamedLock(db as Pool, lockName);
   if (!lock) return false;
   try {
-    const job = await transaction(db, async (conn) => {
+    const job = await transaction<LaowengJob | null>(db as Pool, async (conn) => {
       const [next] = await query(
         conn,
         `SELECT id,project_id,task FROM agent_project_sessions WHERE id=? AND compact_status='queued'
@@ -138,7 +174,7 @@ export async function processNextLaowengContextCompression(db, options = {}) {
     });
     if (!job) return false;
     try {
-      const result = await compactLaowengSession(db, job.project_id, job.task, {
+      const result = await compactLaowengSession(db as Pool, job.project_id, job.task, {
         ...options.laowengOptions,
         sessionLockHeld: true,
       });
@@ -148,7 +184,8 @@ export async function processNextLaowengContextCompression(db, options = {}) {
         compact_error=NULL WHERE id=?`,
         [JSON.stringify(result), job.id],
       );
-    } catch (error) {
+    } catch (rawError) {
+      const error = rawError as { name?: string; message?: string };
       await query(
         db,
         `UPDATE agent_project_sessions SET compact_status='failed',compact_error=? WHERE id=?`,

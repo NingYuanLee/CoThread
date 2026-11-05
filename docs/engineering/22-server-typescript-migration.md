@@ -392,12 +392,25 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 一处值得记的：`recordChildLaunchTrace` 的 `brief` 参数原本是 `unknown`，结果 `brief.blocks` / `brief.prompt` / `brief.systemPrompt` 全部报「属性不存在」。把 `brief` 写成它真正的形状（`blocks` / `prompt` / `systemPrompt`）后，下游 8 处访问一并解决——**用 `unknown` 挡住未标清的结构，代价是下游要逐个断言；能写出真实形状时应当写出来**。
 
-剩余 54 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第三十七批：`routes/miniprogram.ts`(358 行，小程序工作区与发布审批的全部端点)。本批 93 个错。
+
+路由文件已经形成固定套路，按顺序做基本一次通过：
+
+1. `register*Routes(app: Express, { db, service }: { db: Db; service: Service })`
+2. 批量把 `(req, res)` 标成 `(req: Request, res: Response)`
+3. `req.params` / `req.query` 统一 `String(...)` 收口
+4. 剩下的逐个看：`String()` 用过头的地方（有些函数要 `null`、有些要 `number`）再改回来
+
+第 4 步是本批的主要返工来源： indiscriminate 的 `String()` 会把 `limit: String(...)` 变成字符串传给要数字的参数，也会把本该允许 `null` 的参数变成非空字符串。**批量收口之后必须逐个核对报错，不能假定一次就对。**
+
+顺带把 `miniprogram-auth-config.ts` 的 `AuthService.db` 从 `Pool` 放宽成 `Db`——同样是因为领域视图只做查询、不发起事务。
+
+剩余 53 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                                | 文件数 |
 | ---- | ----------------------------------------------------------------------------------- | ------ |
 | 4    | 被 2–4 个文件引用                                                                   | 13     |
-| 5    | 被 5–9 个文件引用                                                                   | 15     |
+| 5    | 被 5–9 个文件引用                                                                   | 14     |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18     |
 | 其余 | 被 0–1 个文件引用（270 行以上的独立模块）                                           | 8      |
 

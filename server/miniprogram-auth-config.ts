@@ -23,7 +23,7 @@ type AuthActor = { id: string; kind?: string | null };
 
 /** 用到的 Service 视图。 */
 type AuthService = {
-  db: Pool;
+  db: Db;
   member(
     actor: AuthActor,
     projectId: string,

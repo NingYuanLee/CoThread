@@ -6,7 +6,7 @@ import {
 } from "../file-index-jobs.js";
 import { queueLaowengContextCompression, readLaowengTaskSession } from "../laoweng-context.ts";
 import { registerCloudbaseRoutes } from "./cloudbase-routes.ts";
-import { registerMiniprogramRoutes } from "./miniprogram.js";
+import { registerMiniprogramRoutes } from "./miniprogram.ts";
 import { readVisualArtifact } from "../visual-artifacts.ts";
 import { trackSse } from "../sse-streams.ts";
 import { getWikiPage, listWikiPages } from "../wiki-pages.ts";

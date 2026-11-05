@@ -31,7 +31,7 @@ export async function notificationsOperation(
   service: ListArgs[0],
   user: ListArgs[1],
   before: ListArgs[2],
-  input: ListArgs[3],
+  input: ListArgs[3] = {},
 ): Promise<unknown> {
   return listNotifications(service, user, before, input, { id, fail } as NotificationHelpers);
 }

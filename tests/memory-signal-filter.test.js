@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isTaskMilestoneTransition } from "../server/memory-signal-filter.js";
+import { isTaskMilestoneTransition } from "../server/memory-signal-filter.ts";
 
 test("任务只有终态、阻塞和返工算主要行为", () => {
   assert.equal(isTaskMilestoneTransition("pending", "running"), false);

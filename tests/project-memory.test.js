@@ -12,7 +12,7 @@ import {
   processNextProjectMemory,
   resetProjectMemoryRetryBudget,
 } from "../server/project-memory.js";
-import { isImportantIteration, isImportantTask } from "../server/memory-signal-filter.js";
+import { isImportantIteration, isImportantTask } from "../server/memory-signal-filter.ts";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import {
   confirmMemoryEntry,

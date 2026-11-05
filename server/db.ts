@@ -1,7 +1,7 @@
 import mysql from "mysql2/promise";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { readFile } from "node:fs/promises";
-import { recordQuery } from "./request-timing.js";
+import { recordQuery } from "./request-timing.ts";
 import { resolveTargetDatabaseUrl } from "./database-policy.js";
 import type { Db, SqlParams } from "./types.ts";
 

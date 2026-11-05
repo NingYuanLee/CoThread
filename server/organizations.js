@@ -3,7 +3,7 @@ import { z } from "zod/v3";
 import { requireAdminPermission } from "./admin-rbac.js";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { backfillParticipantBriefs, clearParticipantBriefs } from "./wiki-briefs.js";
+import { backfillParticipantBriefs, clearParticipantBriefs } from "./wiki-briefs.ts";
 
 const uuid = z.string().uuid();
 const nameField = z.string().trim().min(1).max(80);

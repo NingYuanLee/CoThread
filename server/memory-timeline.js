@@ -7,7 +7,7 @@ import { intactConversationMemorySql } from "./conversation-memory-integrity.ts"
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
 import { hydrateFileIndexRoots } from "./file-index-roots.js";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
-import { hydrateFileIndexPaths } from "./file-index-path.js";
+import { hydrateFileIndexPaths } from "./file-index-path.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
 import { MEMORY_SUBTYPES, MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";
 

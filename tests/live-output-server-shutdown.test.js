@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { setImmediate as turn } from "node:timers/promises";
 import { streamLiveOutput, stopLiveOutputStreams } from "../server/agent-live-output.js";
-import { createShutdown } from "../server/shutdown.js";
+import { createShutdown } from "../server/shutdown.ts";
 
 test("HTTP shutdown ends SSE immediately but holds resources until its query drains", async () => {
   const entered = Promise.withResolvers();

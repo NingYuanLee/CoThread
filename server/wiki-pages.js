@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { refreshParticipantBriefs } from "./wiki-briefs.js";
+import { refreshParticipantBriefs } from "./wiki-briefs.ts";
 import { projectArchived } from "./memory-timeline.js";
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
 import {
@@ -11,7 +11,7 @@ import {
 } from "./conversation-memory-integrity.ts";
 import { hydrateFileIndexRoots } from "./file-index-roots.js";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
-import { hydrateFileIndexPaths } from "./file-index-path.js";
+import { hydrateFileIndexPaths } from "./file-index-path.ts";
 
 const sourceKinds = ["message", "document_version", "task", "archive"];
 const pageId = z.string().uuid();

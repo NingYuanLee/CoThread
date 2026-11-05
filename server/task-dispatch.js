@@ -1,5 +1,5 @@
 /** 任务域：dispatch。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
-import { assertIterationWritable } from "./iteration-state.js";
+import { assertIterationWritable } from "./iteration-state.ts";
 
 import { query, transaction } from "./db.ts";
 
@@ -8,7 +8,7 @@ import { enqueueCoordinatorEvent } from "./coordinator-events.js";
 import { composeTaskInstruction } from "./task-pool-helpers.js";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
-import { MAX_Child } from "./task-policy.js";
+import { MAX_Child } from "./task-policy.ts";
 import { documentsForTaskInstruction } from "./task-documents.js";
 import { getTask } from "./task-queries.js";
 import { buildChildTaskBrief } from "../shared/prompt-blocks.js";

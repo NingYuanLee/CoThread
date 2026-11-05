@@ -1,9 +1,24 @@
 import { query } from "./db.ts";
+import type { Db } from "./types.ts";
 
 const PLATFORM_FAILURE =
   /任务已停止|迭代已归档|权限不足|没有权限|限流|too many requests|rate limit|service unavailable|temporarily unavailable|timeout|timed out|\b5\d\d\b|econnreset|econnrefused|网络错误|网络中断|服务不可用/i;
 
-export function failureSignature(value) {
+/** 失败分类：决定重试策略与界面文案。 */
+export type TaskFailureKind =
+  "blocked" | "interrupted" | "platform_blocked" | "agent_error" | "transient";
+
+/** 判断失败类型时用到的字段，来自不同层的结束信息。 */
+export type TaskFailureInput = {
+  status?: string | null;
+  error?: unknown;
+  summary?: unknown;
+  stopReason?: string | null;
+  toolError?: unknown;
+};
+
+/** 归并同一条失败的多处文案，去掉 ID 与数字后作为「同一问题」的指纹。 */
+export function failureSignature(value: unknown): string | null {
   const text = String(value || "").trim();
   if (!text) return null;
   return text
@@ -13,7 +28,13 @@ export function failureSignature(value) {
     .slice(0, 255);
 }
 
-export function classifyTaskFailure({ status, error, summary, stopReason, toolError } = {}) {
+export function classifyTaskFailure({
+  status,
+  error,
+  summary,
+  stopReason,
+  toolError,
+}: TaskFailureInput = {}): TaskFailureKind {
   if (status === "blocked") return "blocked";
   if (stopReason === "aborted") return "interrupted";
   const text = [error, summary, toolError].filter(Boolean).join(" ");
@@ -23,13 +44,23 @@ export function classifyTaskFailure({ status, error, summary, stopReason, toolEr
   return "agent_error";
 }
 
-export function failureText({ error, summary, toolError, stopReason } = {}) {
+/** 取第一条有内容的失败说明。 */
+export function failureText({
+  error,
+  summary,
+  toolError,
+  stopReason,
+}: TaskFailureInput = {}): unknown {
   return error || toolError || summary || stopReason || null;
 }
 
-export async function latestToolFailure(conn, childSessionId) {
+/** 子 Agent 会话里最近一次工具失败，形如 `tool: output`。 */
+export async function latestToolFailure(
+  conn: Db,
+  childSessionId: string | null | undefined,
+): Promise<string | null> {
   if (!childSessionId) return null;
-  const [row] = await query(
+  const [row] = await query<{ tool?: string | null; output?: string | null }>(
     conn,
     `SELECT tool,output FROM agent_events
     WHERE agent_session_id=? AND status='failed' ORDER BY id DESC LIMIT 1`,
@@ -38,20 +69,32 @@ export async function latestToolFailure(conn, childSessionId) {
   return row ? `${row.tool || "tool"}: ${row.output || "工具失败"}` : null;
 }
 
-export async function taskRetryStats(conn, taskId, signature, executorId) {
-  const [same] = await query(
+/** 重试预算判断用的三个计数。 */
+export type TaskRetryStats = {
+  sameSignature: number;
+  executorAttempts: number;
+  distinctExecutors: number;
+};
+
+export async function taskRetryStats(
+  conn: Db,
+  taskId: string,
+  signature: string | null,
+  executorId: string | null,
+): Promise<TaskRetryStats> {
+  const [same] = await query<{ count: number }>(
     conn,
     `SELECT COUNT(*) count FROM agent_task_execution_runs
     WHERE task_id=? AND failure_signature=?`,
     [taskId, signature],
   );
-  const [executor] = await query(
+  const [executor] = await query<{ count: number }>(
     conn,
     `SELECT COUNT(*) count FROM agent_task_execution_runs
     WHERE task_id=? AND executor_id=? AND status IN ('failed','interrupted','completed')`,
     [taskId, executorId],
   );
-  const [distinct] = await query(
+  const [distinct] = await query<{ count: number }>(
     conn,
     `SELECT COUNT(DISTINCT executor_id) count FROM agent_task_execution_runs
     WHERE task_id=? AND executor_type='child_agent' AND executor_id IS NOT NULL`,

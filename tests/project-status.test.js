@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { readProjectStatus, writeProjectStatus } from "../server/project-status.js";
+import { readProjectStatus, writeProjectStatus } from "../server/project-status.ts";
 import {
   loadProjectSummary,
   noteProjectMemorySignal,

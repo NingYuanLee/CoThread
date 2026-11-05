@@ -7,7 +7,7 @@ import { AGENT_MEMBER } from "../shared/agent-member.js";
 
 import { isXiaoxiangOwnResponsibility } from "./task-pool-helpers.js";
 
-import { targetTypes, FOREIGN_TASK_AUTH } from "./task-policy.js";
+import { targetTypes, FOREIGN_TASK_AUTH } from "./task-policy.ts";
 export function assertTarget(type, id) {
   if (!targetTypes.has(type) || typeof id !== "string" || !id)
     throw new HttpError(400, "任务目标无效");

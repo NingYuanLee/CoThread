@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
-import { encryptToken, decryptToken } from "./credential-vault.js";
+import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.js";
 import { ensureMiniprogramWorkspace, migrateLegacyAdminDist } from "./miniprogram-workspace.js";
 import { readMiniprogramAuthRuntime } from "./miniprogram-auth-config.js";

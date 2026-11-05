@@ -89,7 +89,7 @@ export async function refreshMemberSummaryCache(db, projectId, userId) {
 /** 项目整体记忆 → 项目导读缓存。 */
 export async function refreshProjectGuideCache(db, projectId) {
   if (!projectId) return null;
-  const { readProjectStatus } = await import("./project-status.js");
+  const { readProjectStatus } = await import("./project-status.ts");
   const status = await readProjectStatus(db, projectId);
   const body = String(status?.body || "").trim();
   if (!body) return null;

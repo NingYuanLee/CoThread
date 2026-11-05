@@ -12,7 +12,7 @@ import {
   MEMORY_REVIEW_RETRY_STEPS,
   MEMORY_RETRY_EXHAUSTED_WINDOW_NOTE,
   resolveMemoryRetry,
-} from "./memory-retry.js";
+} from "./memory-retry.ts";
 import {
   applyConversationCandidate,
   failConversationCandidate,

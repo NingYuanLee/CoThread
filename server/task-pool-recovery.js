@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { withTaskIterationWrite } from "./iteration-state.js";
+import { withTaskIterationWrite } from "./iteration-state.ts";
 
 async function mutableTask(db, taskId, operation) {
   try {

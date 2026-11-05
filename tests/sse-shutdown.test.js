@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { endSseStreams, sseStreamCount, trackSse } from "../server/sse-streams.ts";
-import { createShutdown } from "../server/shutdown.js";
+import { createShutdown } from "../server/shutdown.ts";
 
 function fakeResponse() {
   return {

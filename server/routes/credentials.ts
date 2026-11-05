@@ -3,7 +3,7 @@
  * 注册点与原先内联时一致：在鉴权中间件之后、末尾 404 之前。
  */
 import { accountCredential } from "../auth.js";
-import { decryptToken } from "../credential-vault.js";
+import { decryptToken } from "../credential-vault.ts";
 import { query } from "../db.ts";
 import { HttpError } from "../service.js";
 import { handleMcp } from "../mcp.js";

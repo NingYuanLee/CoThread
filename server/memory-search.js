@@ -9,7 +9,7 @@ import {
 } from "./conversation-memory-integrity.ts";
 import { hydrateFileIndexRoots } from "./file-index-roots.js";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
-import { hydrateFileIndexPaths } from "./file-index-path.js";
+import { hydrateFileIndexPaths } from "./file-index-path.ts";
 
 const SOURCE_LABELS = {
   message: "群聊消息",

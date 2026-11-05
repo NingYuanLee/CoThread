@@ -1,5 +1,5 @@
 import { query, transaction } from "./db.ts";
-import { assertIterationWritable } from "./iteration-state.js";
+import { assertIterationWritable } from "./iteration-state.ts";
 
 function isPool(db) {
   return typeof db?.getConnection === "function";

@@ -7,7 +7,7 @@ import { setImmediate as turn } from "node:timers/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { digest } from "../server/auth.js";
 import { registerDevServerUpgrade } from "../server/miniprogram-dev-server.js";
-import { createShutdown } from "../server/shutdown.js";
+import { createShutdown } from "../server/shutdown.ts";
 
 test("shutdown reclaims upgraded tunnels while waiting for an ordinary HTTP response", async () => {
   const peers = new Set();

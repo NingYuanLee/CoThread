@@ -1,16 +1,20 @@
 import { query } from "./db.ts";
+import type { Db } from "./types.ts";
 
 const DONE = new Set(["completed", "failed", "cancelled", "superseded"]);
 
 /** 第 2 层：任务状态变化里只有终态、阻塞、返工算主要行为。 */
-export function isTaskMilestoneTransition(fromStatus, toStatus) {
+export function isTaskMilestoneTransition(
+  fromStatus: string | null | undefined,
+  toStatus: string | null | undefined,
+): boolean {
   if (!toStatus) return false;
   if (DONE.has(toStatus) || toStatus === "blocked") return true;
   return fromStatus === "completed" && !DONE.has(toStatus);
 }
 
 /** 第 3 层：正式任务、失败、重试、返工、阻塞过，才算主要任务。 */
-export async function isImportantTask(db, projectId, taskId) {
+export async function isImportantTask(db: Db, projectId: string, taskId: string): Promise<boolean> {
   const [row] = await query(
     db,
     `SELECT t.id FROM agent_tasks t
@@ -31,7 +35,7 @@ export async function isImportantTask(db, projectId, taskId) {
 }
 
 /** 第 3 层：有主要任务、实质讨论、核心议题或目标背景变更的迭代才算主要迭代。 */
-export async function isImportantIteration(db, threadId) {
+export async function isImportantIteration(db: Db, threadId: string): Promise<boolean> {
   const [row] = await query(
     db,
     `SELECT t.id FROM threads t

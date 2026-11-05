@@ -1,5 +1,5 @@
 /** 任务域：assignments。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
-import { lockTaskIteration } from "./iteration-state.js";
+import { lockTaskIteration } from "./iteration-state.ts";
 
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
@@ -8,7 +8,7 @@ import { publishWork } from "./work-events.js";
 import { composeTaskInstruction } from "./task-pool-helpers.js";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
-import { ASSIGN_HUMAN_AUTH, TASK_ENDED } from "./task-policy.js";
+import { ASSIGN_HUMAN_AUTH, TASK_ENDED } from "./task-policy.ts";
 import {
   assertDocumentRefs,
   assertFolderRefs,

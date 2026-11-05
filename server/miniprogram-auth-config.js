@@ -1,6 +1,6 @@
 import { z } from "zod/v3";
 import { query } from "./db.ts";
-import { decryptToken, encryptToken } from "./credential-vault.js";
+import { decryptToken, encryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.js";
 
 const environmentSchema = z.enum(["development", "production"]);

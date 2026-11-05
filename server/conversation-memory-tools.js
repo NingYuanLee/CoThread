@@ -10,7 +10,7 @@ import {
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.js";
 import { hydrateFileIndexRoots } from "./file-index-roots.js";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
-import { fileIndexFolderPath, hydrateFileIndexPaths } from "./file-index-path.js";
+import { fileIndexFolderPath, hydrateFileIndexPaths } from "./file-index-path.ts";
 
 const specs = [
   {
@@ -380,7 +380,7 @@ export async function startConversationToolBridge(db, context) {
         [projectId],
       );
       if (!project) throw new Error("项目不存在");
-      const { readProjectStatus } = await import("./project-status.js");
+      const { readProjectStatus } = await import("./project-status.ts");
       const projectStatus = await readProjectStatus(db, projectId).catch(() => null);
       const related = await query(
         db,

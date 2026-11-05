@@ -10,7 +10,7 @@ import {
   memoryRetryDelaySeconds,
   memoryRetryStoppedMessage,
   resolveMemoryRetry,
-} from "../server/memory-retry.js";
+} from "../server/memory-retry.ts";
 import {
   PROJECT_MEMORY_SIGNAL_KINDS,
   projectMemorySettlementId,

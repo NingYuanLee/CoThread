@@ -3,7 +3,7 @@ import {
   assertIterationWritable,
   lockTaskIteration,
   withTaskIterationWrite,
-} from "./iteration-state.js";
+} from "./iteration-state.ts";
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
@@ -13,7 +13,7 @@ import { withChildDispatchGate } from "./task-pool-helpers.js";
 import { recordTaskStatusChange } from "./task-pool-activity.js";
 
 import { closeEndedTaskRuns } from "./task-pool-recovery.js";
-import { ASSIGN_HUMAN_AUTH, TASK_ENDED, TASK_UPDATE_STATUSES } from "./task-policy.js";
+import { ASSIGN_HUMAN_AUTH, TASK_ENDED, TASK_UPDATE_STATUSES } from "./task-policy.ts";
 import {
   assertDocumentRefs,
   assertFolderRefs,

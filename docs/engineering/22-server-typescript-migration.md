@@ -149,14 +149,31 @@ npm test            # 集成测试需要测试库
 | `server/model-context.ts`     | 43   | 交给模型的上下文裁剪                    |
 | `server/sse-streams.ts`       | 42   | SSE 长连接登记表                        |
 
-剩余 162 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第六批（继续吃「依赖已全转换」的存量，12 个）：
+
+| 文件                             | 行数 | 说明                                           |
+| -------------------------------- | ---- | ---------------------------------------------- |
+| `server/credential-vault.ts`     | 46   | 账号令牌 AES-256-GCM 加解密（AAD 绑定用户）    |
+| `server/memory-signal-filter.ts` | 56   | 记忆信号的三层收敛判断                         |
+| `server/shutdown.ts`             | 65   | 关闭流程：期限兜底与幂等                       |
+| `server/executor-access.ts`      | 74   | 执行器数据库视图（Proxy 包装，失去归属即作废） |
+| `server/iteration-state.ts`      | 91   | 迭代写锁与「归档后不可写」                     |
+| `server/project-status.ts`       | 68   | 项目现状整份覆盖与 Markdown 去修饰             |
+| `server/wiki-briefs.ts`          | 72   | 参与组织简报的刷新与回填                       |
+| `server/memory-retry.ts`         | 76   | 记忆作业退避与停止策略                         |
+| `server/task-policy.ts`          | 60   | 任务域常量（原本即无隐式 any）                 |
+| `server/file-index-path.ts`      | 80   | 文件索引的实时文件夹路径                       |
+| `server/request-timing.ts`       | 79   | 请求耗时归并（并发区间去重）                   |
+| `server/task-pool-failures.ts`   | 108  | 失败分类、指纹与重试预算计数                   |
+
+剩余 150 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                  | 文件数 |
 | ---- | --------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 17     |
-| 4    | 被 2–4 个文件引用                                                     | 69     |
-| 5    | 被 5–9 个文件引用                                                     | 44     |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 31     |
+| 4    | 被 2–4 个文件引用                                                     | 63     |
+| 5    | 被 5–9 个文件引用                                                     | 39     |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 30     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
 
 入口最后转：`package.json` 的 `start` / `dev:static`、systemd `ExecStart`、`scripts/ecs-*` 都写着 `server/index.js`，改名要同步改这些地方。

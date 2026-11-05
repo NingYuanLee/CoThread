@@ -6,7 +6,7 @@ import { HttpError } from "./service.js";
 import { reopenLocalExecutorTask, syncLocalExecutorTaskById } from "./agent-task-sync.ts";
 import { mentionTaskSourceNotice } from "./task-source-notice.js";
 import { APP_ORIGIN } from "./runtime-config.ts";
-import { assertIterationWritable, lockTaskIteration } from "./iteration-state.js";
+import { assertIterationWritable, lockTaskIteration } from "./iteration-state.ts";
 
 async function lockLocalExecutorIteration(conn, taskId, connectorId) {
   const [scope] = await query(

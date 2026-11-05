@@ -1,9 +1,20 @@
 import { query } from "./db.ts";
+import type { Db } from "./types.ts";
 
-function pathFromFolders(folderId, byId) {
-  const seen = new Set();
-  const names = [];
-  let current = folderId;
+/** `document_folders` 的一行；拼路径只需要这三列。 */
+type FolderRow = { id: string; parent_id?: string | null; name?: unknown };
+
+/** 文件索引页面：`body` 会被替换掉「位置」那一行。 */
+export type FileIndexPage = { id: string; body?: unknown; [field: string]: unknown };
+
+/** 从叶子往上拼文件夹路径；成环或超过 64 层一律返回「未知」。 */
+function pathFromFolders(
+  folderId: string | null | undefined,
+  byId: Map<string, FolderRow>,
+): string {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  let current: string | null | undefined = folderId;
   while (current && !seen.has(current) && names.length < 64) {
     seen.add(current);
     const folder = byId.get(current);
@@ -19,9 +30,13 @@ function pathFromFolders(folderId, byId) {
   return names.join(" / ");
 }
 
-export async function fileIndexFolderPath(db, projectId, folderId) {
+export async function fileIndexFolderPath(
+  db: Db,
+  projectId: string,
+  folderId: string | null | undefined,
+): Promise<string> {
   if (!folderId) return "未知";
-  const rows = await query(
+  const rows = await query<FolderRow>(
     db,
     "SELECT id,parent_id,name FROM document_folders WHERE project_id=?",
     [projectId],
@@ -30,9 +45,13 @@ export async function fileIndexFolderPath(db, projectId, folderId) {
 }
 
 /** Paths reflect the live tree even if a containing folder is renamed or moved. */
-export async function hydrateFileIndexPaths(db, projectId, pages) {
+export async function hydrateFileIndexPaths(
+  db: Db,
+  projectId: string,
+  pages: FileIndexPage[],
+): Promise<FileIndexPage[]> {
   if (!pages.length) return pages;
-  const files = await query(
+  const files = await query<{ pageId: string; folderId?: string | null }>(
     db,
     `SELECT fi.page_id pageId,a.folder_id folderId FROM file_index_entries fi
     JOIN artifacts a ON a.id=fi.artifact_id AND a.project_id=fi.project_id
@@ -40,7 +59,7 @@ export async function hydrateFileIndexPaths(db, projectId, pages) {
     [projectId, ...pages.map((page) => page.id)],
   );
   if (!files.length) return pages;
-  const folders = await query(
+  const folders = await query<FolderRow>(
     db,
     "SELECT id,parent_id,name FROM document_folders WHERE project_id=?",
     [projectId],

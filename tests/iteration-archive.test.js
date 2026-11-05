@@ -8,7 +8,7 @@ import { createTask, acceptTask, updateTask, cancelTask } from "../server/task-p
 import { processNextProjectMemory } from "../server/project-memory.js";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import { claimReply } from "../server/reply-dispatch.js";
-import { lockIteration } from "../server/iteration-state.js";
+import { lockIteration } from "../server/iteration-state.ts";
 import { createApp } from "../server/app.js";
 import {
   archivePlanDraftSchema,

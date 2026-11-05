@@ -1,4 +1,5 @@
 import { query } from "./db.ts";
+import type { Db } from "./types.ts";
 
 /**
  * 项目现状只有一份 Markdown：随项目进程结算整份覆盖，不保留修订或来源快照。
@@ -6,8 +7,11 @@ import { query } from "./db.ts";
  */
 export const PROJECT_STATUS_MAX_BYTES = 60000;
 
-export async function readProjectStatus(db, projectId) {
-  const [row] = await query(
+export async function readProjectStatus(
+  db: Db,
+  projectId: string,
+): Promise<Record<string, unknown> | null> {
+  const [row] = await query<Record<string, unknown>>(
     db,
     "SELECT project_id projectId,body,updated_at updatedAt,updated_by updatedBy FROM project_status WHERE project_id=?",
     [projectId],
@@ -16,8 +20,8 @@ export async function readProjectStatus(db, projectId) {
 }
 
 /** 只保留正文：去掉标题行、列表符号、引用、加粗与分隔线等 Markdown 修饰。 */
-export function plainProjectStatusBody(value) {
-  const kept = [];
+export function plainProjectStatusBody(value: unknown): string {
+  const kept: string[] = [];
   for (const line of String(value || "")
     .replace(/\r\n?/g, "\n")
     .split("\n")) {
@@ -38,7 +42,7 @@ export function plainProjectStatusBody(value) {
     .trim();
 }
 
-export function normalizeProjectStatusBody(value) {
+export function normalizeProjectStatusBody(value: unknown): string {
   const body = plainProjectStatusBody(value);
   if (!body) throw new Error("项目现状正文为空");
   if (Buffer.byteLength(body, "utf8") > PROJECT_STATUS_MAX_BYTES)
@@ -47,7 +51,12 @@ export function normalizeProjectStatusBody(value) {
 }
 
 /** 调用方负责事务：与进程条目提交成功一起覆盖，失败一起回滚。 */
-export async function writeProjectStatus(conn, projectId, body, userId) {
+export async function writeProjectStatus(
+  conn: Db,
+  projectId: string,
+  body: unknown,
+  userId?: string | null,
+): Promise<string> {
   const text = normalizeProjectStatusBody(body);
   await query(
     conn,

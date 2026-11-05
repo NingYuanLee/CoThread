@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { encryptToken, decryptToken } from "./credential-vault.js";
+import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { query } from "./db.ts";
 import { HttpError } from "./service.js";
 

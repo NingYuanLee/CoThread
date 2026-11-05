@@ -12,7 +12,7 @@ import {
   isImportantIteration,
   isImportantTask,
   isTaskMilestoneTransition,
-} from "./memory-signal-filter.js";
+} from "./memory-signal-filter.ts";
 import { maybeQueueProjectMemoryRun, noteProjectMemorySignal } from "./project-memory.js";
 
 /** 项目级变更里值得进入项目进程的动作；与 service.projectChange 的调用方一致。 */

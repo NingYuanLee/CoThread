@@ -1,3 +1,13 @@
+/** 关闭流程的可注入依赖，测试用它替换真实副作用。 */
+export type ShutdownOptions = {
+  stopWorker: () => unknown;
+  closeServer: () => unknown;
+  closeResources: () => unknown;
+  timeoutMs?: number;
+  onError?: (error: unknown) => void;
+  exit?: (code: number) => void;
+};
+
 // Close admission immediately, then wait for both HTTP and worker ownership to
 // drain before closing shared resources. A stuck task must not hang deployment
 // indefinitely, or make us close its database while it is still running.
@@ -8,14 +18,14 @@ export function createShutdown({
   timeoutMs = 30000,
   onError = (error) => console.error("服务关闭失败", error),
   exit = (code) => process.exit(code),
-}) {
-  let completion;
+}: ShutdownOptions): () => Promise<number> {
+  let completion: Promise<number> | undefined;
   return () => {
     if (completion) return completion;
-    const finished = Promise.withResolvers();
+    const finished = Promise.withResolvers<number>();
     completion = finished.promise;
     let settled = false;
-    const finish = (code, error) => {
+    const finish = (code: number, error?: unknown): void => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
@@ -33,7 +43,7 @@ export function createShutdown({
       () => finish(1, new Error(`服务关闭超过 ${timeoutMs}ms，强制退出；未完成任务由重启恢复`)),
       timeoutMs,
     );
-    const invoke = (fn) => {
+    const invoke = (fn: () => unknown): Promise<unknown> => {
       try {
         return Promise.resolve(fn());
       } catch (error) {
@@ -48,7 +58,7 @@ export function createShutdown({
       })
       .then(
         () => finish(0),
-        (error) => finish(1, error),
+        (error: unknown) => finish(1, error),
       );
     return completion;
   };

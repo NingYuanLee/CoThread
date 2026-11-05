@@ -7,7 +7,7 @@ import { query } from "../server/db.ts";
 import { testDatabase } from "./database.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 import { createMcpInstallGuide } from "../shared/mcp-guide.js";
-import { decryptToken } from "../server/credential-vault.js";
+import { decryptToken } from "../server/credential-vault.ts";
 
 let database, server, base, cookie, userId, token, projectId, threadId, foreignProjectId;
 async function api(path, data, auth = { cookie }) {

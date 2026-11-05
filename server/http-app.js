@@ -10,7 +10,7 @@ import { authenticate, authenticatePreviewTicket } from "./auth.js";
 import { query } from "./db.ts";
 import { Service } from "./service.js";
 import { registerRequestParts } from "./request-parts.ts";
-import { currentTiming, requestTiming } from "./request-timing.js";
+import { currentTiming, requestTiming } from "./request-timing.ts";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
 import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.ts";
 import {

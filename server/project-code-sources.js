@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { encryptToken, decryptToken } from "./credential-vault.js";
+import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.js";
 
 const KIND = z.enum(["github", "yunxiao"]);

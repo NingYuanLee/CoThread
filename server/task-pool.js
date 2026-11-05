@@ -19,7 +19,7 @@ import {
   stickyChildLabel,
   taskExecutionSnapshot,
 } from "./task-pool-activity.js";
-import { classifyTaskFailure } from "./task-pool-failures.js";
+import { classifyTaskFailure } from "./task-pool-failures.ts";
 import {
   closeEndedTaskRuns,
   reconcileEndedTaskRuns,
@@ -107,4 +107,4 @@ export {
   MAX_EXECUTOR_ATTEMPTS,
   MAX_DISTINCT_EXECUTORS,
   CHILD_STALE_HEARTBEAT_SECONDS,
-} from "./task-policy.js";
+} from "./task-policy.ts";

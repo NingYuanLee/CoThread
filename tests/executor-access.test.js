@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createExecutorDatabase } from "../server/executor-access.js";
+import { createExecutorDatabase } from "../server/executor-access.ts";
 import { query, transaction } from "../server/db.ts";
 import { acquireNamedLock } from "../server/named-lock.ts";
 

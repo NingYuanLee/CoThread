@@ -1,5 +1,5 @@
 /** 任务域：child-execution。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
-import { assertIterationWritable } from "./iteration-state.js";
+import { assertIterationWritable } from "./iteration-state.ts";
 
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
@@ -17,7 +17,7 @@ import {
   failureText,
   latestToolFailure,
   taskRetryStats,
-} from "./task-pool-failures.js";
+} from "./task-pool-failures.ts";
 import { reconcileEndedTaskRuns, voidSelfHandledAssistTasks } from "./task-pool-recovery.js";
 import {
   TASK_ENDED,
@@ -25,7 +25,7 @@ import {
   MAX_EXECUTOR_ATTEMPTS,
   MAX_DISTINCT_EXECUTORS,
   CHILD_STALE_HEARTBEAT_SECONDS,
-} from "./task-policy.js";
+} from "./task-policy.ts";
 import { adoptCurrentIterationXiaoxiang } from "./task-access.js";
 import { getTask } from "./task-queries.js";
 import { childDispatchSnapshot } from "./task-dispatch.js";

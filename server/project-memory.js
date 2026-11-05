@@ -8,7 +8,7 @@ import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
 import { normalizeLaowengTask } from "../shared/agent-label.js";
 import { z } from "zod/v3";
 import { archiveJson, archivePlanDraftSchema, archivePlanSchema } from "./iteration-archive.js";
-import { lockIteration } from "./iteration-state.js";
+import { lockIteration } from "./iteration-state.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
 import { executorLabel, formatDuration } from "./task-memory.js";
 import { linkDiscussionParticipants } from "./discussion-memory.js";
@@ -20,7 +20,7 @@ import {
   readableConversationMemorySql,
 } from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql } from "./file-index-visibility.js";
-import { resolveMemoryRetry } from "./memory-retry.js";
+import { resolveMemoryRetry } from "./memory-retry.ts";
 
 export async function loadProjectMembers(db, projectId, throughSequence) {
   return query(
@@ -560,7 +560,7 @@ export async function loadProjectSummary(db, projectId) {
   );
   // 项目现状只有一份 Markdown：有就用它，不再拼接来源待核实提示。
   const { memoryExcerpt } = await import("./memory-cache.js");
-  const { readProjectStatus } = await import("./project-status.js");
+  const { readProjectStatus } = await import("./project-status.ts");
   const status = await readProjectStatus(db, projectId);
   const body = String(status?.body || "").trim();
   if (body)
@@ -2714,7 +2714,7 @@ export async function applyProjectMemoryResult(
         (item) => item.op !== "dispute" && item.subject === "project",
       );
       if (projectEntry || statusBody) {
-        const { writeProjectStatus } = await import("./project-status.js");
+        const { writeProjectStatus } = await import("./project-status.ts");
         await writeProjectStatus(conn, projectId, result?.statusMarkdown, userId);
         statusUpdated = true;
       }
@@ -2915,7 +2915,7 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
     let entries = await loadProjectMemoryEntryIndex(db, claimed.project_id);
     const author = claimed.requested_by || project?.created_by;
     if (!author) throw new Error("缺少记忆维护者");
-    const { readProjectStatus } = await import("./project-status.js");
+    const { readProjectStatus } = await import("./project-status.ts");
     const projectStatus = await readProjectStatus(db, claimed.project_id);
     // 结算身份按「候选内容指纹 + 项目现状」计算，而不是按队列行 id：同一批内容
     // 再次被信号命中时直接复用上次结论，不再调用模型；内容或项目现状变了才重新分析。

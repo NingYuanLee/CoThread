@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate as turn } from "node:timers/promises";
 import { spawn } from "node:child_process";
-import { createShutdown } from "../server/shutdown.js";
+import { createShutdown } from "../server/shutdown.ts";
 
 test("shutdown stops admission immediately and waits for HTTP and workers before resources", async () => {
   const http = Promise.withResolvers();
@@ -115,7 +115,7 @@ test("resource close failure terminates once even when logging also fails", asyn
 });
 
 test("a hung worker leaves the real process deadline alive and exits with failure", async () => {
-  const moduleUrl = new URL("../server/shutdown.js", import.meta.url).href;
+  const moduleUrl = new URL("../server/shutdown.ts", import.meta.url).href;
   const child = spawn(
     process.execPath,
     [

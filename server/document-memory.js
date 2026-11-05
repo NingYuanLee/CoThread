@@ -5,7 +5,7 @@ import { query, transaction } from "./db.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
 import { renderFileIndex } from "./file-index-format.ts";
 import { ensureFileIndexRoots } from "./file-index-roots.js";
-import { fileIndexFolderPath } from "./file-index-path.js";
+import { fileIndexFolderPath } from "./file-index-path.ts";
 
 const KIND_LABEL = { code: "代码", image: "图片", archive: "压缩包", text: "文本", other: "文件" };
 

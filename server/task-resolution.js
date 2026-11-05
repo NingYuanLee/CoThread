@@ -1,5 +1,5 @@
 /** 任务域：resolution。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
-import { lockTaskIteration } from "./iteration-state.js";
+import { lockTaskIteration } from "./iteration-state.ts";
 
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
@@ -14,7 +14,7 @@ import {
   MAX_EXECUTOR_ATTEMPTS,
   MAX_DISTINCT_EXECUTORS,
   arrangeableStatuses,
-} from "./task-policy.js";
+} from "./task-policy.ts";
 import { adoptCurrentIterationXiaoxiang, assertXiaoxiangCanOperateTask } from "./task-access.js";
 import { getTask } from "./task-queries.js";
 import { idleChildCount } from "./task-dispatch.js";

@@ -80,7 +80,7 @@ test("项目现状 md 刷新导读缓存，空现状不覆盖", async () => {
     );
     assert.equal(Number(empty.count), 0, "没有现状时不写导读缓存");
 
-    const { writeProjectStatus } = await import("../server/project-status.js");
+    const { writeProjectStatus } = await import("../server/project-status.ts");
     await writeProjectStatus(
       db,
       project.id,
@@ -228,7 +228,7 @@ test("索引与导读读取 wiki 优先，文档兜底须绑定准确版本", as
     assert.ok(document, "缓存缺失时应从文档记忆补摘要");
     assert.match(document.summary, /部署需要先跑迁移/);
 
-    const { writeProjectStatus } = await import("../server/project-status.js");
+    const { writeProjectStatus } = await import("../server/project-status.ts");
     await writeProjectStatus(db, project.id, "## 当前状态\n- wiki 项目状态：进行中。", owner.id);
     const summary = await loadProjectSummary(db, project.id);
     assert.match(summary.summary, /wiki 项目状态：进行中/);

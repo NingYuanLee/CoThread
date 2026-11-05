@@ -1,7 +1,7 @@
 import { interruptRunningAgentEvents } from "./thread-activity.js";
 import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
-import { createExecutorDatabase } from "./executor-access.js";
+import { createExecutorDatabase } from "./executor-access.ts";
 import {
   bumpExecutorEpoch,
   closeExecutorFence,

@@ -68,7 +68,7 @@ export {
   childTaskBrief,
   recordChildLaunchTrace,
   finishCoordinatorDispatch,
-} from "./task-dispatch.js";
+} from "./task-dispatch.ts";
 export {
   createTask,
   updateTask,

@@ -27,7 +27,7 @@ import {
   assertXiaoxiangCanOperateTask,
 } from "./task-access.ts";
 import { getTask } from "./task-queries.ts";
-import { idleChildCount } from "./task-dispatch.js";
+import { idleChildCount } from "./task-dispatch.ts";
 import { recordTaskCreationDecision } from "./memory-decisions.ts";
 import { DEFAULT_PERSONA_KEY, personaByKey } from "../shared/agent-personas.js";
 export async function createTask(db, input) {

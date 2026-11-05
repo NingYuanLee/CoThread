@@ -11,10 +11,12 @@ import { recordTaskStatusChange } from "./task-pool-activity.ts";
 import { MAX_Child } from "./task-policy.ts";
 import { documentsForTaskInstruction } from "./task-documents.ts";
 import { getTask } from "./task-queries.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
 import { buildChildTaskBrief } from "../shared/prompt-blocks.js";
 import { DEFAULT_PERSONA_KEY, personaByKey, personaPrompt } from "../shared/agent-personas.js";
 import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
-export async function busyChildCount(conn, xiaoxiangSessionId) {
+export async function busyChildCount(conn: Db, xiaoxiangSessionId: string) {
   const [row] = await query(
     conn,
     `SELECT COUNT(DISTINCT t.id) active FROM agent_task_execution_runs r
@@ -29,12 +31,12 @@ export async function busyChildCount(conn, xiaoxiangSessionId) {
   return Number(row?.active || 0);
 }
 
-export async function idleChildCount(conn, xiaoxiangSessionId) {
+export async function idleChildCount(conn: Db, xiaoxiangSessionId: string) {
   if (!xiaoxiangSessionId) return 0;
   return Math.max(0, MAX_Child - (await busyChildCount(conn, xiaoxiangSessionId)));
 }
 
-export async function liveChildCount(conn, xiaoxiangSessionId) {
+export async function liveChildCount(conn: Db, xiaoxiangSessionId: string) {
   const [row] = await query(
     conn,
     `SELECT COUNT(DISTINCT t.id) active FROM agent_task_execution_runs r
@@ -46,7 +48,7 @@ export async function liveChildCount(conn, xiaoxiangSessionId) {
   return Number(row?.active || 0);
 }
 
-export async function tasksAwaitingChildLaunch(db, xiaoxiangSessionId) {
+export async function tasksAwaitingChildLaunch(db: Db, xiaoxiangSessionId: string) {
   if (!xiaoxiangSessionId) return [];
   const room = MAX_Child - (await liveChildCount(db, xiaoxiangSessionId));
   if (room <= 0) return [];
@@ -72,14 +74,15 @@ export async function tasksAwaitingChildLaunch(db, xiaoxiangSessionId) {
  * 重建子 Agent 的任务书（不看是否已绑定执行者）。
  * 派发时用来生成 prompt，补轨迹时用同一份逻辑重建，两处口径一致。
  */
-export async function childTaskBrief(db, taskId) {
+export async function childTaskBrief(db: Db, taskId: string) {
   const task = await getTask(db, taskId);
   if (!task) return null;
-  const personaKey = personaByKey(task.persona)?.key || DEFAULT_PERSONA_KEY;
+  const personaKey =
+    personaByKey(task.persona as string | null | undefined)?.key || DEFAULT_PERSONA_KEY;
   const personaText = personaPrompt(personaKey);
   const { documents, folders } = await documentsForTaskInstruction(
     db,
-    task.project_id,
+    String(task.project_id),
     task.document_refs,
     task.folder_refs,
   );
@@ -110,7 +113,7 @@ export async function childTaskBrief(db, taskId) {
   };
 }
 
-export async function childLaunchPrompt(db, taskId) {
+export async function childLaunchPrompt(db: Db, taskId: string) {
   const brief = await childTaskBrief(db, taskId);
   if (!brief || brief.task.execution_agent_id) return null;
   return brief;
@@ -120,10 +123,27 @@ export async function childLaunchPrompt(db, taskId) {
  * 子 Agent 的轨迹注入：派活时把「任务书 + 对话模式」与它的系统提示词落库，
  * 轨迹里就能像小祥一样看到上下文和系统提示词，而不是只有工具调用。
  */
-export async function recordChildLaunchTrace(db, { taskId, messageId, childSessionId, brief }) {
+export async function recordChildLaunchTrace(
+  db: Db,
+  {
+    taskId,
+    messageId,
+    childSessionId,
+    brief,
+  }: {
+    taskId: string;
+    messageId: string | null;
+    childSessionId: string | null;
+    brief: {
+      blocks?: Array<{ name?: unknown; trust?: unknown; version?: unknown; text: string }>;
+      prompt: string;
+      systemPrompt: string;
+    };
+  },
+) {
   if (!taskId || !messageId || !childSessionId || !brief) return;
   // 自动派发和手动 bind 都会走到这里：同一个子会话只记一次，避免轨迹里出现两份注入。
-  const write = async (tool, input, output) => {
+  const write = async (tool: string, input: string, output: string): Promise<void> => {
     const [exists] = await query(
       db,
       "SELECT id FROM agent_events WHERE agent_task_id=? AND agent_session_id=? AND tool=? LIMIT 1",
@@ -135,10 +155,10 @@ export async function recordChildLaunchTrace(db, { taskId, messageId, childSessi
       `INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input,output,created_at,finished_at)
        VALUES(?,?,?,?,'completed',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`,
       [messageId, childSessionId, taskId, tool, input.slice(0, 4000), output.slice(0, 4000)],
-    ).catch((error) =>
+    ).catch((error: unknown) =>
       console.error("Child launch trace persistence failed", {
         taskId,
-        type: error?.name || "Error",
+        type: (error as { name?: string } | null)?.name || "Error",
       }),
     );
   };
@@ -170,7 +190,7 @@ export async function recordChildLaunchTrace(db, { taskId, messageId, childSessi
   );
 }
 
-export async function childDispatchSnapshot(conn, xiaoxiangSessionId) {
+export async function childDispatchSnapshot(conn: Db, xiaoxiangSessionId: string) {
   const idleChildCountValue = await idleChildCount(conn, xiaoxiangSessionId);
   const pending = await query(
     conn,
@@ -189,9 +209,13 @@ export async function childDispatchSnapshot(conn, xiaoxiangSessionId) {
   };
 }
 
-export async function finishCoordinatorDispatch(db, threadId, { enqueueIdle = true } = {}) {
+export async function finishCoordinatorDispatch(
+  db: Db,
+  threadId: string,
+  { enqueueIdle = true }: { enqueueIdle?: boolean } = {},
+) {
   if (!threadId) return { released: 0, enqueued: false };
-  const released = await transaction(db, async (conn) => {
+  const released = await transaction(db as Pool, async (conn) => {
     await assertIterationWritable(conn, threadId);
     const [session] = await query(
       conn,

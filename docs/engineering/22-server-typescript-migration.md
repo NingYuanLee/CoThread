@@ -388,12 +388,16 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 - `messages` 在图里被三种来源反复赋值（checkpoint 快照 / 现场 jsonl / 会话轮次合并），类型必须用第一次赋值的 `typeof messages` 传播，每次重赋值处断言回这个类型，而不是各写各的。
 - `transaction(db, cb)` 的回调可能返回 `null` 时，泛型会退化成 `{}`；显式写 `transaction<LaowengJob | null>(pool, cb)` 后 `job.project_id` / `job.task` / `job.id` 才有类型。
 
-剩余 55 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第三十六批：`task-dispatch.ts`(270 行，子 Agent 派发与任务书生成)。
+
+一处值得记的：`recordChildLaunchTrace` 的 `brief` 参数原本是 `unknown`，结果 `brief.blocks` / `brief.prompt` / `brief.systemPrompt` 全部报「属性不存在」。把 `brief` 写成它真正的形状（`blocks` / `prompt` / `systemPrompt`）后，下游 8 处访问一并解决——**用 `unknown` 挡住未标清的结构，代价是下游要逐个断言；能写出真实形状时应当写出来**。
+
+剩余 54 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                                | 文件数 |
 | ---- | ----------------------------------------------------------------------------------- | ------ |
 | 4    | 被 2–4 个文件引用                                                                   | 13     |
-| 5    | 被 5–9 个文件引用                                                                   | 16     |
+| 5    | 被 5–9 个文件引用                                                                   | 15     |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18     |
 | 其余 | 被 0–1 个文件引用（270 行以上的独立模块）                                           | 8      |
 

@@ -17,7 +17,7 @@ import {
 } from "./task-policy.ts";
 import { adoptCurrentIterationXiaoxiang, assertXiaoxiangCanOperateTask } from "./task-access.ts";
 import { getTask } from "./task-queries.ts";
-import { idleChildCount } from "./task-dispatch.js";
+import { idleChildCount } from "./task-dispatch.ts";
 export async function rejectionReviewActor(db, taskId, conn = db) {
   const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=?", [taskId]);
   if (!task) throw new HttpError(404, "任务不存在");

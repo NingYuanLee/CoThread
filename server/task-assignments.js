@@ -24,7 +24,7 @@ import {
 import { getTask } from "./task-queries.ts";
 import { createTask } from "./task-commands.js";
 import { notifyTaskAssigned } from "./inbox-task.ts";
-import { idleChildCount } from "./task-dispatch.js";
+import { idleChildCount } from "./task-dispatch.ts";
 export async function reassignTask(db, taskId, actor, target, reason, messageId) {
   assertTarget(target.type, target.id);
   let previousTargetId = null;

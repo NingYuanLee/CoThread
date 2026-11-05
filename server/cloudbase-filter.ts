@@ -1,4 +1,4 @@
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 
 const TYPES = new Set([
   "string",

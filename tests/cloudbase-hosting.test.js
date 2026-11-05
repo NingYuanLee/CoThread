@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,

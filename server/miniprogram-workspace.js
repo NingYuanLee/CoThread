@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { query } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import {
   MINIPROGRAM_FIXED_FOLDERS,
   MINIPROGRAM_FOLDER_KINDS,

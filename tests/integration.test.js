@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { createDatabase, query } from "../server/db.ts";
 import { createApp } from "../server/app.ts";
 import { hashPassword } from "../server/auth.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { executeRun } from "../server/sandbox-run.ts";
 import { testDatabase } from "./database.js";
 import { createAgentTools } from "../server/agent-tools.js";

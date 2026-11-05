@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { createApp } from "../server/app.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { issueCredential } from "../server/auth.ts";
 import { createResourceCache } from "../shared/resource-cache.js";
 

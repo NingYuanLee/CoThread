@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { query } from "../server/db.ts";
 import { libraryChange } from "../server/documents/library.js";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { testDatabase } from "./database.js";
 
 let database, db, service, user, project, thread;

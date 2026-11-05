@@ -8,7 +8,7 @@ import { assetPath } from "./assets.ts";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.ts";
 import { contextInjectionFromEvent } from "../shared/context-injection.js";
-import { Service, HttpError } from "./service.js";
+import { Service, HttpError } from "./service.ts";
 import { createAgentTools } from "./agent-tools.js";
 import { releaseSandbox } from "./agent-sandbox.ts";
 import { agentSession } from "./agent-session.ts";

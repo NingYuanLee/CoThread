@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { query } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import { miniprogramSnapshot } from "./miniprogram-workspace.js";
 import { getCloudbaseManager } from "./cloudbase.js";

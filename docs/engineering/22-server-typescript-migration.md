@@ -324,15 +324,32 @@ npm test            # 集成测试需要测试库
 
 补完的办法就是上轮判断的那样——**先给递归引用环上的函数写显式返回类型**：`getWikiPage` / `listWikiPages` / `createWikiPage` 互相调用，`mapPage` 的返回结构又参与其中，不先钉死返回类型 TS7023/TS7024 必然出现。另外 `listWikiPages` 的实际返回是 `{ pages, canWrite }` 而不是数组，`hydrateFileIndexPaths` 返回的行不带 `projectId`——这些只能读代码才知道，不能靠猜。
 
-剩余 62 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第二十九批：`service.ts`(185 行、**152 处引用 / 145 个文件**)。这是整个迁移里杠杆最大的一块——`http-app`、`cloudbase-hosting` 之所以转不动，就是因为门面上的方法是动态转发的、没有类型。
 
-| 批次 | 范围                                                                            | 文件数            |
-| ---- | ------------------------------------------------------------------------------- | ----------------- |
-| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 10                |
-| 4    | 被 2–4 个文件引用                                                               | 16                |
-| 5    | 被 5–9 个文件引用                                                               | 18                |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 18                |
-| 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）          | 1（已计入批次 3） |
+做法：不手抄 60 个方法签名，而是从域操作本身推导：
+
+```ts
+type OperationRest<F> = F extends (service: never, ...rest: infer R) => unknown ? R : never;
+type OperationResult<F> = F extends (...args: never[]) => infer R ? R : never;
+type ParamAt<F extends (...args: never[]) => unknown, N extends number> = Parameters<F>[N];
+
+member(...args: OperationRest<typeof accessDomain.memberOperation>)
+  : OperationResult<typeof accessDomain.memberOperation> { … }
+```
+
+好处是签名跟着实现走——域操作改了参数，门面立刻在类型上报错，不会静默漂移。管理员那 8 个方法（`users` / `createUser` / …）的 service 之后直接是业务参数，用 `ParamAt<F, N>` 按位置取。
+
+**一个自己造成的失误**：我先写了 `service.ts`，又对 `service.js` 跑迁移工具——工具把 `service.js` 重命名成 `service.ts`，**覆盖掉了我刚写的版本**。重写后才通过。教训：目标文件已存在时不要再对同名 `.js` 跑改名工具。
+
+剩余 61 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+
+| 批次 | 范围                                                                                | 文件数            |
+| ---- | ----------------------------------------------------------------------------------- | ----------------- |
+| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                           | 10                |
+| 4    | 被 2–4 个文件引用                                                                   | 15                |
+| 5    | 被 5–9 个文件引用                                                                   | 18                |
+| 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18                |
+| 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）              | 1（已计入批次 3） |
 
 `service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。
 

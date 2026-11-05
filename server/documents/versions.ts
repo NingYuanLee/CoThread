@@ -1,7 +1,7 @@
 /**
  * artifacts / versions 的最小写入 API。
  *
- * 内核之外（含 `server/service.js`）不得再直接拼这些表的 INSERT/UPDATE，
+ * 内核之外（含 `server/service.ts`）不得再直接拼这些表的 INSERT/UPDATE，
  * 一律经本模块。每条函数只做一件事，SQL 与本模块建立前的写法逐字等价。
  *
  * 说明：`artifacts` 的 folder_id / source_type / source_artifact_id /

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { libraryChange } from "../server/documents/library.js";
 import { folderRootKind, isVisibleLibraryTreeFolder } from "../server/documents/project-library.js";
 import { AGENT_MEMBER } from "../shared/agent-member.js";

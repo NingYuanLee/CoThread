@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { createTask } from "../server/task-pool.ts";
 
 test("agent logs are isolated by project, iteration, and task without exposing raw payloads", async () => {

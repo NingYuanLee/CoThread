@@ -1,6 +1,6 @@
 import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { publishWork } from "./work-events.ts";
 import { contextUsage } from "../shared/context.js";
 import { LAOWENG_MAINTENANCE_TASKS, normalizeLaowengTask } from "../shared/agent-label.js";

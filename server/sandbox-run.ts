@@ -2,7 +2,7 @@ import { finishSandboxRun } from "./thread-activity.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { modelDiscussion } from "./model-context.ts";
 import { resolveSandboxProvider } from "./sandbox-provider.ts";
 import type { Pool } from "mysql2/promise";

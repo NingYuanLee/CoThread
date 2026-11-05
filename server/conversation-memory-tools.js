@@ -474,7 +474,7 @@ export async function startConversationToolBridge(db, context) {
           : "SELECT v.id FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE v.id=? AND a.project_id=? AND a.deleted_at IS NULL";
       const [row] = await query(db, sql, [id, projectId]);
       if (!row) throw new Error("对象不存在或不在当前项目");
-      const { Service } = await import("./service.js");
+      const { Service } = await import("./service.ts");
       const { callMcpTool } = await import("./mcp.js");
       const user = { id: context.window.projectOwner, kind: "session" };
       return callMcpTool(

@@ -1,5 +1,5 @@
 import { createDatabase, query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 
 const db = await createDatabase();
 const service = new Service(db);

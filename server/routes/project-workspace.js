@@ -61,7 +61,7 @@ import {
 } from "../environment-variables.ts";
 import { z } from "zod/v3";
 import { query } from "../db.ts";
-import { HttpError } from "../service.js";
+import { HttpError } from "../service.ts";
 import { completeFileUpload, putFileUploadChunk, startFileUpload } from "../documents/index.ts";
 import {
   acceptTask,

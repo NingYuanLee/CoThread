@@ -10,7 +10,7 @@ import {
   miniprogramSnapshot,
   publishMiniprogramSourceFile,
 } from "./miniprogram-workspace.js";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 
 const FUNCTION_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,58}$/;
 const TIMER_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,59}$/;

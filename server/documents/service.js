@@ -1,7 +1,7 @@
 /**
  * 文档内核的业务实现层。
  *
- * 这些方法原来长在业务门面 `server/service.js` 里，导致文档逻辑与项目/成员/迭代
+ * 这些方法原来长在业务门面 `server/service.ts` 里，导致文档逻辑与项目/成员/迭代
  * 逻辑同处一个文件、且门面必须反过来 import 内核。现在按 1.1 的方式纯移动到这里：
  * `Service extends DocumentsService`，正文逐字未改，`this` 语义不变。
  *

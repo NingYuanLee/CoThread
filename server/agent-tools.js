@@ -14,7 +14,7 @@ import {
 } from "../shared/request-control.js";
 import { digest } from "./auth.ts";
 import { storedContentType } from "./documents/index.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { modelDiscussion, modelProject } from "./model-context.ts";
 import { agentSession } from "./agent-session.ts";

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { publishWork } from "./work-events.ts";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.ts";
 import { normalizeLaowengTask } from "../shared/agent-label.js";

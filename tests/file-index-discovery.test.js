@@ -99,7 +99,7 @@ test("日志发现贯穿新增、同版本内容更新与删除，并保护旧�
   const { randomUUID, createHash } = await import("node:crypto");
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
-  const { Service } = await import("../server/service.js");
+  const { Service } = await import("../server/service.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { replaceVersionContent, recordDocumentChange } =
     await import("../server/documents/index.ts");
@@ -339,7 +339,7 @@ test("文件立即运行不执行发现任务", async () => {
   const { randomUUID } = await import("node:crypto");
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
-  const { Service } = await import("../server/service.js");
+  const { Service } = await import("../server/service.ts");
   const { runMemoryMaintenance } = await import("../server/memory-maintenance.ts");
   const database = await testDatabase();
   try {
@@ -392,7 +392,7 @@ test("中断的文件识别可恢复，仍持锁的任务不会被误重排", as
   const { randomUUID } = await import("node:crypto");
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
-  const { Service } = await import("../server/service.js");
+  const { Service } = await import("../server/service.ts");
   const { acquireNamedLock } = await import("../server/named-lock.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
@@ -486,7 +486,7 @@ test("定时维护驱动日志发现而无需常驻后台", async () => {
   const { randomUUID } = await import("node:crypto");
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
-  const { Service } = await import("../server/service.js");
+  const { Service } = await import("../server/service.ts");
   const { runMemoryMaintenance } = await import("../server/memory-maintenance.ts");
   const database = await testDatabase();
   try {
@@ -545,7 +545,7 @@ test("模型必须调用受当前版本约束的保存工具，提交后才发�
   const { randomUUID } = await import("node:crypto");
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
-  const { Service } = await import("../server/service.js");
+  const { Service } = await import("../server/service.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
     await import("../server/file-index-discovery.js");
@@ -664,7 +664,7 @@ test("模型未调用保存工具时不能发布摘要", async () => {
   const { randomUUID } = await import("node:crypto");
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
-  const { Service } = await import("../server/service.js");
+  const { Service } = await import("../server/service.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
     await import("../server/file-index-discovery.js");
@@ -734,7 +734,7 @@ for (const submittedFirst of [false, true])
     const { randomUUID, createHash } = await import("node:crypto");
     const { testDatabase } = await import("./database.js");
     const { query } = await import("../server/db.ts");
-    const { Service } = await import("../server/service.js");
+    const { Service } = await import("../server/service.ts");
     const { processNextProjectMemory } = await import("../server/project-memory.js");
     const { replaceVersionContent } = await import("../server/documents/index.ts");
     const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =

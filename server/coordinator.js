@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { finishAgentEvent } from "./thread-activity.ts";
 import { query, transaction } from "./db.ts";
 import { clearPromptState, readPromptState, writePromptState } from "./thread-prompt-state.ts";
-import { Service } from "./service.js";
+import { Service } from "./service.ts";
 import { AGENT_XIAOXIANG_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";

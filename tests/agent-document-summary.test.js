@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import JSZip from "jszip";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { createAgentTools } from "../server/agent-tools.js";
 import { dispatchContext } from "../server/coordinator.js";
 import { processNextProjectMemory, queueDocumentMemory } from "../server/project-memory.js";

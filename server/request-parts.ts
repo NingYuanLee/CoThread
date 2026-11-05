@@ -1,6 +1,6 @@
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import type { Express } from "express";
 import type { PoolConnection } from "mysql2/promise";
 import type { Pool } from "mysql2/promise";

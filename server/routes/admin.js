@@ -3,7 +3,7 @@ import {
   adminPermissionForRequest,
 } from "../../shared/admin-permissions.js";
 import { query } from "../db.ts";
-import { HttpError } from "../service.js";
+import { HttpError } from "../service.ts";
 import {
   adminAccess,
   adminRoleOptions,

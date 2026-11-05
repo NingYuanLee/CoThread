@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import {
   computeMiniprogramPathHash,
   computeMiniprogramSourceHash,

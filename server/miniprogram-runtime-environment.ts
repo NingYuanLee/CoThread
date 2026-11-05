@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 
 /** 渠道 → 默认环境。 */
 export const MINIPROGRAM_RUNTIME_CHANNELS: Readonly<Record<string, string>> = Object.freeze({

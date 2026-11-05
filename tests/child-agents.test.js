@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dispatch.ts";
 import { processNextReply } from "../server/replies.js";
 import { openAgentRuntime, stopAgent } from "../server/agent.js";

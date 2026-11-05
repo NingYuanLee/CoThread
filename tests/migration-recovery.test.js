@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { migrate, migrationChecksum } from "../scripts/migrate.js";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { hashPassword } from "../server/auth.ts";
 import { createApp } from "../server/app.ts";
 import { createArtifact } from "../server/documents/versions.ts";

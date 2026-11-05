@@ -1,6 +1,6 @@
 import { query } from "./db.ts";
 import { MEMORY_JOBS, MEMORY_JOB_KEYS } from "../shared/memory-jobs.js";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { readFileIndexJobs } from "./file-index-jobs.js";
 import { PROJECT_MEMORY_SIGNAL_KINDS } from "./project-memory.js";
 

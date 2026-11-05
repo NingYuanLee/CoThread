@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { Service } from "./service.js";
+import { Service } from "./service.ts";
 import { agentFailureCode } from "./agent-errors.ts";
 import { redactSecrets } from "./model-config.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.ts";

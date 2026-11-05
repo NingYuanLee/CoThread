@@ -6,7 +6,7 @@
 import { z } from "zod/v3";
 import { verifyPassword, issueCredential, hashPassword } from "../auth.ts";
 import { query, transaction } from "../db.ts";
-import { HttpError } from "../service.js";
+import { HttpError } from "../service.ts";
 import { personalProfile, profileSchema } from "../profile.ts";
 import {
   clearUserSkillSecret,

@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { testDatabase } from "./database.js";
 import { migrate } from "../scripts/migrate.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import {
   queueConversationMessage,
   createConversationWindow,

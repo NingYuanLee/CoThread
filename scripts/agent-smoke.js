@@ -1,5 +1,5 @@
 import { createDatabase, query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { generateAgentReply } from "../server/agent.js";
 import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 assertProductionWriteAllowed();

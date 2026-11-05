@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query, transaction } from "../server/db.ts";
 import { createExecutorDatabase } from "../server/executor-access.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { acquireNamedLock } from "../server/named-lock.ts";
 import { startReplyWorker } from "../server/replies.js";
 import { publishWork } from "../server/work-events.ts";

@@ -12,7 +12,7 @@ import {
 } from "../server/child-agent-session.js";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { createTask } from "../server/task-pool.ts";
 
 test("子 Agent task chat projects native DSH history from the checkpoint", () => {

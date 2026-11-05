@@ -1,7 +1,7 @@
 import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { decryptToken, encryptToken } from "./credential-vault.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";
 

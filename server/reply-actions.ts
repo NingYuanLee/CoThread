@@ -1,5 +1,5 @@
 import { transaction, query } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { publishWork } from "./work-events.ts";
 import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";

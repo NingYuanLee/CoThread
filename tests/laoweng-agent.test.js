@@ -19,7 +19,7 @@ afterEach(async () => {
   await database?.reset();
 });
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { runLaowengTask } from "../server/laoweng-agent.js";
 import { processNextProjectMemory } from "../server/project-memory.js";
 import {

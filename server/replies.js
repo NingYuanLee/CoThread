@@ -9,7 +9,7 @@ import {
   revokeExecutorFence,
   runWithExecutorFence,
 } from "./executor-fence.ts";
-import { Service, HttpError } from "./service.js";
+import { Service, HttpError } from "./service.ts";
 import { claimReply } from "./reply-dispatch.ts";
 import { pendingTaskUpdates } from "./agent-updates.ts";
 import { setTimeout as delay } from "node:timers/promises";

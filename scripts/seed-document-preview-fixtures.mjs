@@ -1,5 +1,5 @@
 import { createDatabase, query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 
 assertProductionWriteAllowed();

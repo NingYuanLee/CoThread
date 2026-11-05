@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { query } from "../server/db.ts";
 import { trackThinking } from "../server/agent-thinking.ts";
 import { createAgentTools } from "../server/agent-tools.js";

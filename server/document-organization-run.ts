@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { Service } from "./service.js";
+import { Service } from "./service.ts";
 import { publishWork } from "./work-events.ts";
 import { listOrganizationDocuments } from "./document-organization.ts";
 import type { OrganizationDocument } from "./document-organization.ts";

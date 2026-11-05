@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod/v3";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { testDatabase } from "./database.js";
 import { loadConversationContext } from "../server/conversation-memory-context.ts";
 import {

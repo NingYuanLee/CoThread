@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 
 test(
   "deployment health probe leaves the existing executor and running work untouched",

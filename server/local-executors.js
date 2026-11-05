@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { accountCredential, accountCredentialVersion, digest } from "./auth.ts";
 import { query, transaction } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { reopenLocalExecutorTask, syncLocalExecutorTaskById } from "./agent-task-sync.ts";
 import { mentionTaskSourceNotice } from "./task-source-notice.ts";
 import { APP_ORIGIN } from "./runtime-config.ts";

@@ -1,5 +1,5 @@
 import { createDatabase, query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 
 const versionId = process.argv[2] || "4db2590e-bad9-4ce7-bd14-9e7c8fc616a4";
 const db = await createDatabase();

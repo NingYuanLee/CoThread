@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query, transaction } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { recordArchivePages, getWikiPage, listWikiPages } from "../server/wiki-pages.ts";
 
 test("archive pages stay readable with sources and rewrite neither chat nor the long-term summary", async () => {

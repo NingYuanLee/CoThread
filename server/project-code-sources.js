@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { encryptToken, decryptToken } from "./credential-vault.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 
 const KIND = z.enum(["github", "yunxiao"]);
 const GIT_KIND = KIND;

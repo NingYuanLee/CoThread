@@ -3,7 +3,7 @@ import test from "node:test";
 import { LocalSandbox } from "../server/local-sandbox.js";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { executeRun } from "../server/sandbox-run.ts";
 import { randomUUID } from "node:crypto";
 

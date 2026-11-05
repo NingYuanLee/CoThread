@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import {
   injectMiniprogramRuntimeSource,

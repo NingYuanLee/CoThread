@@ -1,4 +1,4 @@
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import { uploadMiniprogram } from "./wechat-ci.js";
 import { deployAdminHosting, promoteCloudbaseFunction } from "./cloud-backend.ts";
 

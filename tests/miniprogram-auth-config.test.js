@@ -10,7 +10,7 @@ import {
   saveMiniprogramAuthConfig,
   saveMiniprogramPublishableKey,
 } from "../server/miniprogram-auth-config.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { testDatabase } from "./database.js";
 
 async function seed(database) {

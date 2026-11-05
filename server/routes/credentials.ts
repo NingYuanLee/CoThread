@@ -5,7 +5,7 @@
 import { accountCredential } from "../auth.ts";
 import { decryptToken } from "../credential-vault.ts";
 import { query } from "../db.ts";
-import { HttpError } from "../service.js";
+import { HttpError } from "../service.ts";
 import { handleMcp } from "../mcp.js";
 import { MCP_CAPABILITIES } from "../../shared/mcp-capabilities.js";
 import type { Express } from "express";

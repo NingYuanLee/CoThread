@@ -9,7 +9,7 @@ import {
   reconcileNextFileIndexArtifact,
   scheduleNextFileIndexSweep,
 } from "./file-index-discovery.js";
-import { HttpError } from "./service.js";
+import { HttpError } from "./service.ts";
 import type { Db } from "./types.ts";
 import {
   backfillProjectMemory,

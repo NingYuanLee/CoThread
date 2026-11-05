@@ -1,6 +1,6 @@
 // Integration test: HTML + CSS in same folder, preview should apply styles
 import { createDatabase, query, transaction } from "../server/db.ts";
-import { Service } from "../server/service.js";
+import { Service } from "../server/service.ts";
 import { randomUUID } from "node:crypto";
 import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 

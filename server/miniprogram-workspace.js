@@ -11,7 +11,7 @@ import {
   moveFolder,
   renameFolderIfNamed,
   setArtifactFolder,
-} from "./documents/index.js";
+} from "./documents/index.ts";
 
 export const MINIPROGRAM_ROOT_KIND = "project_miniprogram";
 export { MINIPROGRAM_FIXED_FOLDERS, MINIPROGRAM_FOLDER_KINDS };

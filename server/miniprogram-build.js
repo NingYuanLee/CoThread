@@ -20,7 +20,7 @@ import {
   createVersion,
   uniqueArtifactTitle,
   uniqueVersionFilename,
-} from "./documents/index.js";
+} from "./documents/index.ts";
 
 const require = createRequire(import.meta.url);
 

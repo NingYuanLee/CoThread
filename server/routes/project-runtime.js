@@ -22,7 +22,7 @@ import { signPreviewTicket, splitPreviewAssetPath } from "../../shared/preview-t
 import { randomBytes } from "node:crypto";
 import { joinThreadViewing } from "../thread-presence.ts";
 import { trackSse } from "../sse-streams.ts";
-import { getRendition } from "../documents/index.js";
+import { getRendition } from "../documents/index.ts";
 import { ensureOfficeRendition } from "../office-renditions.ts";
 
 export function registerProjectRuntimeRoutes(

@@ -3,7 +3,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { modelResponseStream, modelUsage, redactSecrets, responseText } from "./model-config.js";
 import { getWikiPage, listWikiPages } from "./wiki-pages.js";
-import { companyQuestionMaterials, orgQuestionMaterials } from "./org-shelf.js";
+import { companyQuestionMaterials, orgQuestionMaterials } from "./org-shelf.ts";
 import { deepseekFetch, deepseekSearch } from "./deepseek-web.ts";
 import { runElderQuestion } from "./elder-kernel.js";
 import { elderPersist, elderRoomState, recordElderRun, wikiScopeKey } from "./wiki-session.js";

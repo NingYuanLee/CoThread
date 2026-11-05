@@ -5,7 +5,7 @@ import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.js";
 import { ensureMiniprogramWorkspace, migrateLegacyAdminDist } from "./miniprogram-workspace.js";
 import { readMiniprogramAuthRuntime } from "./miniprogram-auth-config.ts";
-import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.js";
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
 
 export const MINIPROGRAM_ENVIRONMENTS = ["development", "production"];
 export const MINIPROGRAM_SECRET_KINDS = ["wechat_upload_key", "cloudbase_credential"];

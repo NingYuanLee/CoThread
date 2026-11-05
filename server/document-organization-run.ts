@@ -6,7 +6,7 @@ import { publishWork } from "./work-events.ts";
 import { listOrganizationDocuments } from "./document-organization.ts";
 import type { OrganizationDocument } from "./document-organization.ts";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.ts";
-import { createFolder, placeArtifact } from "./documents/index.js";
+import { createFolder, placeArtifact } from "./documents/index.ts";
 import type { PoolConnection } from "mysql2/promise";
 import type { Pool } from "mysql2/promise";
 

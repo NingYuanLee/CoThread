@@ -3,7 +3,7 @@ import { upsertUtteranceMemory } from "./utterance-memory.ts";
 import { syncTaskMemory } from "./task-memory.js";
 import { syncDocumentMemory } from "./document-memory.js";
 import { queueConversationThread } from "./conversation-memory-store.js";
-import { folderRootKind } from "./documents/index.js";
+import { folderRootKind } from "./documents/index.ts";
 import { ensureFileIndexRoots } from "./file-index-roots.ts";
 
 /**

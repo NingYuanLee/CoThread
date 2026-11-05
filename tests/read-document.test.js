@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { readDocumentContent } from "../server/documents/index.js";
+import { readDocumentContent } from "../server/documents/index.ts";
 import { createMcpServer, mcpReadToolSpecs } from "../server/mcp.js";
 import { elderDocumentReadText } from "../server/wiki-questions.js";
 import { FILE_CHUNK_SIZE } from "../shared/upload-limits.js";

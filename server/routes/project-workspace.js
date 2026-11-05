@@ -41,7 +41,7 @@ import {
   createOrgGuide,
   readCompanyCatalog,
   readOrgShelf,
-} from "../org-shelf.js";
+} from "../org-shelf.ts";
 import {
   ignoreProjectMemorySignal,
   queueLaowengMemoryRun,
@@ -50,8 +50,8 @@ import {
   updateMemoryEntryMeta,
 } from "../project-memory.js";
 import { createMemoryRelation, deleteMemoryRelation } from "../memory-graph.ts";
-import { emptyLibraryRecycle, libraryChange } from "../documents/index.js";
-import { countDocumentChanges, listDocumentChanges } from "../documents/index.js";
+import { emptyLibraryRecycle, libraryChange } from "../documents/index.ts";
+import { countDocumentChanges, listDocumentChanges } from "../documents/index.ts";
 import { projectManagerOperation } from "../service-access.ts";
 import {
   clearEnvironmentVariable,
@@ -62,7 +62,7 @@ import {
 import { z } from "zod/v3";
 import { query } from "../db.ts";
 import { HttpError } from "../service.js";
-import { completeFileUpload, putFileUploadChunk, startFileUpload } from "../documents/index.js";
+import { completeFileUpload, putFileUploadChunk, startFileUpload } from "../documents/index.ts";
 import {
   acceptTask,
   acceptTaskCompletion,

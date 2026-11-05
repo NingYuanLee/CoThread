@@ -3,7 +3,7 @@ import { z } from "zod/v3";
 import { markInTransaction, query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { lockIteration } from "./iteration-state.ts";
-import { latestVersionsByFolderRoots } from "./documents/index.js";
+import { latestVersionsByFolderRoots } from "./documents/index.ts";
 import { modelResponse, responseText } from "./model-config.js";
 import { publishWork } from "./work-events.ts";
 import { nativeHistoryFromLiveHome } from "./child-agent-session.js";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { query } from "./db.ts";
-import { folderRootKindInList } from "./documents/index.js";
+import { folderRootKindInList } from "./documents/index.ts";
 import { visibleFileIndexSql } from "./file-index-visibility.ts";
 import type { Db } from "./types.ts";
 

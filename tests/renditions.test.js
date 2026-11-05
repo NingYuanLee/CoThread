@@ -6,7 +6,7 @@ import {
   failRendition,
   getRendition,
   RENDITION_MAX_ATTEMPTS,
-} from "../server/documents/index.js";
+} from "../server/documents/index.ts";
 
 /** 记录 SQL 的假连接：文档内核通过 query(db, sql, params) 执行。 */
 function fakeDb(rows = []) {

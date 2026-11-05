@@ -227,7 +227,7 @@ export async function expandFileIndexProjectReconciliation(db, batchSize = 100) 
     return true;
   });
 }
-import { folderRootKind } from "./documents/index.js";
+import { folderRootKind } from "./documents/index.ts";
 
 const INDEXED_ROOTS = new Set([
   "project_official",

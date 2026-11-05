@@ -10,7 +10,7 @@ import {
   laowengTaskLabel,
   normalizeLaowengTask,
 } from "../shared/agent-label.js";
-import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
+import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.ts";
 import { capabilityProfile, SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { fail, id, preferredLocalExecutorJoin } from "./service-support.ts";

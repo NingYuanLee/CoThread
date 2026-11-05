@@ -10,7 +10,7 @@ import {
   changeProjectOrganizationLink,
 } from "../server/organizations.js";
 import { createWikiPage, getWikiPage } from "../server/wiki-pages.js";
-import { loginLanding, readOrgShelf } from "../server/org-shelf.js";
+import { loginLanding, readOrgShelf } from "../server/org-shelf.ts";
 import { askWikiQuestion } from "../server/wiki-questions.js";
 
 test("newcomers with a primary org and no active iteration land on that org, and outsiders cannot read project pages", async () => {

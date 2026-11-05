@@ -2,7 +2,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createApp } from "../server/app.js";
+import { createApp } from "../server/app.ts";
 import { hashPassword } from "../server/auth.ts";
 import { query } from "../server/db.ts";
 import { libraryChange } from "../server/documents/library.js";

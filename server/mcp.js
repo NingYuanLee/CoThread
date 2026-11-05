@@ -5,7 +5,7 @@ import {
   isDocumentText,
   paginateText,
   readDocumentContent,
-} from "./documents/index.js";
+} from "./documents/index.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createHash } from "node:crypto";
@@ -21,7 +21,7 @@ import {
   queueProjectMemoryRun,
 } from "./project-memory.js";
 import { normalizeLaowengTask } from "../shared/agent-label.js";
-import { listDocumentChanges } from "./documents/index.js";
+import { listDocumentChanges } from "./documents/index.ts";
 import {
   acceptTask,
   getTask,
@@ -36,7 +36,7 @@ import {
 import { MCP_CAPABILITIES, MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 import { searchProjectMemory } from "./memory-search.js";
 import { FILE_CHUNK_SIZE, FILE_MAX_BYTES, MCP_INLINE_BASE64_MAX } from "../shared/upload-limits.js";
-import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./documents/index.js";
+import { completeFileUpload, putFileUploadChunk, startFileUpload } from "./documents/index.ts";
 import { query } from "./db.ts";
 import {
   intactConversationMemorySql,

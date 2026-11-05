@@ -7,7 +7,7 @@ import { query } from "../server/db.ts";
 import { migrate, migrationChecksum } from "../scripts/migrate.js";
 import { Service } from "../server/service.js";
 import { hashPassword } from "../server/auth.ts";
-import { createApp } from "../server/app.js";
+import { createApp } from "../server/app.ts";
 import { createArtifact } from "../server/documents/versions.ts";
 
 test("正式文件关联迁移只修复唯一目标，多个目标保留审计缺口", async () => {
@@ -428,7 +428,7 @@ test("文件索引迁移在 DDL 完成但回执丢失后可重跑且不改写已
       "SELECT artifact_id artifactId,summary_sha256 sha256 FROM file_index_entries WHERE indexed_version_id=?",
       [version.id],
     );
-    const { replaceVersionContent } = await import("../server/documents/index.js");
+    const { replaceVersionContent } = await import("../server/documents/index.ts");
     await replaceVersionContent(db, {
       id: version.id,
       content: Buffer.from("已更改"),

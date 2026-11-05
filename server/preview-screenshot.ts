@@ -1,8 +1,8 @@
 import { posix } from "node:path";
 import type { Browser } from "playwright";
 import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
-import { previewContentType, storedContentType } from "./documents/index.js";
-import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.js";
+import { previewContentType, storedContentType } from "./documents/index.ts";
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
 
 /** 文档树用到的文件夹行。 */
 type FolderRow = { id: string; name?: unknown; parent_id?: string | null };

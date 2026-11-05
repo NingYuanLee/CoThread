@@ -3,7 +3,7 @@
 import { query } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 
-import { folderRootKind, latestVersionsByFolderRoots } from "./documents/index.js";
+import { folderRootKind, latestVersionsByFolderRoots } from "./documents/index.ts";
 import { parseDocumentRefs } from "./task-pool-helpers.ts";
 import type { Db } from "./types.ts";
 

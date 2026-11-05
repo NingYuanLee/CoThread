@@ -1,6 +1,6 @@
 import { validDocumentSummarySql } from "./file-index-visibility.ts";
 import { finishAgentEvent } from "./thread-activity.ts";
-import { documentTool } from "./documents/index.js";
+import { documentTool } from "./documents/index.ts";
 import { z } from "zod/v3";
 import { redactSecrets } from "./model-config.js";
 import { deepseekFetch, deepseekSearch } from "./deepseek-web.ts";
@@ -13,7 +13,7 @@ import {
   writeDeniedReason,
 } from "../shared/request-control.js";
 import { digest } from "./auth.ts";
-import { storedContentType } from "./documents/index.js";
+import { storedContentType } from "./documents/index.ts";
 import { HttpError } from "./service.js";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { modelDiscussion, modelProject } from "./model-context.ts";
@@ -49,7 +49,7 @@ import {
   agentListCodeTree,
   agentReadCodeFile,
 } from "./project-code-sources.js";
-import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.js";
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
 import {
   MINIPROGRAM_FIXED_FOLDERS,
   miniprogramSnapshot,

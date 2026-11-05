@@ -4,7 +4,7 @@ import { HttpError } from "./http-error.ts";
 import { projectArchived } from "./memory-timeline.js";
 import { closeStaleFileIndexScanBatches } from "./file-index-discovery.js";
 import { acquireNamedLock } from "./named-lock.ts";
-import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
+import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.ts";
 
 const liveFiles = `FROM artifacts a JOIN versions v ON v.artifact_id=a.id
   LEFT JOIN document_folders f ON f.id=a.folder_id

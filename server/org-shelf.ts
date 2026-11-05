@@ -5,7 +5,18 @@ import { HttpError } from "./http-error.ts";
 import { requireAdminPermission } from "./admin-rbac.ts";
 import { getWikiPage, listWikiPages } from "./wiki-pages.js";
 
-async function activeUser(db, user) {
+import type { Db } from "./types.ts";
+
+/** 组织货架用到的 Service 视图。 */
+type OrgService = {
+  db: Db;
+  [method: string]: unknown;
+};
+
+/** 操作人。 */
+type OrgUser = { id: string; kind?: string | null };
+
+async function activeUser(db: Db, user: OrgUser) {
   const [row] = await query(db, "SELECT id, disabled_at disabledAt FROM users WHERE id=?", [
     user.id,
   ]);
@@ -13,7 +24,7 @@ async function activeUser(db, user) {
   return row;
 }
 
-async function orgMembership(db, user, orgId) {
+async function orgMembership(db: Db, user: OrgUser, orgId: string) {
   await activeUser(db, user);
   const [org] = await query(
     db,
@@ -30,19 +41,19 @@ async function orgMembership(db, user, orgId) {
     await requireAdminPermission(db, user, "orgs.update");
     canManage = true;
   } catch (error) {
-    if (error.status !== 403) throw error;
+    if ((error as { status?: number } | null)?.status !== 403) throw error;
   }
   if (!member && !canManage) throw new HttpError(403, "没有此组织的查看权限");
   return { org, member: !!member, canManage };
 }
 
-function guideInput(input) {
+function guideInput(input: unknown) {
   return z
     .object({ title: z.string().trim().min(1).max(160), body: z.string().max(60000) })
     .parse(input);
 }
 
-export async function readOrgShelf(service, user, orgId) {
+export async function readOrgShelf(service: OrgService, user: OrgUser, orgId: string) {
   const access = await orgMembership(service.db, user, orgId);
   const guides = await query(
     service.db,
@@ -77,7 +88,12 @@ export async function readOrgShelf(service, user, orgId) {
   };
 }
 
-export async function createOrgGuide(service, user, orgId, input) {
+export async function createOrgGuide(
+  service: OrgService,
+  user: OrgUser,
+  orgId: string,
+  input: unknown,
+) {
   const access = await orgMembership(service.db, user, orgId);
   if (!access.member && !access.canManage) throw new HttpError(403, "没有编写这个组织指南的权限");
   if (access.org.archivedAt) throw new HttpError(409, "已归档的组织不能再写指南");
@@ -91,7 +107,7 @@ export async function createOrgGuide(service, user, orgId, input) {
   return readOrgShelf(service, user, orgId);
 }
 
-export async function readCompanyCatalog(service, user) {
+export async function readCompanyCatalog(service: OrgService, user: OrgUser) {
   await activeUser(service.db, user);
   const orgs = await query(
     service.db,
@@ -106,12 +122,12 @@ export async function readCompanyCatalog(service, user) {
     await requireAdminPermission(service.db, user, "orgs.update");
     canWrite = true;
   } catch (error) {
-    if (error.status !== 403) throw error;
+    if ((error as { status?: number } | null)?.status !== 403) throw error;
   }
   return { orgs, guides, canWrite };
 }
 
-export async function createCompanyGuide(service, user, input) {
+export async function createCompanyGuide(service: OrgService, user: OrgUser, input: unknown) {
   await requireAdminPermission(service.db, user, "orgs.update");
   const data = guideInput(input);
   const id = randomUUID();
@@ -123,7 +139,13 @@ export async function createCompanyGuide(service, user, input) {
   return readCompanyCatalog(service, user);
 }
 
-async function matchingGuides(db, table, question, extraWhere, params) {
+async function matchingGuides(
+  db: Db,
+  table: string,
+  question: string,
+  extraWhere: string,
+  params: unknown[],
+) {
   const text = String(question || "").trim();
   if (!text) {
     return query(
@@ -139,7 +161,12 @@ async function matchingGuides(db, table, question, extraWhere, params) {
   );
 }
 
-export async function orgQuestionMaterials(service, user, orgId, question) {
+export async function orgQuestionMaterials(
+  service: OrgService,
+  user: OrgUser,
+  orgId: string,
+  question: string,
+) {
   const access = await orgMembership(service.db, user, orgId);
   if (!access.member) throw new HttpError(403, "没有这个组织的提问权限");
   if (access.org.archivedAt) throw new HttpError(409, "已归档的组织不能再提问");
@@ -169,7 +196,7 @@ export async function orgQuestionMaterials(service, user, orgId, question) {
         pages.push(await getWikiPage(service, user, link.projectId, page.id));
       }
     } catch (error) {
-      if (error.status !== 403) throw error;
+      if ((error as { status?: number } | null)?.status !== 403) throw error;
     }
   }
   return [
@@ -190,7 +217,11 @@ export async function orgQuestionMaterials(service, user, orgId, question) {
   ];
 }
 
-export async function companyQuestionMaterials(service, user, question) {
+export async function companyQuestionMaterials(
+  service: OrgService,
+  user: OrgUser,
+  question: string,
+) {
   await activeUser(service.db, user);
   const guides = await matchingGuides(service.db, "company_guides", question, "", []);
   return guides.map((guide) => ({
@@ -200,7 +231,7 @@ export async function companyQuestionMaterials(service, user, question) {
   }));
 }
 
-export async function loginLanding(db, user) {
+export async function loginLanding(db: Db, user: OrgUser) {
   const [thread] = await query(
     db,
     `SELECT t.id FROM threads t

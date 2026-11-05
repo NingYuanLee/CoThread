@@ -6,7 +6,7 @@
  *    INSERT/UPDATE/DELETE 文档相关表。
  * 2. 内核不依赖业务：`server/documents/**` 不得 import `service.js`、`agent*.js`、
  *    `coordinator*.js`、`dsh-*`、`../dsh-layer/**`（需要协作者时由调用方传参）。
- * 3. Agent 单向依赖：只有 `server/app.js` 与 `server/coordinator.js` 可以 import `agent.js`。
+ * 3. Agent 单向依赖：只有 `server/app.ts` 与 `server/coordinator.js` 可以 import `agent.js`。
  * 4. 内核深引用禁令：`server/` 下非内核代码只能从 `./documents/index.js` 导入内核能力，
  *    不得引用内核内部文件（测试文件不受本规则约束）。
  * 5. 迁移文件行尾：`migrations/*.sql` 必须是 LF。checksum 已做行尾归一，但工作树

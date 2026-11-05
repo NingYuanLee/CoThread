@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createApp } from "../server/app.js";
+import { createApp } from "../server/app.ts";
 import { hashPassword } from "../server/auth.ts";
 import { query } from "../server/db.ts";
 import {

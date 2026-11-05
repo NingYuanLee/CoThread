@@ -303,14 +303,25 @@ npm test            # 集成测试需要测试库
 
 全量测试复跑一次 1096/1096 通过；上一轮出现 1 个 `agent-member-understanding` 的失败，单独跑该文件 5/5 通过、复跑全量也通过，判定为并发下的偶发（与本次改动无关），未作为通过依据。
 
-剩余 68 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第二十六批：`org-shelf.ts`(224)、`documents/index.ts`(29，26 处引用的 barrel)、`app.ts`(10，18 处引用)。
+
+本批新增一个迁移辅助脚本 `scripts/server-ts-specifiers.mjs`，检查两类失效说明符：
+
+1. **写 `.js` 但磁盘上只有 `.ts`** —— 上一轮踩到的坑。`tsc` 会通过（TS 把 `.js` 映射到同名 `.ts`），Node 运行期 `ERR_MODULE_NOT_FOUND`。加 `--fix` 可自动改回 `.ts`。
+2. **写 `.ts` 但文件不存在** —— 回退已改名文件后、引用方没跟着回退时出现。本批就真实出现过：`tests/cloudbase-hosting.test.js` 仍引用已回退的 `../server/cloudbase-hosting.ts`，导致 9 个测试根本没跑起来（总数从 1096 降到 1087）。
+
+匹配按**行首锚定**，否则会把测试夹具里的字符串（`res.end('import "./leaf.ts"')`）误报成导入。这两类问题 `tsc` 都发现不了，**每批提交前必须跑这个脚本**。
+
+`cloudbase-hosting` 与 `http-app` 本轮改名后**回退**：前者发布链路依赖 CloudBase manager 的动态形状，后者卡在 `Service` 类的推断不完整（方法在 JS 里动态挂载，类型里没有）。两者都要等 `service.js` / `cloudbase.js` 转换后再做。
+
+剩余 65 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                            | 文件数            |
 | ---- | ------------------------------------------------------------------------------- | ----------------- |
-| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 11                |
-| 4    | 被 2–4 个文件引用                                                               | 18                |
-| 5    | 被 5–9 个文件引用                                                               | 19                |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 20                |
+| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 12                |
+| 4    | 被 2–4 个文件引用                                                               | 17                |
+| 5    | 被 5–9 个文件引用                                                               | 18                |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 18                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）          | 1（已计入批次 3） |
 
 `service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。

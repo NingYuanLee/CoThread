@@ -6,7 +6,7 @@ import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createDatabase, query } from "../server/db.ts";
-import { createApp } from "../server/app.js";
+import { createApp } from "../server/app.ts";
 import { hashPassword } from "../server/auth.ts";
 import { Service } from "../server/service.js";
 import { executeRun } from "../server/sandbox-run.ts";

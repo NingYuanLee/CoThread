@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import XLSX from "xlsx";
-import { isDocumentText } from "./documents/index.js";
+import { isDocumentText } from "./documents/index.ts";
 import { extractLegacyOfficeDocument, sniffBinaryFormat } from "./legacy-office-extract.ts";
 
 const MAX_ARCHIVE_BYTES = 8 * 1024 * 1024;

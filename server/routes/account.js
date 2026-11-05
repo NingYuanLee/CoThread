@@ -19,7 +19,7 @@ import {
   readEnvironmentRemark,
   setEnvironmentVariable,
 } from "../environment-variables.ts";
-import { loginLanding } from "../org-shelf.js";
+import { loginLanding } from "../org-shelf.ts";
 import { UI_THEMES, normalizeUiTheme } from "../../shared/ui-theme.js";
 import { resolveIpLocation } from "../ip-location.ts";
 import { randomUUID } from "node:crypto";

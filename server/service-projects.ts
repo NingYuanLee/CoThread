@@ -9,7 +9,7 @@ import { projectImageSchema, projectImageUrl, projectImageUrlSql } from "./proje
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { ensureProjectLibraryRoots } from "./documents/index.js";
+import { ensureProjectLibraryRoots } from "./documents/index.ts";
 import { fail, id, title, preferredLocalExecutorJoin } from "./service-support.ts";
 import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";

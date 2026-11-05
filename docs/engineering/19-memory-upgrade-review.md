@@ -111,7 +111,7 @@
 
 验证：`tests/project-memory-signal-cleanup.test.js` 6/6；相关 `project-memory`、`memory-retry`、`project-memory-signals`、`project-status`、`memory-jobs` 共 31/31；`document-memory` 15/15；`check-boundaries` / `check-overlays` / `check-field-resets` / `check-field-usage` 通过；`node --check` 通过。测试库 RDS 从本机仍 `PROTOCOL_CONNECTION_LOST`，数据库用例改用本机 3307 便携 MySQL 的 `cothread_test` 执行；`npm run lint` 因沙箱拒绝 spawn git 未能完整执行，`file-index-discovery` 4 项失败是本机沙箱 `.local\agents` mkdir EPERM，与本次改动无关。线上需部署后确认：该 wps 的队列行消失、项目记忆不再出现「候选来源不存在或不可访问」的按小时失败。
 
-2026-11-04 已随当日第二次发布上线（包 `cothread-release-20261104T044635Z.tgz`，execution `exec-0c361976593d4107af3c`，`current` 为 `/opt/cothread/releases/20261104T044814Z`）。线上核对：`current/server/project-memory.js` 含 `dropDocumentVersionSignals`；该 wps 的 artifact 已置 `purged_at`、残留信号行删除（`signalsRemaining=0`），MCP `list_documents` 不再列出；手动 `project_memory` 结算 run `4f86f25f-89f4-4303-9d91-0938b03679db` 为 `completed`、`agent_called=0`，不再出现「候选来源不存在或不可访问」。发布细节与门禁见 `05-cloud-environment.md` 文末。
+2026-11-04 已随当日第二次发布上线（包 `cothread-release-20261104T044635Z.tgz`，execution `exec-0c361976593d4107af3c`，`current` 为 `/opt/cothread/releases/20261104T044814Z`）。线上核对：`current/server/project-memory.js` 含 `dropDocumentVersionSignals`；该 wps 的 artifact 已置 `purged_at`、残留信号行删除（`signalsRemaining=0`），MCP `list_documents` 不再列出；手动 `project_memory` 结算 run `4f86f25f-89f4-4303-9d91-0938b03679db` 为 `completed`、`agent_called=0`，不再出现「候选来源不存在或不可访问」。发布细节与门禁见 [2026-11-04 发布记录](releases/2026-11-04.md)。
 
 ## 记忆作业项目进程 / 发言「无法处理」（2026-11-04 第四轮）
 
@@ -170,7 +170,7 @@
 - 任务聚合：结算禁止生成发言/议题/文档类条目；`subject=task` 只允许引用多个任务来源的「任务分布」汇总条目，只引用一个任务来源的单任务条目丢弃；提示词同步改为「task 候选只汇总一条任务分布」。
 - 忽略入口：新增 `POST /api/projects/:id/memory/signals/:queueId/ignore`，写权限校验、删除队列行并写 `project_memory_signal_ignored` 审计；信号弹窗每条加「忽略」按钮，忽略后不再自动重试。
 
-验证：`tests/project-memory.test.js` 10/10（新增逐条丢弃、任务分布、忽略审计与 403/404）；`project-memory-scan` 4/4（文档变更不再入队）；`project-memory-signal-cleanup` 4/4（改为历史遗留行清理语义）；`memory-retry` 8/8、`document-memory` 15/15、`memory-jobs` 11/11、`iteration-archive` 23/23、`memory-read` 14/14、`project-status` 7/7、`project-memory-signals` 1/1、`integration` 22/22；`tsc`/`lint`/`build` 通过。全量与发布记录见 `05-cloud-environment.md` 文末。
+验证：`tests/project-memory.test.js` 10/10（新增逐条丢弃、任务分布、忽略审计与 403/404）；`project-memory-scan` 4/4（文档变更不再入队）；`project-memory-signal-cleanup` 4/4（改为历史遗留行清理语义）；`memory-retry` 8/8、`document-memory` 15/15、`memory-jobs` 11/11、`iteration-archive` 23/23、`memory-read` 14/14、`project-status` 7/7、`project-memory-signals` 1/1、`integration` 22/22；`tsc`/`lint`/`build` 通过。全量与发布记录见 [2026-11-04 发布记录](releases/2026-11-04.md)。
 
 ## 尚需实际环境验收
 

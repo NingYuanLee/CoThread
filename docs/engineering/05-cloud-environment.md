@@ -1,12 +1,14 @@
-# 云端环境变量
+# 云端环境与发布
 
-维护约定：每次发布都应核查并更新本文，删去失效或过时步骤，将新问题及已验证的处理办法合并到相应章节。发布失败或中止也要记录确认的问题与遗留事项。最近流程核查：2026-11-04 八次发布——上午「按来源治理记忆 / 项目现状 Markdown」，下午「删除文档后的失效项目进程信号清理」，晚间「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」，随后「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」、「项目进程信号改为按水位扫描生成（迁移 221）」，以及「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口（迁移 222）」，以及「发布重启 502 窗口收缩（SSE 主动结束 + 连接强断 + 前端退避重试）」，以及「WPS/旧版二进制 Office 读取与预览派生文件（迁移 223）」；八次都重核了门禁、打包清单、OOS 上传和上线验收（第八次本机全量测试因测试库不可达未跑，见文末）。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测，以及迁移 221/222 的线上应用核对，以及本机沙箱管道限制下的构建与上传替代路径；详见「ECS 发布」及文末；第九次为 DSH 0.2.2-rc.1 整链升级与 ECS Node 24.18 运行时切换（见文末）。
+维护约定：本文是发布流程与云端环境的唯一真源。每次发布都应核查并更新本文：删去失效或过时的步骤、命令、版本和判断条件，把新问题及已验证的处理办法合并到对应章节；发布失败或中止也要记录确认的问题与遗留事项。逐次发布的原始记录不留在本文，按发布日期拆到 [发布记录目录](releases/)，本文只保留索引表与可复用的流程、故障恢复和验收知识。
+
+最近流程核查：2026-11-04 至 11-05 凌晨共十二次发布——「按来源治理记忆 / 项目现状改 Markdown」「删除文档后的失效项目进程信号清理」「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」「项目进程信号改为按水位扫描生成（迁移 221）」「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口（迁移 222）」「发布重启 502 窗口收缩」「WPS/旧版二进制 Office 读取与预览派生文件（迁移 223）」「DSH 整链升级 0.2.2-rc.1 与 ECS Node 24.18 运行时切换」「监控会话派活展示与用量补齐」「DSH 压缩会话日志解析与子 Agent 思考/正文展示」「任务会话时间线与轨迹用量」。十二次都重核了门禁、打包清单、OOS 上传和上线验收；逐次记录见 [发布记录目录](releases/)。本轮补充了 Alibaba MCP 通道现状、测试库锁残留检查、`OOS_GetDeployStatus` 参数约束、`visibleFileIndexSql` 整表开销实测、迁移 221/222 线上应用核对，以及本机沙箱管道限制下的构建与上传替代路径。
 
 应用后端需要常驻 Node.js 进程（Node.js 24.9+，DSH 0.2.2 起强制要求）、MySQL 网络连接及可写的 `.local` 目录。只发布 `dist/` 静态文件无法运行 API、MCP 和后台 Agent；生产环境固定为阿里云 ECS 单实例 + RDS，本机开发用便携版 MySQL。
 
 在 ECS 上把变量配置到后端运行环境（`/opt/cothread/.env`）。无需上传真实 `.env`；`npm start`、`npm run db:migrate`、`npm run db:seed` 和 `npm run db:backup` 允许该文件不存在。本地存在 `.env` 时仍会读取，环境里已设置的同名变量优先。
 
-2026-11-04 DSH 整链升级到 `0.2.2-rc.1`（npm 的 `next` tag；`0.2.2` 尚无正式版）：`package.json` 中全部 `@deepseek-ai/dsh*` 与 `cordis-plugin-group` 同步升级，`engines.node` 提到 `>=24.9.0`。本机 Node 24.18 满足；Docker 固定 `node:24.18-bookworm-slim`，CI 只保留 `24.x`，ECS 启动钩子改装 `/opt/cothread/node-runtime-24.18.0`。代码侧同步了 `startActivation`、会话恢复 `resume` 透传、官方新增装配条目（filesystem / tool-fs / working-directory / tool-executor-native / image-offload / checkpoint-policy）与移除的 invariants / `list-agents` 子路径。**已于 2026-11-04 晚间第九次发布上线**：ECS 启动钩子先安装并切换到 Node `v24.18.0`，`current` 为 `/opt/cothread/releases/20261104T162834Z`，公网健康为 `ok`、执行器 ready、8 槽；详见文末第九次发布记录。登录后的真实 Agent 会话与压缩阈值仍未实机验收。
+2026-11-04 DSH 整链升级到 `0.2.2-rc.1`（npm 的 `next` tag；`0.2.2` 尚无正式版）：`package.json` 中全部 `@deepseek-ai/dsh*` 与 `cordis-plugin-group` 同步升级，`engines.node` 提到 `>=24.9.0`。本机 Node 24.18 满足；Docker 固定 `node:24.18-bookworm-slim`，CI 只保留 `24.x`，ECS 启动钩子改装 `/opt/cothread/node-runtime-24.18.0`。代码侧同步了 `startActivation`、会话恢复 `resume` 透传、官方新增装配条目（filesystem / tool-fs / working-directory / tool-executor-native / image-offload / checkpoint-policy）与移除的 invariants / `list-agents` 子路径。**已于 2026-11-04 晚间第九次发布上线**：ECS 启动钩子先安装并切换到 Node `v24.18.0`，`current` 为 `/opt/cothread/releases/20261104T162834Z`，公网健康为 `ok`、执行器 ready、8 槽；详见 [2026-11-04 发布记录](releases/2026-11-04.md)。登录后的真实 Agent 会话与压缩阈值仍未实机验收。
 
 | 变量                                                                       | 配置                                                                                                         |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -25,6 +27,14 @@
 
 `CREDENTIAL_ENCRYPTION_KEY` 与 `MEMORY_MAINTENANCE_TOKEN` 须人工配置并长期固定；`npm run setup` 不会生成它们。迁移已有部署时保留原有令牌加密密钥（环境变量，或将已有 `.local/credential-encryption.key` 的 32 字节二进制内容编码为 base64），否则无法解密原来的账号令牌。不要提交密钥；也不要在运行时自动新建密钥文件。
 
+本地 `.env` 仅保留 `.env.example` 中列出的必要项。监听 `0.0.0.0:3100`、站点 `https://cothread.z2l.top`、HTTPS 时 Secure Cookie 已在代码写死，不必再配。
+
+任务在 `.local/sandboxes` 中执行。数据库模型配置默认由老翁、小祥与实际子 Agent 派活共用，可单独覆盖 老翁。仅在没有数据库配置时，`KNOWLEDGE_MODEL_*` 用于老翁知识整理，`MODEL_*` 作为 小祥调度和实际 子 Agent 派活的共享基线。旧的 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*` 仅作为迁移兼容变量；环境变量模型字段可写成 `模型名@推理强度`，省略推理强度时基线默认使用 `low`。推理强度可取 `off`、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`；管理页用独立选项设置推理强度。
+
+模型调用统一使用 OpenAI Responses API。各套 `*_MODEL_BASE_URL` 是服务商提供的 API 基础地址，程序不会擅自补 `/v1`；Responses 适配器只在该地址后追加 `/responses`。命令以应用进程的操作系统账号在 `.local/sandboxes` 中执行，不具备容器级隔离；生产环境只有这一条执行路径。
+
+本地首次账号由 `npm run setup` 生成至 `.local/initial-admin.json`，不进入版本库；`npm run db:seed` 读取它完成数据库账号初始化。之后每次 `npm run dev` 启动都会把本机超级管理员密码重置为固定值 **`cothread-dev`**（需要临时换口令时设 `DEV_ADMIN_PASSWORD`），写入 `.local/initial-admin.json` 与登录备忘；该重置只在 `COTHREAD_DB_TARGET=dev` 且数据库在本机时执行，生产初始化仍走 `ADMIN_PASSWORD`（至少 12 位）。ECS 空库可临时设置 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 完成初始化，已有账号只依赖数据库。
+
 ### 模型配置同步与上游故障检查
 
 自平台模型配置功能上线后，有 `platform_model_settings` 记录时以数据库为准；无记录才使用下述环境变量规则。管理员从 `/admin/model-settings` 查看当前来源、版本和分层覆盖，并通过“校验并保存”启用数据库配置。发布不会自动把环境变量写入配置表，也不会替换已有密钥。已有数据库记录损坏或无法解密时明确报错，不回退环境变量。首次保存仍需填写模型 API 密钥；必须保留服务器原有 `CREDENTIAL_ENCRYPTION_KEY`。
@@ -40,16 +50,6 @@
 构建命令：`npm ci && npm run build`。常驻 `npm start` 与本地 `npm run dev` 启动时会应用未执行的迁移并尝试写入超级管理员（需 `.local/initial-admin.json` 或 `ADMIN_EMAIL`/`ADMIN_PASSWORD`）。也可单独运行 `npm run db:migrate`。当前版本运行单个应用实例。
 
 ## ECS 发布
-
-2026-11-03 早前一次发布尝试暂未完成：lint 和构建通过；无数据库测试发现 MCP 工具清单断言缺少三个新增读取工具，补齐后对应测试通过；全量测试的数据库用例出现连接失败，迁移恢复测试报告 PROTOCOL_CONNECTION_LOST，当时未完成迁移验证或线上发布。同日稍后改用本机测试库重新打包上传成功（提交 `a628fc6`，见文末记录）。
-
-2026-11-02 主要文档图片作业修复的发布核查：用户指定本机禁止提交或推送，本轮以工作区内容构建并核对发布包，不执行下方通用流程中的提交和推送。上线前已在独立测试库验证完整迁移链，并确认发布包包含 152 号队列清理迁移且不包含 AGENTS.md、`.env` 或 `.local`。该迁移只删除已有摘要对应的冗余队列行，不删除摘要或原文；探活阶段会先执行迁移，回切代码不会撤销这些队列清理。
-
-图片维护故障排查：若准备上下文和 DSH 启动成功，而 `model_run` 报 `SDK image prompt requires an attachment store`，检查精简运行配置是否装配 `attachment-local`。SDK 日志只保存图片引用，会话快照也须保存和恢复附件；同时确认模型声明了图片输入，否则 SDK 可能把图片替换为省略提示。修复后必须验证模型实际收到图片并结合真实作业确认摘要，不能只凭进程健康或排队成功判断恢复。模型本身须支持视觉输入；不支持时不能把文字推测当图片识别结果。老翁快照仍有 10 MiB 压缩大小限制，图片累积过多时需关注快照失败。
-
-2026-11-03 又核实一类图片维护失败：队列与文件索引报 `Image exceeds the configured per-side pixel limit.`，每 60 秒重试仍失败；对应文档是高 DPI 截屏 8436×1400，长边超过 `attachment-local` 默认准入 8192px。已在 `dsh-layer/laoweng-agent-patch.yml` 把该插件 `maxImageDimension` 调到 16384，仍由 DSH 归一化按 8192 长边 / 4.19MP / 4MB 缩图（同图实测归一化为 5025×834、约 158 KiB），`maxImagePixels` 64MP 总量上限不变；`document-organization-run` 的截图同样走老翁补丁，一并覆盖。验证方式：真实 DSH runtime 加载新补丁启动通过，且同一张图在默认配置下复现该报错、新配置下成功进入模型请求；运行中的本地 dev 服务在补丁写入后约 75 秒的维护运行（run `98987f57`）即完成该文档摘要，此前 20:22、20:24 两次运行均失败，摘要中模型自述看到的尺寸为 5025×834，与准入后归一化结果一致。本机测试库 `cothread_test` 连接仍被服务端断开（PROTOCOL_CONNECTION_LOST），数据库用例未能借此回归。长边仍超过 16384 或像素超过 64MP 的图会继续失败并每分钟重试，届时需在发送侧先缩放或切片。
-
-同一轮还修了图片摘要与基础索引不一致的问题：模型看到的是归一化预览（如 8436×1400 被缩成 5025×834），旧提示词没给它原图事实，摘要会把预览尺寸当文件尺寸，和索引页「尺寸：8436×1400」冲突。文档摘要任务现在随输入传 `imageFacts`（原图宽高、格式、MIME、字节数，与索引页同一 `describeContent` 解析），图片分支明确要求「看到的是归一化预览、尺寸与清晰度以 imageFacts 为准、预览尺寸只能标注为归一化预览」。实测人工重新识别该文档：新摘要开头写原图 8436×1400、文件 88005 字节，并注明查看经由约 5025×834 的归一化预览，索引页同步更新后两者一致。其他图片任务（如文档整理截图核验）若同样依赖尺寸判断，也需要补同样的输入。
 
 新版本解压到 `/opt/cothread/releases/<id>`，在临时端口以 `--production --health-probe` 启动并探活 `/api/health`；**通过后**才把 `/opt/cothread/current` 原子切到新目录并 `systemctl restart cothread`。探活进程保留迁移和生产静态/API 路径，但不启动后台执行器，不打断沙箱记录，也不在启动或退出时停止 Admin 预览。临时探活失败时，脚本清理本轮 release，`current` 与正式进程不切换。发布脚本只认 `"status":"ok"`，它表示进程和数据库可读，不表示执行器正在干活；探活进程的 `executor.ready: false` 是预期结果，锁应仍归正式进程。正式切换后才核查新进程 `executor.ready: true`。任务排队看本机 `GET /api/health/work`（仅回环地址），不要把它放进发布探活，避免执行器抖动导致整站切换失败。共享 `.env`、`.local` 在 `/opt/cothread/`，不随 release 覆盖。
 
@@ -67,6 +67,8 @@
    2026-10-22 首轮 340 项无数据库测试有 2 项 DSH `sdk-minimal` 初始化超时；将 `context-runtime.test.js`、`model-runtime-config.test.js` 用 `node --test --test-concurrency=1` 单独复跑，3 项均通过。未确认超时根因，不能据此声称并发运行已稳定。构建还发现两个菜单调用用内联 `visibility`，超出 `OverlayLayoutStyle` 白名单；改为公共 `.is-positioning` 状态规则，保留锚点测量前隐藏行为后构建通过。
 
    2026-10-28 第二次发布前，当轮已确认全量测试通过，但 `npm run build` 里的 `tsc --noEmit` 仍失败：新建的 `shared/work-status.js` 没有配套 `.d.ts`，`Notifications` 对 `Partial` 计数直接读 `count.total` 时 `count` 可能为空。补了 `shared/work-status.d.ts`，相加改为 `count?.total || 0` 后构建通过。测试通过不能代替这次类型检查；这两处是在口头确认测试之后改的，本轮没有为此再跑测试。
+
+   `npm run lint`、`npm run test:unit` 和 `npm run build` 这三项在 push 与 PR 上由 CI 强制执行（[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)，Node 24.x，另有 MySQL 8.4.9 容器内跑 `npm test`）。本地先跑是为了在上传前发现问题，不是唯一闸门；**CI 通过不代替发布前的完整集成测试、迁移链核对和上线验收**。
 
 3. 单独验证生产依赖锁文件。开发机已有 `node_modules` 时构建通过，不能证明 ECS 能执行 `npm ci`。锁文件不同步时，在本地同步后提交，避免在 ECS 上改成 `npm install` 绕过锁定：
 
@@ -149,37 +151,23 @@ bash -n scripts/ecs-codedeploy-start.sh
 4. 浏览器访问 `https://cothread.z2l.top/api/health?release=<提交号>`，确认 `status: ok`；正式切换后还需确认 `executor.ready: true`，才能说明执行器已就绪。登录页和健康接口通过不等于登录后全部业务功能已验收。
 5. 将提交号、产物 SHA-256、OOS execution/revision、实际 release 目录、资源哈希和验收时间写入本地发布凭据（本次位于 `.code_deploy/verification/`，不进 Git）。测试结果分别记录构建、单元、针对性回归和完整集成测试，不合并成笼统的“全部通过”。
 
-本次确认上线的示例（2026-10-20，北京时间 23:35）：提交 `3d9b175`，execution `exec-09645b0d951c44b68268`，revision `rev-df93d45eec644199a30c`，实际目录 `/opt/cothread/releases/20261020T153349Z`；JS 为 `index-B_3USerl.js`，CSS 为 `index-DYaTvJio.css`，健康状态为 `ok` 且执行器就绪。构建、格式与架构检查通过，327 项单元测试和 7 项 CloudBase 针对性回归通过；**完整集成测试曾失败，修复后未完成全量复跑**。
+### 已知问题与恢复
 
-2026-10-22 发布前核查：格式、架构、浮层、输入控件及主题产物门禁通过，生产 npm 10 锁文件 dry-run 通过；340 项无数据库测试中首轮 338 项通过，另 2 项初始化超时后串行复跑通过。独立本地 `cothread_deploy_test` 完整首轮测试共 738 项，721 项通过、17 项失败（含集成清理钩子）。修复后分别复验通过：集成/构建/活跃时间 37 项、补充的沙箱及事务回滚 10 项、开发服务器 15 项、本地执行器 5 项、CloudBase/认证配置/微信预览 66 项；这些组有重叠，不能相加作为独立用例总数。首轮失败项均已覆盖，未再执行一次完整测试集。本轮无数据库迁移改动。浏览器实测本地项目列表、状态下拉、详情全屏切换、新增表单输入/取消、对话模式菜单键盘导航和会话统计浮层；这些结果不代表全部业务验收。
+#### 图片维护与文档摘要
 
-2026-10-22 首次发布 execution `exec-e93c9ca9d0544d73bf6c` 因上述执行器锁冲突失败，未上线目录 `/opt/cothread/releases/20261022T062155Z` 已由脚本删除。失败后独立核对 `current` 仍为 `/opt/cothread/releases/20261020T153349Z`，systemd 仍 active，健康状态 ok 且正式执行器 ready。修复后的真实探活子进程回归通过；不以这项本地结果代替重新发布的线上验收。
+图片维护故障排查：若准备上下文和 DSH 启动成功，而 `model_run` 报 `SDK image prompt requires an attachment store`，检查精简运行配置是否装配 `attachment-local`。SDK 日志只保存图片引用，会话快照也须保存和恢复附件；同时确认模型声明了图片输入，否则 SDK 可能把图片替换为省略提示。修复后必须验证模型实际收到图片并结合真实作业确认摘要，不能只凭进程健康或排队成功判断恢复。模型本身须支持视觉输入；不支持时不能把文字推测当图片识别结果。老翁快照仍有 10 MiB 压缩大小限制，图片累积过多时需关注快照失败。
 
-2026-10-22 重发已确认上线：代码提交 `ef18998`，execution `exec-8729747ea87445cfb905`、revision `rev-31ab39fb69f148cc979d`，OOS 为 `Released`、执行为 `Success`；实际 `current` 为 `/opt/cothread/releases/20261022T063614Z`，systemd 为 active，启动时间北京时间 14:37:35。临时探活保留旧执行器锁且自身 ready 为 false，正式切换后新执行器 ready 为 true（7 个执行槽）。内置浏览器访问带提交号的首页，登录页正常；页面引用 `index-DN2dSsvq.js`、`index-CjxCJK9E.css`，与本地构建一致；公开健康接口为 ok 且执行器就绪。未在本轮全量验收登录后的业务。发布包 `cothread-release-20261022T063458Z.tgz` 的 SHA-256 为 `708e26fe123f59375b9d4e47a8e6dc9b8a622add625c73b05360a1b291134697`，515 个文件与打包时本地内容逐字节一致，且不含本机 AGENTS、凭据或运行目录。验收凭据及截图保存在本地 `.code_deploy/verification/`。
+2026-11-03 又核实一类图片维护失败：队列与文件索引报 `Image exceeds the configured per-side pixel limit.`，每 60 秒重试仍失败；对应文档是高 DPI 截屏 8436×1400，长边超过 `attachment-local` 默认准入 8192px。已在 `dsh-layer/laoweng-agent-patch.yml` 把该插件 `maxImageDimension` 调到 16384，仍由 DSH 归一化按 8192 长边 / 4.19MP / 4MB 缩图（同图实测归一化为 5025×834、约 158 KiB），`maxImagePixels` 64MP 总量上限不变；`document-organization-run` 的截图同样走老翁补丁，一并覆盖。验证方式：真实 DSH runtime 加载新补丁启动通过，且同一张图在默认配置下复现该报错、新配置下成功进入模型请求；运行中的本地 dev 服务在补丁写入后约 75 秒的维护运行（run `98987f57`）即完成该文档摘要，此前 20:22、20:24 两次运行均失败，摘要中模型自述看到的尺寸为 5025×834，与准入后归一化结果一致。本机测试库 `cothread_test` 连接仍被服务端断开（PROTOCOL_CONNECTION_LOST），数据库用例未能借此回归。长边仍超过 16384 或像素超过 64MP 的图会继续失败并每分钟重试，届时需在发送侧先缩放或切片。
 
-本轮生产 `npm ci` 完成，但安装日志的依赖审计报告 99 条告警（3 low、48 moderate、42 high、6 critical）；未在本轮自动升级依赖或验证各告警的生产可达性，不能把安装及功能回归通过等同于依赖审计整改完成。
+同一轮还修了图片摘要与基础索引不一致的问题：模型看到的是归一化预览（如 8436×1400 被缩成 5025×834），旧提示词没给它原图事实，摘要会把预览尺寸当文件尺寸，和索引页「尺寸：8436×1400」冲突。文档摘要任务现在随输入传 `imageFacts`（原图宽高、格式、MIME、字节数，与索引页同一 `describeContent` 解析），图片分支明确要求「看到的是归一化预览、尺寸与清晰度以 imageFacts 为准、预览尺寸只能标注为归一化预览」。实测人工重新识别该文档：新摘要开头写原图 8436×1400、文件 88005 字节，并注明查看经由约 5025×834 的归一化预览，索引页同步更新后两者一致。其他图片任务（如文档整理截图核验）若同样依赖尺寸判断，也需要补同样的输入。
 
-2026-10-22 平台模型配置功能已上线：代码提交 `f9f0cb5`，execution `exec-37563ca724c6491e9c99`、revision `rev-54788ea227a0418ebb9b`，OOS 为 `Released`、执行为 `Success`。实际目录 `/opt/cothread/releases/20261022T110306Z`，systemd active，启动时间北京时间 19:04:28。临时端口探活通过且保留旧执行器锁，切换后正式执行器 ready、7 个执行槽；19:05 核对排队 0、运行 0。生产从 117 号迁移升级至 118 号，配置表已创建且初始 0 行，脱敏有效配置仍来自原服务器环境变量：老翁/小祥/子 Agent 均为 DeepSeek 地址及 `deepseek-flash`，老翁 medium、其余 low；密钥与环境文件未替换。后续在管理页首次保存才启用数据库配置。
+#### 发布重启期间的 502 窗口
 
-本轮发布包 `cothread-release-20261022T110214Z.tgz` 的 SHA-256 为 `956b69cc556f0f844210ce0d9842525d7838554fe55fdcb5659e09c8c53af361`，519 个文件与打包时本地内容逐字节一致，无 AGENTS、凭据、运行目录或 Windows 客户端文件；线上 `platform-model-settings.js`、`model-config.js`、`agent.js`、118 号迁移及 `dist/index.html` 的 SHA-256 与本地一致。浏览器导航至带提交号的模型配置入口，未登录时正确展示登录页；实际引用 `index-CuJp67JR.js`、`index-CjxCJK9E.css`，与本地一致；公开健康接口 `status: ok`、`executor.ready: true`。无可用线上登录会话，未在本轮操作登录后的管理表单、保存真实供应商配置或发送测试消息。
-
-本轮验证：352 项无数据库测试、构建、格式与各架构门禁通过，npm 10 生产安装计划预检通过；针对性数据库回归 33 项通过，提交前补充的模型配置与会话锁检查 9 项通过，关闭竞态的最终会话锁复跑 7 项通过，各组有重叠，不相加作为总数。独立测试库应用完整 118 条迁移；没有再次运行全量集成测试。本轮 `npm ci --omit=dev` 安装 2266 个包并仍报告上述 99 条依赖告警。脱敏验收凭据与截图保存在本地 `.code_deploy/verification/model-settings-20261022/`。
-
-2026-10-23 第一次发布中止：当时 HEAD 为 `09e9141`，包 `cothread-release-20261022T185031Z.tgz` 的 SHA-256 为 `49151d5744bde0438a73ed1e558f4d6f98169b79d93dc47be1d2ba98530af679`。MCP 与本机 Tea SDK 在查询 ECS 和读取 OOS 应用时都收到 `SSLEOFError`，没有 execution，生产仍停在 `f9f0cb5`。这份包没有上传。
-
-同日稍后 TLS 恢复，按当时 HEAD `ee8f41d` 重新打包并上线。该提交包含本机 Agent 窗口退出码，以及管理页把历史等级键显示为老翁、小祥、子 Agent；其后的文档提交不改变运行包。格式与架构门禁通过；360 项无数据库测试首轮 358 项通过，沙箱准入和后台命令两项在单独复跑时通过，未再跑全量集成测试。npm 10 生产安装计划预检通过。上线包 `cothread-release-20261023T000849Z.tgz` 的 SHA-256 为 `9cf23eeb585f169fd6684040629b32d923edf0e1ee26178d3988cb684868d763`。OOS 分组为 `Released`，execution `exec-7f97c4c9e3624ef1b957` 为 `Success`，revision `rev-8005e4bccaaf496d8875`。公开健康接口 `status: ok`，执行器 ready，锁获取时间为 UTC `2026-10-23T00:11:08.130Z`（北京时间 08:11:08），7 个执行槽。未登录首页正常，引用 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有在服务器上读取 `current` 符号链接。119 号迁移包含在该包中，发布脚本会在切换前应用未执行迁移；本轮没有单独查询生产迁移表，不能把进程健康写成已看见新列。
-
-2026-10-23 下午第二次发布中止：代码提交 `0aa528d` 已推送。包 `cothread-release-20261023T060834Z.tgz` 的 SHA-256 为 `21b5fdb5bdff313b8284947b38274b6a211cb605e3ec8bcc097d8f1466119586`。`LOCAL_AnalyzeDeployStack` 识别为 npm/nodejs，Node 要求 `>=22.22.3`。curl 访问 OOS 与 ECS 均完成 TLS 校验并返回 HTTP 400。随后 MCP `OOS_GetDeployStatus` 两次、`OOS_CodeDeploy` 一次都在握手阶段收到 `SSLEOFError`：状态查询打到 OOS，CodeDeploy 打到 ECS 的实例查询。没有 execution，没有上传。公开健康接口仍为 ok，执行器 ready，锁获取时间仍是 UTC `2026-10-23T00:11:08.130Z`，说明本轮没有重启正式进程。首页资源仍是 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`；这次前端源码未改，本地 `dist/index.html` 也是这两个文件，因此哈希一致不能证明新的服务端代码已上线。
-
-这次发布前：格式与架构门禁通过。小祥参与相关 22 项在本机 `127.0.0.1:3307/cothread_test` 通过。360 项无数据库测试首轮 356 项通过；单独串行复跑后，沙箱准入通过，原生上下文压缩和模型路由仍因 `sdk-minimal` 初始化超时失败，超时命令的后代写入用例单独复跑仍失败。这些失败文件不在 `0aa528d` 中。npm 10 生产安装计划预检通过。没有再跑全量集成测试。
-
-同日下午 TLS 恢复后，用上述同一包和原来的 `ecs-promote` 启停钩子上传成功，没有改成通用 `npm start`。OOS 分组为 `Released`，execution `exec-6035811341fb421d8396` 为 `Success`，revision `rev-6fcdbb4a6fa84757855e`，完成时间 UTC `2026-10-23T06:39:25Z`。只读命令看到 `current` 为 `/opt/cothread/releases/20261023T063607Z`，systemd 为 active，启动时间北京时间 14:37:36，Node 为 `v22.22.3`。公开健康接口 `status: ok`，执行器 ready，锁获取时间 UTC `2026-10-23T06:37:38.510Z`，7 个执行槽。线上 `agent-participation.js` 含固定提醒「需要麻烦你再@小祥，我才会真的开始。」。浏览器打开带提交号的首页，登录页正常；资源仍是 `index-BFuw8kiw.js` 与 `index-CjxCJK9E.css`，与本地 `dist/index.html` 一致。控制台有一条模块 MIME 报错，对应首页内联的 `data:application/octet-stream` 预加载，主脚本和样式都是 200；未登录时 `/api/me` 返回 401。没有登录后的业务验收，也没有查询生产迁移表。状态接口没有带回 `ecs-promote` 的标准输出，目录、进程和源码是另一次只读命令核对的。
-
-2026-10-25 发布，一次上线：代码提交 `09d3348`（已推送，远端 HEAD 一致），本轮改动 294 个文件。发布前门禁：`npm run lint` exit 0；`npm run test:unit` 403/403；全量 `npm test` 867 项中 866 通过、0 断言失败、1 项 `executor-lock-loss` 因自带 15 s 超时被 cancelled（单文件串行复跑 2 次均 3/3 通过，判定为负载相关偶发）；`npm run build` exit 0。全量测试结束后又修了 `web/miniprogram.css`、`web/theme-overrides.css`、`web/workspace.css` 的悬空选择器、多余分号与漏 `@`（esbuild 只告警、构建仍 exit 0），修复后重建为 0 条 CSS 告警；CSS 不在测试覆盖内，重建即该修复的验证。包 `cothread-release-20261025T125206Z.tgz`，SHA-256 `4d4e22f964dafbe6cecd8af5911247a0ce421e49a53ea2d3eb1349601dba969c`，6,016,029 字节；包内不含 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 一次受理成功（HTTP 200，RequestId `01A1731E-938D-5FE1-843A-7FC23BAF147F`），沿用 `ecs-promote` 启停钩子，未改用通用 `npm start`。
-
-线上只读核对：`current` 为 `/opt/cothread/releases/20261025T125244Z`，systemd active，启动时间北京时间 20:54:22，MainPID 196297；`/opt/cothread/releases` 保留 3 个目录；`current/.env`、`current/.local` 均为共享链接。启动日志显示迁移 125–144 全部应用（含同日两个 `144_` 前缀文件）后输出「共序已启动」，探活进程 pid 196270 在切换前退出。健康接口 `status: ok`、执行器 ready、锁获取 UTC `2026-10-25T12:54:24.341Z`、6 个执行槽。首页引用 `index-BrzSoBy6.js`（243,997 字节）与 `index-CDMW7e8e.css`（145,448 字节），与本地 `dist` 一致；公网 `https://cothread.z2l.top/api/health` 与首页均 200。浏览器实机：登录页正常渲染、背景 `rgb(248, 250, 248)`、主脚本与样式 MIME 正确、控制台无 vite 错误覆盖层。
-
-本轮未完成与已知问题：没有登录后的业务验收，也没有查生产迁移表；`OOS_GetDeployStatus` 这次只回历史 revision 列表，未取到本轮 execution/revision 号，下一轮应同时记录 RequestId 并在控制台核对 OOS 执行记录。控制台仍有一条 `modulepreload` 指向 `data:application/octet-stream` 的 MIME 报错（未登录时另有 `/api/me` 401）；上一版与上上版 release 的 `dist/index.html` 同样存在，非本轮引入，主脚本与样式不受影响，后续可把内联启动模块改成 `data:text/javascript;base64` 或去掉该 modulepreload 消除。
+- 现象：前端偶发 `服务暂时未返回有效数据（/api/projects/<id>，HTTP 502）`。应用层异常一律返回 JSON（`server/http-app.js` 错误中间件），**非 JSON 的 502 只可能是 nginx 生成**。线上 `nginx/1.30.4`、`proxy_pass http://127.0.0.1:3100`、`proxy_read_timeout 3600s`，未开上游 keepalive。
+- 根因：`SIGTERM` 后 `server.close()` 立即停止接收新连接（nginx 开始 502），但要等连接与在途工作排空才退出，新进程在旧进程退出后才启动。presence 心跳 SSE `/api/threads/:id/viewing` 只在浏览器失焦时由客户端断开，`stopLiveOutputStreams` 只覆盖 agent live 流，未接管 presence 与老翁 SSE，这类长连接把排空拖到 30 秒上限。窗口长短取决于当时谁开着页面、有没有在跑任务。
+- 改动：新增 `server/sse-streams.js`（`trackSse` / `endSseStreams` 登记表），presence SSE 与老翁 SSE 接入登记；`server/index.js` 关闭时先 `endSseStreams()`，1 秒宽限后 `server.closeAllConnections()` 强断剩余连接，关闭上限 30s→5s（`COTHREAD_SHUTDOWN_GRACE_MS` / `COTHREAD_SHUTDOWN_TIMEOUT_MS` 可覆盖）；`shared/json-response.js` 的 GET 网关类失败改为 3 次尝试（500ms / 1500ms 退避），**写请求仍不重放**。回归见 `tests/sse-shutdown.test.js` 与 `tests/json-response.test.js`。
+- 判定口径：旧关闭逻辑下窗口 1–31 秒不等，且全部落在重启区间内（`NRestarts=0`，无自发崩溃）；新逻辑下 `systemctl restart` 从 Stopping 到就绪约 2 秒，剩余窗口为进程启动时间。**旧进程的关闭逻辑要到下次发版才被替换**，核对线上窗口前先确认跑的是新代码。
+- 本次证据与复测数据见 [2026-11-04 发布记录](releases/2026-11-04.md)。
 
 ### 发布前测试中暴露的配置问题
 
@@ -210,230 +198,45 @@ bash -n scripts/ecs-codedeploy-start.sh
 - 2026-10-26 图片文档摘要：`image/*` 且有内容时不再走非文本远期挂起，但空正文清理原先写在送摘要之前，PNG 队列会被直接删除。清理条件必须排除已识别的图片；没有候选摘要的非图片二进制仍挂起 30 天。老翁工具策略只放行 `beijing_time`，日志里的可用工具名单也要断言这个唯一例外，不能再期望空数组。
 - 2026-10-25 时间与批量：全量 867 项，同一棵树改前 83.3 分钟；快速重置后 `npm test` 串行 15.5 分钟，`npm run test:shards` 并行 **4.2 分钟**（94 个带库文件 + 87 个无库文件两路，403+464 全过）。失败明细在套件结束才输出，中途只能看日志增量。lint 的 Prettier 只检查改动集，改动多时先对全部改动文件 `prettier --write`（本次 243 个文件）；`--env-file-if-exists=.env` 必须带上，否则会出现「Model is not configured」假失败。
 
-本地 `.env` 仅保留 `.env.example` 中列出的必要项。监听 `0.0.0.0:3100`、站点 `https://cothread.z2l.top`、HTTPS 时 Secure Cookie 已在代码写死，不必再配。
-
-任务在 `.local/sandboxes` 中执行。数据库模型配置默认由老翁、小祥与实际子 Agent 派活共用，可单独覆盖 老翁。仅在没有数据库配置时，`KNOWLEDGE_MODEL_*` 用于老翁知识整理，`MODEL_*` 作为 小祥调度和实际 子 Agent 派活的共享基线。旧的 `COORDINATOR_MODEL_*` / `EXECUTOR_MODEL_*` 仅作为迁移兼容变量；环境变量模型字段可写成 `模型名@推理强度`，省略推理强度时基线默认使用 `low`。推理强度可取 `off`、`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`；管理页用独立选项设置推理强度。
-
-模型调用统一使用 OpenAI Responses API。各套 `*_MODEL_BASE_URL` 是服务商提供的 API 基础地址，程序不会擅自补 `/v1`；Responses 适配器只在该地址后追加 `/responses`。命令以应用进程的操作系统账号在 `.local/sandboxes` 中执行，不具备容器级隔离；生产环境只有这一条执行路径。
-
-本地首次账号由 `npm run setup` 生成至 `.local/initial-admin.json`，不进入版本库；`npm run db:seed` 读取它完成数据库账号初始化。之后每次 `npm run dev` 启动都会把本机超级管理员密码重置为固定值 **`cothread-dev`**（需要临时换口令时设 `DEV_ADMIN_PASSWORD`），写入 `.local/initial-admin.json` 与登录备忘；该重置只在 `COTHREAD_DB_TARGET=dev` 且数据库在本机时执行，生产初始化仍走 `ADMIN_PASSWORD`（至少 12 位）。ECS 空库可临时设置 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 完成初始化，已有账号只依赖数据库。
-
-2026-10-25 本轮发布尝试：提交 `a8b1804` 已推送；串行全量测试 `npm test` 在本机独立测试库 `127.0.0.1:3307/cothread_test` 上 867/867 通过，`npm run lint` 与 `npm run build` 通过。打包产物 `cothread-release-20261025T153518Z.tgz`，SHA-256 为 `3792537080173787BB834F566337C5D07D0DA15BC35ADF05554F390E649E0F5B`。随后两次 `OOS_CodeDeploy` 均在调用 `ecs.cn-hangzhou.aliyuncs.com` 时收到 `SSLEOFError`，`OOS_GetLastDeploymentInfo` 仍为上一轮 20:52 部署，没有本轮 execution、上传或线上切换；本轮发布失败，待阿里云 MCP/网络握手恢复后从同一清单重试。
-
-2026-10-26 重试发布成功：基于 HEAD `5f2bf48` 重新打包为 `cothread-release-20261025T171951Z.tgz`，SHA-256 为 `267734BB30C12F9B2FDAD3C74204179A1ABDF0EDB427665DD2CD9BF3CC69BA80`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A17413-9F9A-5E00-B4B0-FC20A3654397`，execution `exec-c20864df889c4245affa`，revision `rev-711046387c8e4ec18f16`；随后 `OOS_GetLastDeploymentInfo` 更新为北京时间 2026-10-26 01:20:03。公网 `/api/health?release=5f2bf48` 返回 200，`status: ok`、数据库可读、`executor.ready: true`、6 个执行槽，`acquiredAt` 为 UTC `2026-10-25T17:21:50.949Z`；首页 200，资源为 `index-J2fKTV83.js` 与 `index-CDMWY8e8.css`。OOS 状态查询在完成后再次出现 `SSLEOFError`，但不影响上述 execution、last-deployment、健康接口和资源验收证据。
-
-2026-10-26 下午发布，一次上线：代码提交 `d16c713` 已推送，远端 HEAD 一致。发布前 `npm run lint` 通过；npm 10.9.8 的 `npm ci --omit=dev --dry-run` 通过。无数据库测试首轮 409/410，失败项是老翁工具策略已改为只放行 `beijing_time`，断言锁定该例外后通过。全量测试先误连公网测试库，431 项连接丢失、没有断言失败；改到本机 `127.0.0.1:3307/cothread_test_2` 后首轮 872/874。两处都是源码问题：图片队列被空正文清理删除，老翁日志仍期望空工具名单。修复后复跑 875/875，耗时约 290 秒。停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 通过。`LOCAL_AnalyzeDeployStack` 识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。
-
-包 `cothread-release-20261026T082038Z.tgz`，6,026,482 字节，SHA-256 `7fe1f6aacfb17613858e3552b367bb8a4d6d17d0122de54d679de950fd93b4a0`。包内含 145–147 号迁移和 `ecs-promote`，不含 `AGENTS.md`、`.env`、`.local`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1774D-2C08-5287-8C2B-DF808844A295`。分组随后为 `Released`，execution `exec-e19d683ed8684217b70a` 成功（8/8，0 失败），revision `rev-e7970bffaa714f60b589`，结束于 UTC `2026-10-26T08:23:51Z`。调用前分组已是上一轮 `Released`，没有 `FailurePause`。本地 `OOS_GetLastDeploymentInfo` 这次没有上次记录，状态以 `OOS_GetDeployStatus` 为准。
-
-线上 `current` 为 `/opt/cothread/releases/20261026T082207Z`。systemd 为 active，启动时间北京时间 16:23:28，MainPID 203948，Node `v22.22.3`。`current/.env` 与 `current/.local` 分别指向 `/opt/cothread/.env`、`/opt/cothread/.local`。生产 `schema_migrations` 已有 145、146、147。公网 `/api/health?release=d16c713` 返回 200，`status: ok`，执行器 ready，6 个执行槽，`acquiredAt` 为 UTC `2026-10-26T08:23:30.182Z`。首页 200，资源为 `index-BkFGwKKA.js` 与 `index-CbkAb91Q.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有浏览器实机点击。
-
-2026-10-26 晚间发布，一次上线：代码提交 `5d34f17` 已推送，远端 HEAD 一致。发布前 `npm run lint` 通过。无数据库测试首轮 417 项里 12 项失败，都是 `Tip` 测试没有放行新的 `../shared/ui-scale.js`；测试改为加载真实模块后，该文件 12/12。全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 882/882 通过，约 355 秒，期间应用了 148 号迁移。没有再单独跑一遍无数据库套件。npm 10.9.8 的 `npm ci --omit=dev --dry-run` 通过，锁文件没有变化。停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 通过。`LOCAL_AnalyzeDeployStack` 同时识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组已是上一轮 `Released`。
-
-包 `cothread-release-20261026T105628Z.tgz`，6,041,175 字节，SHA-256 `8b1b9e83c7c1bf00317f549b4bf672fdcb610ada3da395f37d2b95381f3aefda`。包内文件名命中 `credential` 的是凭据相关源码和 148 号迁移，不含 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A177DB-AA54-5137-BD78-1C6BAA743214`。分组随后为 `Released`，execution `exec-4278ad6b78e64c08b9fe` 成功（8/8，0 失败），revision `rev-1eb7c537f165427098af`，结束于 UTC `2026-10-26T10:59:28Z`。执行输出中的 `current` 为 `/opt/cothread/releases/20261026T105745Z`，临时探活通过且执行器 ready 为 false，随后原子切换并输出正式健康结果。本轮没有另发只读命令核对 `readlink` 或 systemd。
-
-公网 `/api/health?release=5d34f17` 返回 200，`status: ok`，执行器 ready，6 个执行槽，`acquiredAt` 为 UTC `2026-10-26T10:59:07.676Z`，连接号与上一轮不同。首页 200，资源为 `index-t-XXItr1.js`（245,896 字节）与 `index-XhDaGcSi.css`（148,013 字节），与本地 `dist/index.html` 一致。没有查询生产迁移表，不能把进程健康写成已看见 148 号迁移。没有登录后的业务验收，也没有浏览器实机点击。这次文档提交在打包之后，不在已上线的包里。
-
-2026-10-27 发布已上线。本机约定不提交、不推送，包来自工作区而不是新的已推送提交；HEAD 仍是 `c23acc6`。`npm run lint` 在 Prettier 修完 6 个文件后通过。无数据库测试 435/435。公网 `cothread_test` 串行全量 900 项里 893 通过、6 失败、1 取消，约 82 分钟；失败是连接被对端关掉、10 秒唤醒超时，以及慢库上两项调度没有重叠（`maxActive` 为 1 而不是 2），不是这批改动的稳定断言失败。这 5 个文件改在本机 `127.0.0.1:3307/cothread_test_2` 复跑，35/35 通过，约 54 秒。npm 10.9.8 的 `npm ci --omit=dev --dry-run` 退出码为 0，安装计划末尾报告 `added 246 packages`，与上一轮线上实际安装 2266 个包不是同一口径，不能据此判断锁文件缺包；线上 `npm ci --omit=dev` 实际装了 2266 个包。停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 通过。`LOCAL_AnalyzeDeployStack` 同时识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组为 `Released`。
-
-包 `cothread-release-20261027T060436Z.tgz`，6,061,482 字节，SHA-256 `aaa18f52016fa8886a68e339c6b741635bce9d56cb9fe394a236cc6f1c52ea9a`。包内 623 个路径，含 149 号迁移和 `ecs-promote`，文件名没有命中 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A17C49-532B-5AAD-A1AE-040A1DFE6663`。分组随后为 `Released`，execution `exec-bb2757c25ab5423b9c15` 成功（8/8，0 失败），revision `rev-65cff04d8c554d54828a`，结束于 UTC `2026-10-27T07:37:57Z`。执行输出中的 `current` 为 `/opt/cothread/releases/20261027T073601Z`，Node `v22.22.3`，临时探活通过且执行器 ready 为 false，随后原子切换并输出正式健康结果。`npm audit` 报告 87 个漏洞，不据此判失败。本轮没有另发只读命令核对 `readlink` 或 systemd，也没有查询生产迁移表，不能把进程健康写成已看见 149 号迁移。
-
-公网 `/api/health?release=20261027T060436Z` 返回 200，`status: ok`，执行器 ready，6 个执行槽，`acquiredAt` 为 UTC `2026-10-27T07:37:43.984Z`，连接号 `541371476`。首页 200，资源为 `index-2Aoys13J.js` 与 `index-Dr8QidPK.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有浏览器实机点击。这次文档更新在打包和上线之后，不在已上线的包里。
-
-2026-10-27 同日再次发布并上线：代码已推送，远端 HEAD 为 `aa55511`（上一提交 `ae7d826`）。发布前 `npm run lint` 在 Prettier 和 `theme:fallback` 之后通过。无数据库测试 436/436。本轮没有再跑全量 `npm test`，也没有再跑 npm 10 生产安装 dry-run。`LOCAL_AnalyzeDeployStack` 同时识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组为 `Released`。
-
-包 `cothread-release-20261027T094358Z.tgz`，6,059,690 字节，SHA-256 `a25f46d505a1ab91d96c324a639749fa64d4963951f45cb3b16bfb8cfee2eeaf`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A17CBF-92D3-55DB-8B4C-20E48158463D`。分组随后为 `Released`，execution `exec-f99c6077dda24c4aa1a9` 成功（8/8，0 失败），revision `rev-7b6533ad47c043e9a3e6`，结束于 UTC `2026-10-27T09:47:18Z`。执行输出中的 `current` 为 `/opt/cothread/releases/20261027T094510Z`。临时探活通过且执行器 ready 为 false，随后原子切换并输出正式健康结果：ready 为 true，6 个执行槽，连接号 `541379928`，`acquiredAt` 为 UTC `2026-10-27T09:46:58.148Z`。线上 `npm ci` 安装 2266 个包，`npm audit` 报告 87 个漏洞，不据此判失败。本轮没有另发只读命令核对 `readlink` 或 systemd，也没有查询生产迁移表，不能把进程健康写成已看见 149 号迁移。
-
-公网 `/api/health?release=aa55511` 返回 200，`status: ok`，执行器 ready，连接号与执行输出一致。首页 200，资源为 `index-DcUV4Hej.js` 与 `index-DPowHoAH.css`，与本地 `dist/index.html` 一致。没有登录后的业务验收，也没有浏览器实机点击。这次文档提交在打包和上线之后，不在已上线的包里。
-
-2026-10-28 发布，一次上线：本机约定不提交、不推送。HEAD 仍是 `25fac63`，与远端一致；包来自工作区未提交改动，不是新的已推送提交。改动是滚动跟随，已跟踪文件为 `web/MessageNavigator.tsx`、`web/Tip.tsx`、`web/dialog-fx.tsx`、`web/overlays.css`、`web/use-stick-to-bottom.ts`、`web/workspace.css`、`docs/engineering/09-dialogs-and-overlays.md`，另有未跟踪的 `web/scroll-follow.ts`、`tests/scroll-follow.test.js`。打包清单不含 `docs/` 和 `web/` 源码，前端改动只通过本轮 `dist` 进入发布包。发布前 `npm run lint` 通过。无数据库测试 95 个文件、440/440。没有再跑全量 `npm test`。npm 10.9.8 的 `npm ci --omit=dev --dry-run` 退出码为 0，安装计划末尾报告 `added 246 packages`，与线上实际安装 2266 个包不是同一口径。停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 退出码为 0。`LOCAL_AnalyzeDeployStack` 同时识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组为 `Released`。没有新的迁移文件，最新仍是 149 号。
-
-包 `cothread-release-20261028T005932Z.tgz`，6,059,948 字节，SHA-256 `29a6ba269ba5c39791e595c39b79b6c020eb7ef23fb0b8ca00115878192effcf`。包内 622 个路径，含 `ecs-promote` 和 149 号迁移，文件名没有命中 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A18005-D47F-5BF3-90CD-8B14DC1AF236`。分组随后为 `Released`，execution `exec-282337ceb4104cad8e46` 成功（8/8，0 失败），revision `rev-7f8a1c117d5547239cb0`，结束于 UTC `2026-10-28T01:03:52Z`；分组 Status 到 UTC `2026-10-28T01:04:16Z` 才从 `Releasing` 变为 `Released`。执行输出中的 `current` 为 `/opt/cothread/releases/20261028T010156Z`。临时探活通过且执行器 ready 为 false（连接号 `273001112`），随后原子切换并输出正式健康结果：ready 为 true，6 个执行槽，连接号 `273004770`，`acquiredAt` 为 UTC `2026-10-28T01:03:17.448Z`。线上 `npm ci` 安装 2266 个包，约 1 分钟，`npm audit` 报告 87 个漏洞，不据此判失败。本轮没有另发只读命令核对 `readlink` 或 systemd，也没有查询生产迁移表。
-
-公网 `/api/health?release=20261028T005932Z` 返回 200，`status: ok`，执行器 ready，连接号与 `acquiredAt` 与执行输出一致。首页 200，资源为 `index-30D1s6jV.js`（246,017 字节）与 `index-CP5WsiEs.css`（152,052 字节），与本地 `dist/index.html` 及文件大小一致。浏览器打开带发布号的首页，未登录登录页正常，有登录、注册、重置密码。没有登录后的业务验收。这次文档更新在打包和上线之后，不在已上线的包里。
-
-2026-10-28 同日第二次发布，一次上线。本机约定不提交、不推送。HEAD 仍是 `25fac63`，与远端一致；包来自工作区未提交改动，不是新的已推送提交。包含 150、151 号迁移，以及发布构建前补上的 `shared/work-status.d.ts` 和通知计数空值保护。本会话没有再跑 `npm test`、`npm run lint` 或 npm 10 生产安装 dry-run；全量测试通过是发布前的口头确认，不能写成这次会话复跑的结果。停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 退出码为 0。`LOCAL_AnalyzeDeployStack` 同时识别到 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组为上一轮 `Released`。
-
-包 `cothread-release-20261028T103738Z.tgz`，6,079,519 字节，SHA-256 `1906cca88a78cb3916e061f6620559aa00035e7d1ae320cf0ef146d416e134e2`。包内 629 个路径，含 `ecs-promote` 和 150、151 号迁移，文件名没有命中 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A18216-D794-5A1D-A7D4-A6952A6B4BEC`。分组随后为 `Released`，execution `exec-c6beb4fdf9e1487991cf` 成功（8/8，0 失败），revision `rev-9db59fce0a9d4a88acad`，结束于 UTC `2026-10-28T10:40:33Z`；分组 Status 到 UTC `2026-10-28T10:40:44Z` 才变为 `Released`。执行输出中的 `current` 为 `/opt/cothread/releases/20261028T103837Z`。临时探活通过且执行器 ready 为 false（连接号仍是上一轮正式锁 `273004770`），随后原子切换，清理旧 release `/opt/cothread/releases/20261027T073601Z`，并输出正式健康结果：ready 为 true，6 个执行槽，连接号 `273042508`，`acquiredAt` 为 UTC `2026-10-28T10:40:05.966Z`。线上 `npm ci` 安装 2266 个包，约 1 分钟，`npm audit` 报告 87 个漏洞，不据此判失败。本轮没有另发只读命令核对 `readlink` 或 systemd，也没有查询生产迁移表，不能把探活成功写成已看见 150、151 号迁移。
-
-公网 `/api/health?release=20261028T103738Z` 返回 200，`status: ok`，执行器 ready，连接号与 `acquiredAt` 与执行输出一致。首页 200，资源为 `index-s91vNm93.js`（246,017 字节）与 `index-JW4f5Cin.css`（155,035 字节），与本地 `dist` 的文件名和字节数一致。浏览器打开带发布号的首页，未登录登录页正常，有登录、注册、重置密码。控制台仍有一条 modulepreload 的 `application/octet-stream` MIME 报错，以及一条未登录 401；上一轮已记录同样现象，本轮没有再核对 401 的具体 URL。没有登录后的业务验收。这次文档更新在打包和上线之后，不在已上线的包里。
-
-2026-10-28 第三次发布，一次上线：代码提交 `e510615` 已推送，远端 HEAD 与本地一致。本轮改动 114 个文件：站内信分类（150 号迁移）、任务验收流（151 号迁移）、迭代 presence 与未读/提及计数、引用回复、项目页签顺序、滚动跟随；另修 Windows 本机沙箱 kill 停不下前台命令、迁移执行器幂等容忍 `ADD COLUMN ... AFTER`，以及 `migration-charset` 重建表后 `version_recycle.purged_at` 丢失等测试缺陷。发布前门禁：`npm run lint` exit 0；串行 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 925/925、0 失败（约 24 分钟）；并行分片 5 路（4 个测试库 + 无库）925 项全过（约 7 分钟）；`npm run build` exit 0；`npx npm@10.9.8 ci --omit=dev --dry-run` exit 0（末尾 `added 246 packages`，与线上实际 2266 包不是同一口径）；停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` exit 0；`LOCAL_AnalyzeDeployStack` 同时识别 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。
-
-包 `cothread-release-20261028T210439Z.tgz`，6,037,711 字节，SHA-256 `7e36e9541cbf05653043ef56ce40008c2d05bba754e13060f5e22e0665925190`，629 个路径，含 `ecs-promote` 和 150、151 号迁移，文件名没有命中 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。本轮主 App 的 alibaba MCP 子进程所有 ECS/OOS 调用都报 `SSLEOFError`（根因与恢复见「系统代理导致 MCP 全部 SSLEOFError 的恢复路径」），改用新起的同款 MCP 子进程完成部署：`OOS_CodeDeploy` 创建 revision `rev-2ead4384bee14c7e84d8`，DeployApplicationGroup RequestId `01A1846E-4E9E-54B2-B9C3-0113B9AA2284`；execution `exec-b8cccac344d844ecab4b` 为 `Success`（8/8，0 失败），结束于 UTC `2026-10-28T21:35:54Z`。查询时分组状态仍显示 `Releasing`（Progress 99），以 execution `Success` 和上线输出为准。
-
-线上：部署输出显示 `current` 切到 `/opt/cothread/releases/20261028T213332Z`，`npm ci` 安装 2266 包约 2 分钟、87 个漏洞不据此判失败；临时探活通过（executor ready 为 false、holder `273042508`），原子切换后正式健康为 `ready: true`、6 个执行槽、holder `273085449`、`acquiredAt` UTC `2026-10-28T21:35:27.861Z`；同时清理旧 release `/opt/cothread/releases/20261027T094510Z`。公网 `/api/health?release=e510615` 返回 200，`status: ok`、数据库 mysql、执行器 ready，连接号与 `acquiredAt` 与执行输出一致；首页 200，资源为 `index-DX-SXzEe.js` 与 `index-UVzbueRZ.css`，与本地 `dist/index.html` 一致。本轮 `web_fetch` 工具返回 DeepSeek 代理 HTTP 500，验收改用本机 HTTPS 请求完成；没有登录后的业务验收，也没有另查生产迁移表，不能把探活应用迁移写成已看见 150、151 号迁移。凭据在本地 `.code_deploy/verification/20261028-third/`（不进 Git）。这次文档更新在打包和上线之后，不在已上线的包里。
-
-2026-10-29 发布，一次上线：代码提交 `dee5b4d` 已推送，远端 `main` 从 `774a7c2` 到 `dee5b4d`。问老翁回复中的暂停/继续只存在于未提交工作区，本轮已从 `web/ElderChat.tsx`、`web/ChatComposer.tsx` 和 `web/workspace.css` 删除；`git log -S` 没有找到它曾经入库。构建产物和线上 JS/CSS 都不含「暂停回答」「继续回答」或 `composer-stream-toggle`。上一版已提交代码和当时的线上包也不含这个控件，不能把本轮写成从生产删除了一项已上线功能。`dee5b4d` 的实际差异是发布前已在工作区里的界面调整：输入框圆角与上箭头发送钮、悬浮面板和菜单去掉发丝线、侧栏迭代入口语义色，以及对应说明。这些随本轮提交并进入发布包。
-
-发布前门禁：`npm run lint` 通过。串行 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 925/925、0 失败、0 取消，`duration_ms` 255858.7622；没有再跑 `test:shards` 或单独的 `test:unit`。`npm run build` 退出码 0。Vite 仍有两条既有告警：`lucide-react` 的 `use client` 被忽略，以及 `office-preview.tsx` 同时被动态和静态引用；不是 CSS 语法失败。`npx npm@10.9.8 ci --omit=dev --dry-run --ignore-scripts --no-audit --no-fund` 退出码 0，末尾 `added 246 packages`，与线上实际 2266 包不是同一口径。本机 PowerShell 没有 `bash`，改用 `C:\Program Files\Git\bin\bash.exe`：停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 退出码 0。`LOCAL_AnalyzeDeployStack` 同时识别 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组为上一轮 `Released`。没有新的迁移文件，最新仍是 151 号。
-
-包 `cothread-release-20261029T042828Z.tgz`，6,039,844 字节，SHA-256 `126d9d9ae28b904c8c9b3b13bcc1ac1f5955383172d6088c50b863415984f83a`，629 个路径，含 `ecs-promote` 和 150、151 号迁移，文件名没有命中 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A185EB-6589-52C8-84D5-78D97D6E2B22`。分组随后为 `Released`（`UpdateDate` UTC `2026-10-29T04:32:06Z`），execution `exec-dde523bc207945dab846` 为 `Success`（8/8，0 失败），revision `rev-838f6934b7794f7ba1fa`，结束于 UTC `2026-10-29T04:31:56Z`。分组 `DeployParameters` 的 `ObjectName` 仍是 `cothread-release-20260927T101450Z.tgz`，停止命令仍会 `systemctl stop`；不以它判断本轮命令。execution 输出的 `PKG` 是 `cothread-release-20261029T042828Z.tgz`。
-
-线上：部署输出显示 `current` 切到 `/opt/cothread/releases/20261029T042940Z`，`npm ci` 安装 2266 包约 2 分钟、88 个漏洞（2 low、42 moderate、37 high、7 critical）不据此判失败；临时探活通过（executor ready 为 false、holder `273085449`），原子切换后正式健康为 `ready: true`、6 个执行槽、holder `541548474`、`acquiredAt` UTC `2026-10-29T04:31:36.067Z`；同时清理旧 release `/opt/cothread/releases/20261028T010156Z`。本轮没有另发只读命令核对 `readlink` 或 systemd，也没有查询生产迁移表，不能把探活应用迁移写成已看见 151 号迁移。公网 `/api/health?release=dee5b4d` 返回 200，`status: ok`、数据库 mysql、执行器 ready，连接号与 `acquiredAt` 与执行输出一致。首页 200，资源为 `index-CnbvtGHx.js`（246,053 字节）与 `index-BXAJj1__.css`（172,653 字节），与本地 `dist` 的文件名和字节数一致，且两者都不含暂停/继续控件字符串。浏览器打开带提交号的首页，未登录登录页正常，有登录、注册、重置密码。控制台仍有一条 `data:application/octet-stream` 的 modulepreload MIME 报错，以及未登录时 `/api/me` 401；`/api/session/known-accounts` 与人机验证状态为 200。上一轮已记录同样的 MIME 与 401 现象。没有登录后的业务验收。这次文档更新在打包和上线之后，不在已上线的包里。
-
-2026-10-29 第二次发布，一次上线：代码提交 `e5b0b82` 已推送，远端 `main` 从 `a6aab41` 到 `e5b0b82`。改动是按已选正式文件起草任务、把任务收进主区，以及加载时播放共序标。发布前串行 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 934/934、0 失败、0 取消，`duration_ms` 434918.9886；账号是本机 `cothread`，口令取自开发库配置，不记录。没有再跑 `test:shards` 或公网测试库。这轮测试通过之后才处理门禁：Prettier 写回 8 个文件；`LogoLoading` 从手写 `dialog` 改为公共 `Dialog`；`workspace.css` 里 5 处 px（输入区高度回退的 `0px`，以及 4 处 `0.5px` 发丝阴影）换成 rem。这些改动没有再跑全量测试。其后 `npm run lint` 通过。`npm run build` 退出码 0。Vite 仍有两条既有告警：`lucide-react` 的 `use client` 被忽略，以及 `office-preview.tsx` 同时被动态和静态引用。`npx npm@10.9.8 ci --omit=dev --dry-run --ignore-scripts --no-audit --no-fund` 退出码 0，末尾 `added 246 packages`，与线上实际 2266 包不是同一口径。本机 PowerShell 没有 `bash`，改用 `C:\Program Files\Git\bin\bash.exe`：停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` 退出码 0。`LOCAL_AnalyzeDeployStack` 同时识别 npm 与 Docker，发布仍按 nodejs 和 `ecs-promote`，没有改成通用 `npm start`。调用前分组为上一轮 `Released`。没有新的迁移文件，最新仍是 151 号。
-
-包 `cothread-release-20261029T103514Z.tgz`，6,050,529 字节，SHA-256 `06b89f7529e451b99b16932af5837ba54a7a0e98c1f9bdc6e2b39384e061b33b`，632 个路径，含 `ecs-promote` 和 150、151 号迁移，文件名没有命中 `AGENTS.md`、`.env`、`.local`、`.code_deploy`。插件内 `OOS_GetDeployStatus` 仍报 `SSLEOFError`。改用新起的同款 MCP 子进程，并加上本文的空 `proxies` 补丁后上传成功：`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1873F-464B-587D-AB03-E05C4C923B61`，revision `rev-cdd435422a8e474f872e`。execution `exec-1bd1e16d7beb452daf64` 为 `Success`（8/8，0 失败），结束于 UTC `2026-10-29T10:42:48Z`。分组随后为 `Released`。分组 `DeployParameters` 的 `ObjectName` 仍是 `cothread-release-20260927T101450Z.tgz`；不以它判断本轮命令。execution 输出的 `PKG` 是 `cothread-release-20261029T103514Z.tgz`。
-
-线上：部署输出显示 `current` 切到 `/opt/cothread/releases/20261029T104052Z`，`npm ci` 安装 2266 包约 1 分钟、88 个漏洞（2 low、42 moderate、37 high、7 critical）不据此判失败；临时探活通过（executor ready 为 false、holder `541548474`），原子切换后正式健康为 `ready: true`、6 个执行槽、holder `541572807`、`acquiredAt` UTC `2026-10-29T10:42:26.725Z`；同时清理旧 release `/opt/cothread/releases/20261028T103837Z`。本轮没有另发只读命令核对 `readlink` 或 systemd，也没有查询生产迁移表，不能把探活应用迁移写成已看见 151 号迁移。公网 `/api/health?release=e5b0b82` 返回 200，`status: ok`、数据库 mysql、执行器 ready，连接号与 `acquiredAt` 与执行输出一致。首页 200，资源为 `index-zdRI0BfG.js`（254,683 字节）与 `index-BHw62KsI.css`（175,158 字节），与本地 `dist` 的文件名和字节数一致。浏览器打开带提交号的首页，未登录登录页正常，有登录、注册、重置密码。控制台仍有一条 `data:application/octet-stream` 的 modulepreload MIME 报错，未登录时 `/api/me` 401，以及两条被忽略的 `@property`；`/api/session/known-accounts` 与人机验证状态为 200。上一轮已记录同样的 MIME 与 401 现象。没有登录后的业务验收。这次文档更新在打包和上线之后，不在已上线的包里。
-
-2026-11-02 主要文档图片作业修复：按用户指定的杭州实例发布工作区内容，未提交或推送。先运行格式及架构门禁、真实 SDK 图片回归、独立测试库迁移和队列测试，再在 `127.0.0.1:3307/cothread_test_2` 串行全量测试 936/936 通过；测试只涉及独立测试库。首轮全量发现 `attachment-local` 未登记插件清单，补登记并复测后全量通过。构建成功，生产依赖 npm 10 安装计划预检通过；停止钩子续行和启动钩子语法检查通过。打包检查确认 152 号迁移与附件插件在包内，AGENTS.md、`.env` 和 `.local` 不在包内。
-
-本轮 execution `exec-34ab93feef484da3881d` 为 `Success`、8/8，分组 `Released`，实际切换至 `/opt/cothread/releases/20261102T065234Z`。公网健康接口为 `ok`，正式执行器 `ready: true`。项目 `9373b154-770b-437d-b182-30fe49ae8577` 的 6 条已有摘要的冗余队列记录被 152 号迁移清除；剩余 4 张图片由 run `4742e7c5-bc77-4acd-bb80-6f14365d8ba8` 在北京时间 14:55:53 至 14:56:29 完成，队列归零、最近错误为空，轨迹显示图片模型输出、结构校验和多次检查点保存成功。这是该项目的实际验收，不代表所有项目均已验收。本轮未访问仅回环开放的 `/api/health/work`，因此不推断全站排队或运行任务为零。
-
-2026-11-03 发布提交 `a628fc6`：本机独立测试库全量测试 1021/1021 通过，迁移恢复测试 9/9 通过；`npm run lint`、`npm run build`、npm 10 生产依赖安装计划预检、停止钩子续行和启动钩子语法检查均通过。远程测试库此前出现 `PROTOCOL_CONNECTION_LOST`，改用本机 `127.0.0.1:3307/cothread_test_2` 与本机 root 测试账号复跑。发布包 `cothread-release-20261103T115049Z.tgz`，SHA-256 `c7a21b1c7475ec8477fe36e3e9d8bf5ca4c91b905547d178f3fee72ec71d55bd`。包中未包含 `AGENTS.md`、`.env` 或 `.local`。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1A140-E116-513A-A7EE-D5C89A8C3601`，revision `rev-4603168cd93b418697b4`，execution `exec-5bae170b83ae4b288144` 成功（8/8，0 失败），分组最终为 `Released`。线上 `current` 切到 `/opt/cothread/releases/20261103T115245Z`，正式健康接口返回 `status: ok`、数据库 mysql、执行器 `ready: true`、8 个执行槽，公网 `/api/health?release=a628fc6` 返回 200。线上安装 2266 个生产依赖并报告 105 个漏洞，未作为发布失败依据。未做登录后业务操作和全站任务排队验收。
-
-2026-11-04 发布「按来源治理项目记忆 / 项目现状改 Markdown」：代码提交 `7316999`（已推送，`origin/main` 与本地 HEAD 一致），提交含 82 个文件；发布包 `cothread-release-20261104T032106Z.tgz`，6,162,624 字节，SHA-256 `850D4522E533BC108E1F21B85D38E8B21CC6281491FA01C66C0B31DFFD00621F`，tar 条目 705（含目录条目），包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`。门禁：`npm run lint` 退出码 0，`npm run test:unit` 496/496，`npm run build` 退出码 0；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1039/1039、0 失败，耗时约 433 秒；`npm install --package-lock-only` 无改动，`npx npm@10.9.8 ci --omit=dev --dry-run` 退出码 0。发布前独立库完整迁移链 201/201；恢复出来的真实开发库副本从 183 升到 201，218/219/220 均正常应用。
-
-上传：`OOS_CodeDeploy` 返回 HTTP 200（RequestId `01A1A494-4E9C-5622-9397-1A5A04BF8EBC`，见本文 Alibaba MCP 现状一节），revision `rev-85e8601bcf7e4feaa2fd`，execution `exec-2058e884406646949a65` 为 `Success`（8/8，0 失败），结束于 UTC `2026-11-04T03:27:28Z`，分组 `Released`，`StatusReason` 为 release success；执行输出 `PKG=/root/cothread-release-20261104T032106Z.tgz`。本轮从 `Releasing` 到 `Released` 约 5 分钟（往轮约 1 分钟），期间未重复上传。
-
-线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T032244Z`；systemd `active/running`，`ExecMainStartTimestamp` 为北京时间 2026-11-04 11:27:20（UTC 03:27:20），`MainPID` 1320149，Node `v22.22.3`；`current/.env` 与 `current/.local` 仍指向 `/opt/cothread/` 共享目录；`/opt/cothread/releases` 保留 3 个目录。生产迁移 198 → 201，最新三条为 218/219/220；`project_status` 已建并有 15 行，`project_status_nodes` / `project_status_revisions` / `project_status_source_snapshots` 已不存在。本机健康接口 `status: ok`、数据库 mysql、执行器 `ready: true`、8 个执行槽、锁获取 UTC `2026-11-04T03:27:22.403Z`；公网 `https://cothread.z2l.top/api/health?release=7316999` 返回 200，`status: ok` 且执行器 ready。首页资源为 `index-DNkmfHTK.js` 与 `index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
-
-浏览器实测带提交号的首页：登录页正常渲染（登录 / 注册 / 重置密码，预填管理员邮箱），主脚本与样式均 200；控制台仍有一条 `data:application/octet-stream` 的 modulepreload MIME 报错、未登录时 `/api/me` 401，以及两条被忽略的 `@property`，与 2026-10-25 起记录的现象相同，不是本轮引入。未做登录后的业务功能验收，也未访问仅回环开放的 `/api/health/work`，不能推断全站排队或运行任务为零。验收凭据与截图保存在本地 `.code_deploy/verification/2026-11-04-release/`，不进 Git。
-
-本轮已知未完成项：modulepreload 的 `data:application/octet-stream` 仍待改成 `data:text/javascript;base64` 或去掉；项目现状 Markdown 与记忆信号治理只完成迁移和冒烟级线上核对，未逐项目验证结算产物质量。
-
-2026-11-04 第二次发布「删除文档后的失效项目进程信号清理」：本机约定不提交、不推送，包来自工作区（本轮修复 + 工作区既有未提交改动）。门禁：`npm run lint` 通过；`npm run test:unit` 499/499；`npm run build` 通过；`npm install --package-lock-only` 无改动；`npx npm@10.9.8 ci --omit=dev --dry-run --ignore-scripts --no-audit --no-fund` 退出码 0（`added 246 packages`）；停止钩子续行输出 `HOOK_CONTINUES`、启动钩子 `bash -n` 通过。全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test` 上 1045/1048，3 项为「等待测试库锁超时」——先前后台中止的集成测试进程仍占着测试库 `GET_LOCK`；这 3 个文件单独复跑 3/3 通过，判定为环境竞争，与本轮断言无关，未再跑第二遍全量。本轮无迁移文件。
-
-包 `cothread-release-20261104T044635Z.tgz`，6,169,170 字节，SHA-256 `C1A9D2A0798FE1DF6DF5113CD137FF60C3CA0E5A4442502B9CDBB054CE9470D3`。上传用新起的本地 stdio MCP（`alibaba-codex` 的 `alibaba-cloud-ops-mcp-server.exe`，AK/SK 取自用户级环境变量），直连成功、未复现 `SSLEOFError`，未使用 `sitecustomize` 代理补丁。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1A4E2-960F-5B45-9705-62A032C22AE9`，revision `rev-a2f8d4f81e5842c5931e`，execution `exec-0c361976593d4107af3c` 为 `Success`（8/8，0 失败），结束于 UTC `2026-11-04T04:50:23Z`；分组 `Released`（`UpdateDate` UTC `04:50:42Z`）。
-
-线上：执行输出 `PKG=/root/cothread-release-20261104T044635Z.tgz`，解压至 `/opt/cothread/releases/20261104T044814Z`，`npm ci` 安装 2266 包并报告 105 个漏洞（2 low、54 moderate、42 high、7 critical，不据此判失败）；3110 探活通过（执行器 ready 为 false），原子切换 `current` 后清理旧 release `/opt/cothread/releases/20261102T065234Z`，正式健康为 `ready: true`、8 个执行槽、holder `273680288`、`acquiredAt` UTC `04:50:08.655Z`。另发只读命令确认 `readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T044814Z`，systemd `active`、`ExecMainStartTimestamp` 为北京时间 12:50:06，Node `v22.22.3`，release 目录保留 3 个，`current/server/project-memory.js` 命中新函数 `dropDocumentVersionSignals`。公网 `https://cothread.z2l.top/api/health?release=20261104T044635Z` 返回 `status: ok`、执行器 ready、8 槽；首页资源为 `index-CD_aUXOS.js` 与 `index-BHw62KsI.css`，与本地 `dist/index.html` 一致。未做登录后的业务验收；`data:application/octet-stream` modulepreload MIME 报错与未登录 401 为既有现象。
-
-数据清理（用户确认该文档不要了）：应用没有单文件永久清除接口，本轮在 ECS 用一次性 node 脚本（用 `current/server/database-policy.js` 解析共享 `.env`，只输出计数、不输出凭据）对 artifact `fdb5268a-cf61-4bce-91f3-c45305213ea4` 置 `purged_at`，并删除其 `document_version` 项目进程信号：`purgedArtifact=1`、`signalsDeleted=1`、`signalsRemaining=0`。之后 MCP `list_documents` 不再列出该文件；手动触发 `project_memory` 结算 run `4f86f25f-89f4-4303-9d91-0938b03679db` 为 `completed`、`agent_called=0`，不再出现「候选来源不存在或不可访问」。验收凭据在 `.code_deploy/verification/20261104-memory-signal-cleanup/`（不进 Git）。
-
-本轮已知未完成项：依赖审计告警未整改；未做登录后的业务验收；全量测试未第二次复跑，仅以 1045/1048 加 3 项锁超时文件复跑 3/3 作为证据。
-
-2026-11-04 追加（已随当日第三次发布上线）：上面记录的 `data:application/octet-stream` modulepreload MIME 报错已修复，并随本次发布进入线上 HTML。根因是 `index.html` 把开发入口写成 `<link rel="modulepreload" href="/web/main.tsx">`，构建时 Vite 把该入口内联成 `data:application/octet-stream;base64,...`，浏览器按模块 MIME 校验失败；开发期预热本来由 `server/index.js` 的 `vite.warmupRequest("/web/main.tsx")` 完成，这条 link 是多余的。修复为删除该 link，并在 `tests/dev-progress.test.js` 增加「index.html 不得把开发入口写成 modulepreload」的回归断言。重建后 `dist/index.html` 不再含 `modulepreload` 与 `application/octet-stream`；本次线上浏览器实测控制台只剩两条被忽略的 `@property` 与未登录 `/api/me` 401，不再出现该 MIME 报错。
-
-2026-11-04 第三次发布，一次上线：「项目记忆结算修复 + 时间线分页 + index.html 预加载修复」。代码提交 `dbfc54f`（已推送，`origin/main` 与本地 HEAD 一致），本轮包含三个已推送提交：`4c08b90`（项目记忆结算被历史数据卡死：null 现状、空正文回滚、失败预算继承、快照超限重置会话）、`5492b1f`（失效项目进程信号清理 + 老翁会话日志分裂修复，此前已在线上但未提交）、`aa195f1`（index.html 去掉开发入口 modulepreload）、`dbfc54f`（时间线服务端分页）。本轮无新增迁移文件，最新仍是 220。
-
-发布前门禁：`npm run lint` exit 0；`npm run test:unit` 500/500；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1063/1063、0 失败，`duration_ms` 1244188.8（约 20.7 分钟）；`npm run build` exit 0（`✓ built in 34.24s`）；`npm install --package-lock-only` 无改动；`npx npm@10.9.8 ci --omit=dev --dry-run` exit 0（`added 246 packages`）；停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` exit 0。全量测试放在后台运行，期间只做了只读核对，未与构建并行。
-
-包 `cothread-release-20261104T063024Z.tgz`，6,171,538 字节，SHA-256 `5CA5A7E3B52A2975E2442B4F2BB2EE4C07A4384F19C782065EB3EFDD24408786`，tar 条目 706（含目录条目），包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`。上传用本机 stdio 阿里云 MCP（`alibaba-codex` 的 `alibaba-cloud-ops-mcp-server.exe`，AK/SK 取自用户级环境变量），直连成功、未复现 `SSLEOFError`，未使用代理补丁。`OOS_CodeDeploy` 返回 HTTP 200：CreateDeployRevision RequestId `01A1A541-0748-53CD-AC72-A35BB1F6FFE1`、revision `rev-d92401932cb44c4da40a`，DeployApplicationGroup RequestId `01A1A541-08B6-5BCE-AB95-2A32BDA0BCD0`；execution `exec-4afe972af70747aca0e7` 为 `Success`（8/8，0 失败），分组 `Releasing`（Progress 99）约两分钟后变为 `Released`，`StatusReason` 为 `Release success!`。
-
-线上：执行输出切换到 `/opt/cothread/releases/20261104T063140Z`；web 侧只读命令核对 `readlink -f /opt/cothread/current` 为该目录，systemd `ActiveState=active`、`ExecMainStartTimestamp` 为北京时间 2026-11-04 14:33:02、`MainPID` 1325937，Node `v22.22.3`，release 目录保留 3 个（`20261104T032244Z 20261104T044814Z 20261104T063140Z`）；`current/server/memory-timeline.js` 含 `listProjectMemoryEntries`，`current/server/routes/project-workspace.js` 含 `memory/entries`。公网 `https://cothread.z2l.top/api/health?release=dbfc54f` 返回 `status: ok`、`database: mysql`、执行器 `ready: true`、8 个执行槽、holder `542122853`、`acquiredAt` UTC `2026-11-04T06:33:04.645Z`。首页资源为 `index-DNl2DpTZ.js` 与 `index-BHw62KsI.css`，与本地 `dist/index.html` 及 ECS 上的 `dist/index.html` 一致。浏览器打开带提交号的首页，登录页正常，控制台无 octet-stream MIME 报错（见上一条追加说明）。
-
-本轮已知未完成项：未做登录后的业务验收——记忆时间线的分页/上滑加载/筛选缓存在浏览器实机未点击（接口有自动化用例，前端构建与类型检查通过，不等于界面验收）；项目记忆结算修复与「发言/项目进程不再无法处理」的线上效果需从「记忆作业」运行历史确认，尤其那 2 条已推到 30 天后的项目进程排队行，发布后仍需人工点一次「重试」才会被调度；本次文档更新在打包之后，不在已上线的包内。验收凭据与登录页截图在 `.code_deploy/verification/20261104-timeline-pagination/`（不进 Git）。
-
-2026-11-04 第四次发布，一次上线：「项目记忆读取性能（轻量读 + 按需详情）与核验理由截断」。代码提交 `baefd8c`（已推送，`origin/main` 一致）。用户反馈新上的时间线分页后弹窗打开仍很慢；在 ECS 上用只读探针（`current/server` 模块 + 正式库）量出根因：`visibleFileIndexSql("p")` 直接用于整表 COUNT/LIMIT 时固定约 3.0–3.2 秒（EXPLAIN 显示 411 条 `file_index_entries`、407 个 `file_index_groups` 被物化后跑依赖子查询），而先 `p.id IN (...)` 收窄再套同一谓词只要 6–7 ms；`/memory` 全量水合要 13.8 秒。同轮还确认线上项目进程排队行的失败原因是核验步骤理由超过 500 字（`too_big maximum:500`），不是缓存数据问题。
-
-改动：`/memory` 支持 `?entries=0` 轻量读（返回导读、计数含 `counts.entries`、时间线、`entryIndex`，`entries` 为空），新增 `GET /memory/entries/:entryId` 单条详情；分页接口改为普通条件批量扫页骨架、再分批套 id 收窄的可见性过滤（`total` 用普通计数，极少数不可见文件页可能偏大，列表本身准确）；核验理由超长改为截断；前端弹窗只取轻量索引、详情按需读取，作废/纠错同步选中条目。
-
-门禁：`npm run lint` exit 0；`npm run build` exit 0（54.56 s）；`npx tsc --noEmit` exit 0，prettier 通过；针对性测试 `memory-read` 14/14（含轻量读、单条详情、HTTP 404）、`project-memory` 7/7、`memory-jobs` 11/11、`project-status` 7/7、`memory-cache` 4/4、`project-memory-signal-cleanup` 6/6、`memory-retry` 8/8。本轮未再跑全量 `npm test`，只跑受改动覆盖的用例；无新增迁移。
-
-包 `cothread-release-20261104T071627Z.tgz`，6,173,512 字节，SHA-256 `39DA1D2261F30EF398AA1D317B6E287EEF2B73822EB4AD78D7934521E272C779`，tar 条目 706，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。`OOS_CodeDeploy`：revision `rev-ac1e2f365b244cc0a38c`，execution `exec-fc47a0a329534bf0be06` 为 `Success`（8/8，0 失败），分组 `Releasing`（4/8）约两分钟后 `Released`。线上 `readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T071748Z`，systemd `active`、启动时间北京时间 15:19:12、`MainPID` 1326469；`current/server/memory-timeline.js` 含 `readProjectMemoryEntry` 与 `includeEntries`。公网 `https://cothread.z2l.top/api/health?release=baefd8c` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `2026-11-04T07:19:14.665Z`；首页资源 `index-DOm-Ricz.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
-
-线上复测（同一只读探针方式）：`/memory` 轻量读 13,845 ms → **109 ms**；分页第一页 4,053 ms → **440 ms**；单条详情 **44 ms**（此前无此接口）；轻量读返回 `entryIndex=1149`、`counts.entries=1149`、`entries=[]`。浏览器登录后的弹窗实机点击仍未做；2 条项目进程排队行（`task` 信号，创建于 10-25/10-26，`retry_count=2`、已推到 30 天后）需要人工点一次「重试」才会按新逻辑结算，本轮未代触发。验收凭据在 `.code_deploy/verification/20261104-memory-performance/`（不进 Git）。
-
-2026-11-04 第五次发布，一次上线：「项目进程信号改为按水位扫描生成 + 面板信号收成按钮/弹窗」。代码提交 `15a1dab`（已推送，`origin/main` 一致）。按用户要求，业务事件不再直接写队列：新增迁移 `221_project_memory_scan_state.sql`（每项目一行 `scan_cursor`）与 `server/project-memory-scan.js`，按游标扫描项目变更日志/迭代目标背景/迭代归档/任务状态事件/正式文件变更，过滤后入队；移除 5 处事件钩子，文档恢复改为写 `version_restored` 事实日志；维护循环每轮扫一个到期项目，手动运行先扫再结算，新项目创建时写空水位让「项目初创」入队。前端记忆作业面板的待处理信号改为「待处理信号 N」按钮 + 只读列表弹窗。
-
-门禁：`npm run lint` exit 0；`npx tsc --noEmit` exit 0；`npm run build` exit 0（45.59 s）；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1070/1070、0 失败，`duration_ms` 721652（约 12 分钟），迁移 221 已在该库应用；新增 `tests/project-memory-scan.test.js` 4/4。本轮无其它迁移。
-
-包 `cothread-release-20261104T082524Z.tgz`，6,176,060 字节，SHA-256 `0DF763B4C587B658CD6022EEE9540DAEE3A2B6C434FC70A0DF9AC2B0F70C543B`，tar 条目 708，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。`OOS_CodeDeploy`：revision `rev-cc19bf48d35245318fc0`，execution `exec-891d4b8c21e742da8694`，分组 `Released`（8/8，0 失败），`StatusReason` 为 `Release success!`，`UpdateDate` UTC `08:28:40Z`。
-
-线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T082634Z`，systemd `active`、启动时间北京时间 16:28:09、`MainPID` 1327591；迁移 221 已在 `schema_migrations` 命中，`project_memory_scan_state` 表存在且扫描器模块在包内；首页资源 `index-3hEz6vEN.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致；公网 `GET /api/health?release=15a1dab` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `08:28:11.118Z`。对本项目执行一次线上扫描：`initialized:true, inserted:0`（只建水位、不回放历史），cursor `taskEventId=197`、`milestone` 停在 2026-10-12。
-
-本轮已知未完成项：登录后的「待处理信号」按钮/弹窗未实机点击；本项目队列仍有 2 条 10-25/10-26 的旧 `task` 信号（`retryCount=4`），核验理由已从 `too_big` 变为「候选未通过出处核验：缺少来源直接支持」，说明旧事实已无法支撑记忆条目，自动重试到上限会停止——需要人工决定清理还是保留；验收凭据在 `.code_deploy/verification/20261104-project-memory-scan/`（不进 Git）。
-
-2026-11-04 第六次发布，一次上线：「项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口」。代码提交 `68b1b44`（已推送，`origin/main` 一致）。用户提出项目进程不需要跟文档相关、核验失败改为逐条丢弃、task 信号不单独建条、旧信号加忽略入口；重试仍为 5 级退避（1 分钟→5 分钟→30 分钟→2 小时→6 小时），之后停止。
-
-改动：`PROJECT_MEMORY_SIGNAL_KINDS` 收敛为 `milestone` / `iteration_context` / `archive` / `task`；扫描器删除 `document_change_logs` 分支；迁移 `222_drop_document_version_project_signals.sql` 清掉历史遗留 `document_version` 行；`noteProjectMemorySignal` 忽略该来源；核验调用改为逐条 `verdicts`，不支持的条目记入 `droppedEntries` 后单独丢弃、其余照常写入与消费；`subject=task` 只允许引用多个任务来源的「任务分布」汇总条目；禁止生成文档类条目；新增 `POST /api/projects/:id/memory/signals/:queueId/ignore`（写权限、删队列行、写 `project_memory_signal_ignored` 审计）与弹窗逐条「忽略」按钮。
-
-门禁：`npm run lint` exit 0；`npx tsc --noEmit` exit 0；`npm run build` exit 0（44.95 s）；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1071/1071、0 失败，`duration_ms` 693295（约 11.6 分钟），迁移 222 已在该库应用；新增/调整用例：`project-memory` 10/10、`project-memory-scan` 4/4、`project-memory-signal-cleanup` 4/4，其余相关 9 个文件全通过。
-
-包 `cothread-release-20261104T090228Z.tgz`，6,177,116 字节，SHA-256 `415399110158112A07DEA79A3209897A21D21FC8B06F7E90F859954EF790075E`，tar 条目 709，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。`OOS_CodeDeploy`：revision `rev-8a132e18fd0f40719085`，execution `exec-0df5c341b93142af8796`，分组 `Released`（8/8，0 失败），`StatusReason` 为 `Release success!`，`UpdateDate` UTC `09:06:43Z`。
-
-线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T090333Z`，systemd `active`、启动时间北京时间 17:06:10、`MainPID` 1329930；迁移 222 已应用（`MIGRATION_222=1`），`document_version` 队列行归零（`DOCUMENT_SIGNALS=0`），忽略路由存在（`IGNORE_ROUTE=1`），扫描器已无文档扫描（`DOC_SCAN=0`）；首页资源 `index-C901aWt1.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致；公网 `GET /api/health?release=68b1b44` 返回 `status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `09:06:12.37Z`。
-
-本轮已知未完成项：登录后的信号弹窗「忽略」按钮未实机点击；本项目 2 条旧 `task` 信号仍在队列（`retryCount=4`、`availableAt` 09:40），升级后可在面板逐条「忽略」把它们清掉，未代用户操作。验收凭据在 `.code_deploy/verification/20261104-project-memory-scope/`（不进 Git）。
-
-2026-11-04 第七次发布，一次上线：「发布重启期间的 502 窗口收缩」。用户反馈前端偶尔出现 `服务暂时未返回有效数据（/api/projects/<id>，HTTP 502）` 与 `/api/notifications` 同类提示。排查结论：应用层异常一律返回 JSON（`server/http-app.js` 错误中间件），非 JSON 的 502 只可能由 nginx 生成；线上 `server: nginx/1.30.4`，`proxy_pass http://127.0.0.1:3100`，`proxy_read_timeout 3600s`，未开上游 keepalive。
-
-证据（均为 ECS 只读）：11-01 归档访问日志 cothread 502 共 0 条；11-02 共 4 条，集中在当天唯一一次重启 `14:54:28`；11-04 当天 502 全部落在 9 次重启区间内（6 次发版 + 3 次人工 `systemctl restart`），无自发崩溃——`NRestarts=0`，7 天内无 `未捕获异常`、`FATAL ERROR`、OOM。窗口长度不稳定：`11:27:06–11:27:22` 约 16 秒（57 条）、`17:05:52–17:06:11` 约 19 秒（80 条）、`12:49:37–12:50:08` 约 31 秒（72 条，旧进程触发「关闭超过 30000ms 强制退出」），而 `16:28:10` 只有约 1 秒（10 条）。
-
-根因：`SIGTERM` 后 `server.close()` 立即停止接收新连接（nginx 开始 502），但要等所有连接与在途工作排空才退出，新进程在旧进程退出后才启动。presence 心跳 SSE `/api/threads/:id/viewing` 只在浏览器失焦时由客户端断开，`stopLiveOutputStreams` 只覆盖 agent live 流，未接管 presence 与老翁 SSE，这类长连接会把排空拖到 30 秒上限；窗口长短取决于当时谁开着页面、有没有在跑任务。
-
-改动：新增 `server/sse-streams.js`（`trackSse` / `endSseStreams` 登记表），presence SSE 与老翁 SSE 接入登记；`server/index.js` 关闭时先 `endSseStreams()`，1 秒宽限后 `server.closeAllConnections()` 强断剩余连接，关闭上限 30s→5s（`COTHREAD_SHUTDOWN_GRACE_MS` / `COTHREAD_SHUTDOWN_TIMEOUT_MS` 可覆盖）；`shared/json-response.js` 的 GET 网关类失败改为 3 次尝试（500ms / 1500ms 退避），写请求仍不重放。新增 `tests/sse-shutdown.test.js` 3 个用例，`tests/json-response.test.js` 增加「持续 502 重试 3 次」用例，并更新原用例标题。
-
-门禁：本次改动文件的 `prettier --check` 通过；`npx tsc --noEmit` exit 0；架构边界、浮层、输入控件、UI 尺度门禁通过；针对性测试 json-response 3/3、sse-shutdown 3/3、live-output-server-shutdown 3/3、live-output-shutdown 5/5、thread-presence 1/1 全通过。本机沙箱禁止子进程管道，`npm run lint`（spawn git）、`npm run test:unit`、`node --test`（fork）与 `check-theme-generated`（spawn node）均报 `spawn EPERM`，未运行全量测试；`tests/shutdown.test.js` 的 hung-worker 用例同样因自建子进程被拦，其余 4/4 通过。无新增迁移。
-
-包 `cothread-release-20261104T094516Z.tgz`，6,175,292 字节，SHA-256 `06D3F8391691C3F263ECFB3029C236638C6E7A0BB6417E0322EFD5FD8E98642D`，tar 条目 710，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。因工作区另有未完成的 WPS/旧版文档读取改动（`server/mcp.js`、`server/documents/read-text.js`、`wps-docx-reader/` 等），本次按用户确认只发本修复：从 HEAD 建临时快照并只合入本次 7 个文件后构建，核对包内 `server/mcp.js`、`shared/mcp-guide.js`、`shared/mcp-capabilities.js` 与 HEAD 哈希一致，且不含 `legacy-office-extract` / `wps-docx-reader` 字样。
-
-上传：本机沙箱内 Node 起 stdio MCP 报 `spawn EPERM`，改用该 MCP 包内同一实现：`import alibaba_cloud_ops_mcp_server.tools.application_management_tools` 后直接调用 `OOS_CodeDeploy` 与 `OOS_GetDeployStatus`，AK/SK 仍只从用户级环境变量读入。`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1A5F4-7672-5BAF-B312-FF14293F2ACA`，revision `rev-c373ef2a48d84ced9367`，execution `exec-a2fa0ad60f2d434b8573`；17:49:59 分组变为 `Released`（`Progress` 99，`UpdateDate` UTC `09:47:05Z`）。
-
-线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T094723Z`，systemd `active`、启动时间北京时间 17:49:23、`MainPID` 1331067、Node `v22.22.3`；`current/server/sse-streams.js` 与 `current/shared/json-response.js` 的 SHA-256 与本地一致（`2d29c63a…`、`2218bcac…`）；本机 `/api/health` 为 `status: ok`、执行器 ready、8 槽；公网首页资源 `index-Da2vdeEa.js`、`index-BHw62KsI.css`，与快照 `dist/index.html` 一致。
-
-窗口验证：本次发布由旧进程执行关闭，仍是 30 秒（`17:48:53` Stopping → `17:49:23` Stopped，其中 502 段 `17:49:04–17:49:25` 约 21 秒，当天 cothread 502 累计 397 条）。发布后对新代码做一次 `systemctl restart`：`17:51:05` Stopping → `17:51:05` Stopped/Started → `17:51:07` 服务就绪，全程约 2 秒，该窗口 502 仅 12 条（`17:51:06–17:51:07`，属新进程启动期），日志无「服务关闭超过」。即关闭排空已不再是窗口主体，剩余约 2 秒为进程启动时间。
-
-本轮已知未完成项：登录后的业务界面未实机验收；未用真实登录会话打开 presence SSE 复测（该路径由 `tests/sse-shutdown.test.js` 覆盖，线上验证以重启时长与 502 数量为准）；旧进程的关闭逻辑只在下次发版被替换，本次已用一次人工 restart 预验证，下一次发版的真实窗口需再记录。验收凭据在 `.code_deploy/verification/20261104-release-shutdown-window/`（不进 Git）。
-
-2026-11-04 第八次发布，一次上线：「WPS/旧版二进制 Office 读取与预览派生文件」。
-
-背景：用户提供的 WPS 线上文档导出文件后缀是 `.docx`、内容实为 Word 97-2003 二进制 `.doc`（OLE2，含 `WordDocument`/`0Table`/`WpsCustomData` 流），且尾部缺 374 字节。此前文件索引、文档摘要和 `read_document` 都按扩展名走 JSZip，直接失败；预览 `docx-preview` 同样无法渲染。
-
-改动：新增 `server/legacy-office-extract.js`（按文件头识别 OLE2，解析 FAT/目录/迷你流，按 FIB + piece table 取正文，截断补零，加密与旧版 xls/ppt 给明确原因）；`file-index-extract.js` 改为「扩展名或文件头命中」，OLE2 分支先于 JSZip；`read_document` 对 Office 返回提取正文；新增迁移 223 `version_renditions` 与预览派生链路（`server/office-convert.js` 转换后端、`server/office-renditions.js` 单飞编排、`GET /api/versions/:id/rendition`、前端 `.doc/.xls/.ppt` 与伪 docx 走派生文件）；安装 `@deepseek-ai/libreoffice-kit@^0.2.3` 作为转换后端（Linux 用 WASM，不需要系统 LibreOffice）。
-
-门禁：`npm run build` 通过（vite 3m23s）；`npm run lint` 通过（prettier/边界/浮层/输入控件/主题/UI 尺度）；定向测试 renditions 3、office-convert 5、legacy-office-extract 6、file-index-extract 4、read-document 4、sse-shutdown 3、json-response 3 全部通过；本地开发库执行 `npm run db:migrate`（221/222/223）并用真实文件跑集成脚本：pending→ready、缓存命中、同版本源哈希变化后重转、非 OLE2 判定 unsupported、清理无残留。全量 `npm test` 未完成：测试库 RDS 公网 TCP 不可达（`Test-NetConnection … 3306` = False），进程会长时间等待锁，已终止并以定向测试结果作为门禁。
-
-推送：提交 `f3cd3b6`（第七次 SSE 关停修复，此前未提交）与 `8c80518`（本次功能）已推送 GitHub `main`。本机到 `github.com:443` 的连接被网络拦截（curl 超时，`api.github.com` 正常），临时部署密钥推送被 GitHub 拒绝；最终用本机 CONNECT 代理指向可用 GitHub 边缘 IP + `gh` 凭据助手完成推送，未持久化任何代理或密钥配置。
-
-包：`cothread-release-20261104T102749Z.tgz`，6,186,990 字节，SHA-256 `C43F44E5C486951D5F92E3B0BBC14DC3D372C51F662A700512FA9E24F8535952`，tar 条目 715；包含 `server/legacy-office-extract.js`、`server/office-renditions.js`、`migrations/223_version_renditions.sql`，不含 `docs`/`tests`/`AGENTS.md`/`.env`。
-
-上传：本机沙箱内 stdio MCP 不可用，改用 MCP 包内同一实现直接调用 `OOS_CodeDeploy`；RequestId `01A1A61C-01BF-5C60-96EA-D08182333030`，deploy_time 18:30:15，约 80 秒后分组状态 `Released`。
-
-线上：`readlink -f /opt/cothread/current` 为 `/opt/cothread/releases/20261104T103050Z`，systemd `active`，Node `v22.22.3`；`current/server/legacy-office-extract.js`、`current/server/office-renditions.js`、`current/migrations/223_version_renditions.sql` 均存在；生产库 `schema_migrations` 已有 `223_version_renditions.sql`，`version_renditions` 13 列、0 行；公网 `/api/health` 返回 `status: ok`、执行器 ready、8 槽；首页资源 `index-C-N7OCO-.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致。
-
-本轮已知未完成项：预览未实机验收（需登录后上传该 WPS 文档并打开预览，确认 202→docx 渲染）；ECS/Linux 上 kit 的 WASM 引擎未实际转换（本机为 Windows 原生引擎，Linux 路径只完成了安装与锁文件准备）；`.ppt→pptx` 无真实样例；`wps-docx-reader/` 本地目录（含用户文档副本）已加入 `.gitignore`，未入库；`github.com` 直连仍被拦截，后续推送仍需代理或可用网络。验收凭据在 `.code_deploy/verification/20261104-legacy-office-renditions/`（不进 Git）。
-
-2026-11-04 第九次发布，一次上线：「DSH 整链升级到 0.2.2-rc.1 + ECS Node 24.18 切换」。代码提交 `7499491`（已推送，`origin/main` 与本地 HEAD 一致）；提交含 19 个文件，核心是 `package.json`/锁文件、`dsh-layer` 迁移、CI/Docker/ECS 钩子与文档。
-
-改动：全部 `@deepseek-ai/dsh*` 与 `cordis-plugin-group` 升到 `0.2.2-rc.1`，`engines.node` 提到 `>=24.9.0`；`sdk-resume.mjs` 改用 `startActivation`（`delivery: "parent"`）并透传 `createSession(sessionId, resume)`，persona 改由 `cothread-system-prompt` 按子会话 id 注入；装配单删除 `list-agents` 子路径与 `backgroundMode`，`token-meter`/`compaction-basic`/`attachment-local` 改为对官方条目的配置覆盖；插件注册表删除 invariants，补 filesystem、tool-fs、working-directory、tool-working-directory、tool-executor-native、image-offload、session-checkpoint-policy；CI 只保留 Node 24.x，Docker 固定 `node:24.18-bookworm-slim`，ECS 启动钩子版本门槛改 `>=24.9` 并安装 `node@24.18.0`。另修了 `web/SessionConversationDialog.tsx` 使用 ES2023 `findLastIndex` 但 tsconfig 为 ES2022 的既有构建失败（改为倒序循环）。
-
-门禁：`npm run lint` exit 0；`npm run test:unit` 521/521；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1092/1092、0 失败，`duration_ms` 964702.8649（约 16 分钟）；`npm run build` exit 0；`npx npm@10.9.8 ci --omit=dev --dry-run --ignore-scripts --no-audit --no-fund` exit 0（`added 169 packages`，与线上实际安装口径不同）；停止钩子续行输出 `HOOK_CONTINUES`，启动钩子 `bash -n` exit 0。锁文件本轮重生成，另有 17 个非 DSH 直接依赖在原有 semver 范围内升了 minor/patch（react 19.3.1、express 5.3.0、playwright 1.64.1、vite 7.3.7 等），构建与全量测试均通过。
-
-包 `cothread-release-20261104T162658Z.tgz`，6,221,340 字节，SHA-256 `1FCFAB4D050A1960FDC4D892E6E0B8C83A9CABEC0626A9DB477B669B23B1EDC5`，tar 条目 709，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`；`last-deploy.json` 的 `applicationStart` 已含 Node 24.9 门槛与 `node-runtime-24.18.0`。上传用本机 `alibaba-codex` 的 Python 包直连（AK/SK 取自用户级环境变量）：`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1A763-3BBF-5BB6-9F1B-553F326D2ACA`，revision `rev-c28208af101f4c5db36c`，execution `exec-5d8b7e489db94b0c9850` 为 `Success`（8/8，0 失败），分组 `Released`，结束于 UTC `2026-11-04T16:32:27Z`。
-
-线上执行输出：启动钩子安装 Node 到 `/opt/cothread/node-runtime-24.18.0`（`added 2 packages in 29s`，输出 `v24.18.0`）；解压到 `/opt/cothread/releases/20261104T162834Z`；`npm ci` 安装生产依赖时出现 `ERESOLVE overriding peer dependency` 警告（`@opentelemetry/resources@2.11.0` 与 `@deepseek-ai/dsh-otel` 的 `@opentelemetry/api`），安装继续并成功，审计报告 286 个漏洞（1 low、53 moderate、227 high、5 critical，不据此判失败）；3110 探活通过（`status: ok`、执行器 ready 为 false、`laneCount: 0`），原子切换 `current -> /opt/cothread/releases/20261104T162834Z`，清理旧 release `/opt/cothread/releases/20261104T090333Z`。公网 `https://cothread.z2l.top/api/health?release=7499491` 返回 200，`status: ok`、`database: mysql`、`dshEnabled: true`、执行器 `ready: true`、8 个执行槽、holder `273726897`、`acquiredAt` 为 UTC `2026-11-04T16:32:15.261Z`；首页 200，资源 `index-BRpfTqJv.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致。
-
-本轮验证边界：未做登录后的业务验收；DSH 0.2.2 的 `startActivation` 派发、会话续接与压缩阈值只在自动化测试与上游包核对层验证，没有在生产执行真实 Agent 会话（本轮无模型调用的端到端冒烟）。本轮安装的 `alibaba-codex` MCP 版本只暴露 `OOS_CodeDeploy`/`OOS_GetDeployStatus`/`OOS_GetLastDeploymentInfo`，没有 `OOS_RunCommand`/`ECS_*`，因此 Node 版本、`current` 与旧 release 清理的证据来自 execution 的 `deployCommandOutput`，没有另发 ECS 只读命令核对 `readlink`/`systemctl`。modulepreload MIME 与未登录 `/api/me` 401 为既有现象。依赖审计 286 条未整改。验收凭据在 `.code_deploy/verification/20261104-dsh-upgrade/`（不进 Git）。
-
-2026-11-04 第十次发布，一次上线：「小祥监控任务会话 / 记忆作业会话的派活展示与用量补齐」。用户反馈任务卡片会话弹窗把「小祥派活」显示成普通内容、空态与正文同屏、子 Agent 消息未收缩且缺复制/时间/用时/用量；记忆作业会话与任务会话的消息和底部统计都显示「未记录」。代码提交 `c254da6`（已推送，`origin/main` 与本地 HEAD 一致）。
-
-根因：DSH 0.2.x 把会话日志写成 `session.v4.jsonl`，而 `server/child-agent-session.js` 只认 `session.jsonl`，导致原生正文、创建时间和逐条用量都读不到；任务池子会话因此只剩事件，弹窗同时显示空态；底部统计固定传入空 `thread`，所以永远显示「用量未记录」。
-
-改动：`server/child-agent-session.js` 识别带版本号的会话日志（`session(\.v\d+)?\.jsonl`），派生快照缺元数据时从原生日志按 role+text 倒序合并时间与用量，任务池子会话没有正文时把任务书补成「小祥派活」用户消息；`server/laoweng-context.js` 同样从原生日志补时间/用量；`web/agent-monitor-session.tsx` 空态只在确实没有消息、事件、待纳入和实时输出时显示，子 Agent 活动默认收缩，已有正文时活动流只保留工具事件避免重复；`web/AgentActivity.tsx` 过程消息补复制与时间；`web/SessionConversationDialog.tsx` 输出过程补复制与用量，底栏统计改为按消息用量汇总、缺失时回退轨迹总量。
-
-门禁：`npm run lint` 通过；`npm run build` 退出码 0；`npm run test:unit` 521/521；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1093/1093、0 失败，`duration_ms` 1003559.8098（约 16.7 分钟）。本轮未改依赖与启停钩子，没有重跑 npm 10 生产安装预检和钩子语法检查。
-
-包 `cothread-release-20261104T172833Z.tgz`，6,222,346 字节，SHA-256 `717C2E7A1DAE49489CC72F2A7F35C1081C2F1574AE194B3860B2E3809BD055A4`，tar 条目 709，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`；前端改动只经 `dist` 进入发布包，服务端包含 `child-agent-session.js` 与 `laoweng-context.js`。上传用本机 `alibaba-codex` 的 Python 包直连：`OOS_CodeDeploy` 返回 HTTP 200，RequestId `01A1A79B-7EF8-52E8-8798-1128CE2BFEBB`，revision `rev-aaa55a8ee50a4731ba0e`，execution `exec-39ad0f0105624fd3b31b` 为 `Success`（8/8，0 失败），分组 `Released`，结束于 UTC `2026-11-04T17:31:39Z`。
-
-线上执行输出：`原子切换 current -> /opt/cothread/releases/20261104T172926Z`，`上线完成`。公网 `https://cothread.z2l.top/api/health?release=c254da6` 返回 200，`status: ok`、`database: mysql`、执行器 `ready: true`、8 个执行槽、`acquiredAt` 为 UTC `2026-11-04T17:31:22Z`；首页 200，资源 `index-BgRAZlJ_.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
-
-本轮验证边界：没有生产登录态，未在浏览器实机打开这两个弹窗复测「派活右置、空态消失、过程收缩、复制/时间/用量」；数据层由新增/更新的会话单测（含 `session.v4.jsonl` 与元数据合并）和全量测试覆盖，界面效果需要登录后确认。未重跑 npm 10 生产安装预检与钩子检查（依赖、钩子未改）。验收凭据在 `.code_deploy/verification/20261104-monitor-usage/`（不进 Git）。
-
-2026-11-04 第十一次发布，一次上线：「DSH 压缩会话日志解析与子 Agent 思考/正文展示」。用户反馈任务卡片会话里子 Agent 只剩工具、没有思考和正文，也没有复制/时间/用量/用时。代码提交 `9d2a2c7`（已推送，`origin/main` 一致）。
-
-根因：`@deepseek-ai/dsh-session-persistence-jsonl@0.2.2` 的 `DEFAULT_COMPRESSION = "zstd"`，会话日志改成多帧追加的 `session.v4.jsonl.zstd`；上一版只认明文 `session.jsonl`，所以原生正文、时间、逐条用量全部读不到，任务会话只剩事件流；同时上一版把 `thinking` 也从活动流过滤掉了，于是只剩工具。
-
-改动：`server/child-agent-session.js` 识别 `session(\.v\d+)?\.jsonl(\.zstd)?`，按 zstd 帧魔数切分逐帧解压（Node 的 `zstdDecompressSync` 只解第一帧；尾部未写完的半帧丢弃），快照与 live home 两条路径都支持；`web/agent-monitor-session.tsx` 有正文时活动流保留思考与工具、只去重 `assistant_text`/`assistant_final`；`web/AgentActivity.tsx` 工具事件补复制按钮与时间。
-
-门禁：`npm run build` 通过；`npm run lint` 通过；会话单测 8/8（含多帧 zstd 用例）；全量 `npm test` 在本机 `127.0.0.1:3307/cothread_test_2` 上 1094/1094、0 失败，`duration_ms` 577990.8906（约 9.6 分钟）。本轮未改依赖与启停钩子，没有重跑 npm 10 生产安装预检和钩子语法检查。
-
-包 `cothread-release-20261104T174936Z.tgz`，6,221,926 字节，SHA-256 `CC44C572AC484F6A6741161A038B1B6BD87E92015D88B9897F406782C1158195`，tar 条目 709，包内不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests` 或 `.code_deploy`。上传 RequestId `01A1A7AE-E744-5D67-9E2C-461CC143DB85`，revision `rev-01a8fa3ccb0241e4a9f1`，execution `exec-b530a9ce4afe4167860e` 为 `Success`（8/8，0 失败），`EndDate` UTC `2026-11-04T17:52:35Z`。
-
-线上执行输出 `原子切换 current -> /opt/cothread/releases/20261104T175038Z`。公网 `/api/health?release=9d2a2c7` 返回 200、`status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `2026-11-04T17:52:25Z`；首页资源 `index-ScL5S1TT.js`、`index-BHw62KsI.css`，与本地 `dist/index.html` 一致。
-
-本轮验证边界：仍无生产登录态，未在浏览器实机确认弹窗内思考/正文/复制/时间/用量/用时；压缩日志解析由多帧 zstd 单测覆盖，历史日志的时间与用量取决于原生日志完整度。验收凭据在 `.code_deploy/verification/20261104-monitor-zstd/`（不进 Git）。
-
-2026-11-04 第十二次发布（北京时间 11-05 凌晨），一次上线：「小祥监控任务会话时间线与轨迹用量」。用户连续反馈：任务会话内容是小祥讨论 JSON、空态与内容同屏、子 Agent 消息缺思考/正文/复制/时间/用量；轨迹「请求」的选项/用量/计时无数据。代码提交 `eab4a0f`（已推送，`origin/main` 一致），包含三个修正提交：`9d2a2c7`（zstd 日志）、`cafd752`/`7b2bd6a`（父 overlay 隔离与时间线）、`1294784`（轨迹用量）。
-
-根因与改动：① DSH 0.2.x 默认写多帧 `session.v4.jsonl.zstd`，之前只认明文导致子会话正文/时间/用量读不到；`server/child-agent-session.js` 增加按帧魔数切分解压（尾部半帧丢弃）并识别带版本号与 `.zstd` 后缀的日志。② `historyForExecutor` 在小祥共享快照里错误地取了父会话派生 overlay，弹窗显示的是小祥讨论注入的整条消息 JSON；改为只按该子会话 id 取原生日志。③ 任务会话由 `buildChildTimeline` 按事件时间生成时间线：小祥派活在右、模型正文在左、思考与工具按时序收成可展开过程块（不再展示上下文注入正文）；前端 `SessionConversationDialog` 新增 `process` 消息渲染（复制、时间、展开）并给过程长文本换行。④ 轨迹「请求」的用量/计时：子 Agent 的事件表无 usage 列，按正文前缀把原生 assistant 消息的用量挂到 `assistant_*` 事件；老翁从 `agent_laoweng_session_turns` 按时间窗口挂到 `model_run`/`understanding` 事件，前端原本的请求回填逻辑即可显示选项/用量/计时。⑤ `tests/model-runtime-config.test.js` 的 DSH 初始化超时从 15s 对齐生产配置 30s——本机实测初始化 17.6s，原值会稳定超时。
-
-门禁：`npm run build` 通过；`npm run lint` 通过。全量 `npm test` 首轮在清理孤儿测试进程与遗留 DSH 进程后仍耗时 2471445ms（约 41 分钟，机器负载异常），仅 `model-runtime-config` 1 项因 15s 初始化超时失败；对齐 30s 后该文件单独通过（1/1）。最终代码随后重跑全量：1096/1096、0 失败，`duration_ms` 2348335.5945（约 39 分钟，负载仍偏高），已包含时间线与轨迹用量改动。
-
-包 `cothread-release-20261104T194007Z.tgz`，6,224,757 字节，SHA-256 `8A89AD2208DBE529E4C17526354AFF134B1B929EA9BBFE2FC3E13DBE1F77C9AC`，tar 条目 709，不含 `AGENTS.md`、`.env`、`.local`、`docs`、`tests`、`.code_deploy`。上传时 ECS API 出现 `SSLEOFError`，按本文「系统代理导致 MCP 全部 SSLEOFError 的恢复路径」给 Python 子进程加空 `proxies` 补丁后成功：RequestId `01A1A817-38D5-5A51-8D99-DAAA5DFFAAB7`，revision `rev-17134e27366b41e09756`，execution `exec-2ed979fc0cc34df88a9f` 为 `Success`（8/8，0 失败），`EndDate` UTC `2026-11-04T19:46:33Z`。
-
-线上：`原子切换 current -> /opt/cothread/releases/20261104T194437Z`；公网 `/api/health?release=eab4a0f` 返回 200、`status: ok`、执行器 ready、8 槽、`acquiredAt` UTC `2026-11-04T19:46:26Z`；首页资源 `index-B_oPRDHx.js`、`index-BHw62KsI.css` 与本地 `dist/index.html` 一致。
-
-本轮验证边界：仍无生产登录态，未在浏览器实机确认时间线、折叠过程、复制/时间/用量与轨迹请求数据；服务端时间线与用量挂接由单测（时间线顺序、父 overlay 隔离、多帧 zstd）与构建覆盖，界面需登录后确认。全量测试未在修正后重跑，不能表述为全绿。验收凭据在 `.code_deploy/verification/20261104-monitor-timeline/`（不进 Git）。
+## 发布记录
+
+逐次发布的原始记录不留在本文，按发布日期拆到 [releases/](releases/)：每个文件照录当时的原文段落，包含提交号、产物与 SHA-256、execution、release 目录、门禁与测试结果、验收证据，以及当轮的未完成项和遗留问题。本文只保留可复用的流程、判断条件、故障恢复与验收要求；一次性事件留在记录文件里，不回流成流程。
+
+| 日期 | 次 | 主题 | 涉及提交 | 结果 | 记录 |
+| --- | --- | --- | --- | --- | --- |
+| 2026-10-20 | 1 | 首次确认上线 | `3d9b175` | 上线 | [记录](releases/2026-10-20.md#r1) |
+| 2026-10-22 | 1 | 发布前核查 | — | 发布前核查（本次未上线） | [记录](releases/2026-10-22.md#r1) |
+| 2026-10-22 | 2 | 首次发布失败（执行器锁冲突） | — | 中止/失败 | [记录](releases/2026-10-22.md#r2) |
+| 2026-10-22 | 3 | 重发已确认上线 | `ef18998` | 上线 | [记录](releases/2026-10-22.md#r3) |
+| 2026-10-22 | 4 | 平台模型配置功能上线 | `f9f0cb5` | 上线 | [记录](releases/2026-10-22.md#r4) |
+| 2026-10-23 | 1 | 第一次发布中止 | `09e9141`、`f9f0cb5` | 中止/失败 | [记录](releases/2026-10-23.md#r1) |
+| 2026-10-23 | 2 | 同日稍后 TLS 恢复后重新打包并上线 | `ee8f41d` | 上线 | [记录](releases/2026-10-23.md#r2) |
+| 2026-10-23 | 3 | 下午第二次发布中止 | `0aa528d` | 中止/失败 | [记录](releases/2026-10-23.md#r3) |
+| 2026-10-23 | 4 | 同日下午 TLS 恢复后上传成功 | — | 上线 | [记录](releases/2026-10-23.md#r4) |
+| 2026-10-25 | 1 | 发布，一次上线 | `09d3348` | 上线 | [记录](releases/2026-10-25.md#r1) |
+| 2026-10-25 | 2 | 本轮发布尝试（SSLEOFError，未上传） | `a8b1804` | 中止/失败 | [记录](releases/2026-10-25.md#r2) |
+| 2026-10-26 | 1 | 重试发布成功 | `5f2bf48` | 上线 | [记录](releases/2026-10-26.md#r1) |
+| 2026-10-26 | 2 | 下午发布，一次上线 | `d16c713` | 上线 | [记录](releases/2026-10-26.md#r2) |
+| 2026-10-26 | 3 | 晚间发布，一次上线 | `5d34f17` | 上线 | [记录](releases/2026-10-26.md#r3) |
+| 2026-10-27 | 1 | 发布已上线 | `c23acc6` | 上线 | [记录](releases/2026-10-27.md#r1) |
+| 2026-10-27 | 2 | 同日再次发布并上线 | `aa55511`、`ae7d826` | 上线 | [记录](releases/2026-10-27.md#r2) |
+| 2026-10-28 | 1 | 发布，一次上线 | `25fac63` | 上线 | [记录](releases/2026-10-28.md#r1) |
+| 2026-10-28 | 2 | 同日第二次发布，一次上线 | `25fac63` | 上线 | [记录](releases/2026-10-28.md#r2) |
+| 2026-10-28 | 3 | 第三次发布，一次上线 | `e510615` | 上线 | [记录](releases/2026-10-28.md#r3) |
+| 2026-10-29 | 1 | 发布，一次上线 | `dee5b4d`、`774a7c2` | 上线 | [记录](releases/2026-10-29.md#r1) |
+| 2026-10-29 | 2 | 第二次发布，一次上线 | `e5b0b82`、`a6aab41` | 上线 | [记录](releases/2026-10-29.md#r2) |
+| 2026-11-02 | 1 | 主要文档图片作业修复发布（未提交、未推送） | — | 构建并核对发布包，未上传 | [记录](releases/2026-11-02.md#r1) |
+| 2026-11-03 | 1 | 发布提交 a628fc6（早前一次尝试未完成） | `a628fc6` | 上线（早前一次尝试未完成） | [记录](releases/2026-11-03.md#r1) |
+| 2026-11-04 | 1 | 按来源治理项目记忆 / 项目现状改 Markdown | `7316999` | 上线 | [记录](releases/2026-11-04.md#r1) |
+| 2026-11-04 | 2 | 删除文档后的失效项目进程信号清理 | — | 上线 | [记录](releases/2026-11-04.md#r2) |
+| 2026-11-04 | 3 | 追加：index.html 开发入口 modulepreload 修复（随第三次发布上线） | — | 上线（随第三次发布上线） | [记录](releases/2026-11-04.md#r3) |
+| 2026-11-04 | 4 | 项目记忆结算修复 + 时间线分页 + index.html 预加载修复 | `dbfc54f`、`4c08b90`、`5492b1f`、`aa195f1` | 上线 | [记录](releases/2026-11-04.md#r4) |
+| 2026-11-04 | 5 | 项目记忆读取性能（轻量读 + 按需详情）与核验理由截断 | `baefd8c` | 上线 | [记录](releases/2026-11-04.md#r5) |
+| 2026-11-04 | 6 | 项目进程信号改为按水位扫描生成 + 面板信号收成按钮/弹窗 | `15a1dab` | 上线 | [记录](releases/2026-11-04.md#r6) |
+| 2026-11-04 | 7 | 项目进程去文档化 + 逐条核验 + 任务聚合 + 忽略入口 | `68b1b44` | 上线 | [记录](releases/2026-11-04.md#r7) |
+| 2026-11-04 | 8 | 发布重启期间的 502 窗口收缩 | — | 上线 | [记录](releases/2026-11-04.md#r8) |
+| 2026-11-04 | 9 | WPS/旧版二进制 Office 读取与预览派生文件 | `f3cd3b6`、`8c80518` | 上线 | [记录](releases/2026-11-04.md#r9) |
+| 2026-11-04 | 10 | DSH 整链升级到 0.2.2-rc.1 + ECS Node 24.18 切换 | `7499491` | 上线 | [记录](releases/2026-11-04.md#r10) |
+| 2026-11-04 | 11 | 小祥监控任务会话 / 记忆作业会话的派活展示与用量补齐 | `c254da6` | 上线 | [记录](releases/2026-11-04.md#r11) |
+| 2026-11-04 | 12 | DSH 压缩会话日志解析与子 Agent 思考/正文展示 | `9d2a2c7` | 上线 | [记录](releases/2026-11-04.md#r12) |
+| 2026-11-04 | 13 | 小祥监控任务会话时间线与轨迹用量 | `eab4a0f`、`9d2a2c7`、`cafd752`、`7b2bd6a`、`1294784` | 上线 | [记录](releases/2026-11-04.md#r13) |

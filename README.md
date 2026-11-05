@@ -30,7 +30,7 @@ npm run dev
 
 就绪后自行用浏览器打开 <http://localhost:3100>（`npm run dev` 不再自动拉起默认浏览器）。首次 `setup` 把初始账号写进 `.local/initial-admin.json` 和 `.local/登录信息.txt`。之后每次 `npm run dev` 都会把本机超级管理员密码重置为固定值 `cothread-dev`（需要临时换口令时设 `DEV_ADMIN_PASSWORD`），只在 dev 目标 + 本机库时生效。登录可用用户名或已绑定邮箱。
 
-本机工作文件默认在 `.local/sandboxes`。命令以当前 Windows 账号执行，只应跑可信任务。`.env` 不入库；`npm run setup` 不覆盖已有 `.env`。部署差异见 [云端配置](docs/engineering/05-cloud-environment.md)。
+本机工作文件默认在 `.local/sandboxes`。命令以当前 Windows 账号执行，只应跑可信任务。`.env` 不入库；`npm run setup` 不覆盖已有 `.env`。部署差异见 [云端环境与发布](docs/engineering/05-cloud-environment.md)。
 
 ```powershell
 npm run mysql:stop
@@ -76,4 +76,4 @@ docs/                文档总目录。engineering/ 是工程说明，product/ �
 
 ## 部署
 
-生产环境为阿里云 ECS 单实例 + RDS：`npm run build && node scripts/ecs-pack.mjs` 打包，再用 `scripts/ecs-promote.sh` 解压到 `releases/<id>`、探活后原子切换 `current` 并 `systemctl restart cothread`。变量清单见 [云端配置](docs/engineering/05-cloud-environment.md)。
+生产环境为阿里云 ECS 单实例 + RDS：`npm run build && node scripts/ecs-pack.mjs` 打包，再用 `scripts/ecs-promote.sh` 解压到 `releases/<id>`、探活后原子切换 `current` 并 `systemctl restart cothread`。变量清单与发布流程见 [云端环境与发布](docs/engineering/05-cloud-environment.md)。

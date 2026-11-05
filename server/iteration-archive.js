@@ -8,7 +8,7 @@ import { modelResponse, responseText } from "./model-config.js";
 import { publishWork } from "./work-events.ts";
 import { nativeHistoryFromLiveHome } from "./child-agent-session.js";
 import { acquireSessionLock } from "./session-lock.ts";
-import { recordArchivePages } from "./wiki-pages.js";
+import { recordArchivePages } from "./wiki-pages.ts";
 import { settleIterationMemory } from "./memory-timeline.js";
 
 const ended = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);

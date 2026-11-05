@@ -9,7 +9,7 @@ import {
   setOrganizationMember,
   changeProjectOrganizationLink,
 } from "../server/organizations.js";
-import { createWikiPage } from "../server/wiki-pages.js";
+import { createWikiPage } from "../server/wiki-pages.ts";
 import {
   createCompanyGuide,
   createOrgGuide,

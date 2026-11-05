@@ -320,11 +320,15 @@ npm test            # 集成测试需要测试库
 
 `wiki-pages` 本轮改名后**回退**：它的 `mapPage` / `getWikiPage` / `insertCompiled` 之间互相递归引用，需要先定返回类型才能标内部（TS7023/TS7024）。回退时把 10 个文件的引用改回 `.js`——这次是**说明符检查脚本直接列出**要改哪 10 个，不用猜。
 
-剩余 63 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第二十八批：`wiki-pages.ts`(288)。这是上一轮回退的那个，本轮补完。
+
+补完的办法就是上轮判断的那样——**先给递归引用环上的函数写显式返回类型**：`getWikiPage` / `listWikiPages` / `createWikiPage` 互相调用，`mapPage` 的返回结构又参与其中，不先钉死返回类型 TS7023/TS7024 必然出现。另外 `listWikiPages` 的实际返回是 `{ pages, canWrite }` 而不是数组，`hydrateFileIndexPaths` 返回的行不带 `projectId`——这些只能读代码才知道，不能靠猜。
+
+剩余 62 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                            | 文件数            |
 | ---- | ------------------------------------------------------------------------------- | ----------------- |
-| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 11                |
+| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 10                |
 | 4    | 被 2–4 个文件引用                                                               | 16                |
 | 5    | 被 5–9 个文件引用                                                               | 18                |
 | 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 18                |

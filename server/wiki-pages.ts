@@ -12,6 +12,64 @@ import {
 import { hydrateFileIndexRoots } from "./file-index-roots.ts";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
 import { hydrateFileIndexPaths } from "./file-index-path.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** wiki 页面行（SQL 别名后的形状）。 */
+type WikiPageRow = {
+  id: string;
+  projectId?: string;
+  subject?: string | null;
+  subtype?: string | null;
+  title?: unknown;
+  body?: unknown;
+  status?: unknown;
+  sourceNeedsReview?: unknown;
+  createdBy?: unknown;
+  updatedBy?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+/** 对外的页面视图。 */
+type WikiPageView = {
+  id: string;
+  projectId: string | undefined;
+  subject: string | null;
+  subtype: string | null;
+  title: unknown;
+  body: unknown;
+  status: unknown;
+  sourceNeedsReview: boolean;
+  createdBy: unknown;
+  updatedBy: unknown;
+  createdAt: unknown;
+  updatedAt: unknown;
+};
+
+/** 操作人。 */
+type WikiUser = { id: string; kind?: string | null };
+
+/** 用到的 Service 视图。 */
+type WikiService = {
+  db: Pool;
+  member(user: WikiUser, projectId: string, write?: boolean): Promise<{ role?: string | null }>;
+};
+
+/** 编译期要插入的页面。 */
+type CompiledPage = {
+  projectId: string;
+  userId?: string | null;
+  workflowId?: string | null;
+  archiveLabel?: string;
+  sources?: Array<{ kind?: string | null; sourceId?: string | null; label?: unknown }>;
+  subject?: string | null;
+  subtype?: string | null;
+  title?: unknown;
+  body?: unknown;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+};
 
 const sourceKinds = ["message", "document_version", "task", "archive"];
 const pageId = z.string().uuid();
@@ -20,7 +78,7 @@ const pageSelect = [
   "p.created_by createdBy,p.updated_by updatedBy,p.created_at createdAt,p.updated_at updatedAt",
 ].join(" ");
 
-function mapPage(row) {
+function mapPage(row: WikiPageRow): WikiPageView {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -37,12 +95,22 @@ function mapPage(row) {
   };
 }
 
-async function access(service, user, projectId, write) {
+async function access(
+  service: WikiService,
+  user: WikiUser,
+  projectId: string,
+  write: boolean,
+): Promise<{ canWrite: boolean }> {
   const member = await service.member(user, projectId, write);
   return { canWrite: member.role !== "viewer" };
 }
 
-export async function listWikiPages(service, user, projectId, q = "") {
+export async function listWikiPages(
+  service: WikiService,
+  user: WikiUser,
+  projectId: string,
+  q: string = "",
+): Promise<{ pages: WikiPageView[]; canWrite: boolean }> {
   const gate = await access(service, user, projectId, false);
   const text = String(q || "").trim();
   const rows = text
@@ -66,7 +134,12 @@ export async function listWikiPages(service, user, projectId, q = "") {
   };
 }
 
-export async function getWikiPage(service, user, projectId, id) {
+export async function getWikiPage(
+  service: WikiService,
+  user: WikiUser,
+  projectId: string,
+  id: string,
+): Promise<{ page: WikiPageView & { memoryRevisionId?: string }; sources: unknown[] }> {
   if (typeof service.db.getConnection === "function")
     return transaction(service.db, (conn) =>
       getWikiPage(Object.assign(Object.create(service), { db: conn }), user, projectId, id),
@@ -94,7 +167,12 @@ export async function getWikiPage(service, user, projectId, id) {
   return { page: { ...mapPage(page), memoryRevisionId }, sources };
 }
 
-export async function createWikiPage(service, user, projectId, input) {
+export async function createWikiPage(
+  service: WikiService,
+  user: WikiUser,
+  projectId: string,
+  input: unknown,
+): Promise<{ page: WikiPageView & { memoryRevisionId?: string }; sources: unknown[] }> {
   await access(service, user, projectId, true);
   if (await projectArchived(service.db, projectId))
     throw new HttpError(409, "项目已归档，项目记忆已封存，只能查看");
@@ -125,7 +203,7 @@ export async function createWikiPage(service, user, projectId, input) {
   return getWikiPage(service, user, projectId, id);
 }
 
-async function insertCompiled(conn, page) {
+async function insertCompiled(conn: Db, page: CompiledPage): Promise<string> {
   const id = randomUUID();
   await query(
     conn,
@@ -135,7 +213,7 @@ async function insertCompiled(conn, page) {
       page.projectId,
       page.subject,
       page.subtype,
-      page.title.slice(0, 160),
+      String(page.title ?? "").slice(0, 160),
       page.body,
       page.userId,
       page.userId,
@@ -144,10 +222,10 @@ async function insertCompiled(conn, page) {
   await query(
     conn,
     "INSERT INTO wiki_page_sources(id,page_id,source_kind,source_id,label) VALUES(?,?,?,?,?)",
-    [randomUUID(), id, "archive", page.workflowId, page.archiveLabel.slice(0, 240)],
+    [randomUUID(), id, "archive", page.workflowId, String(page.archiveLabel ?? "").slice(0, 240)],
   );
-  for (const source of page.sources) {
-    if (!sourceKinds.includes(source.kind)) continue;
+  for (const source of page.sources ?? []) {
+    if (!sourceKinds.includes(String(source.kind))) continue;
     await query(
       conn,
       "INSERT INTO wiki_page_sources(id,page_id,source_kind,source_id,label) VALUES(?,?,?,?,?)",
@@ -157,7 +235,22 @@ async function insertCompiled(conn, page) {
   return id;
 }
 
-export async function recordArchivePages(conn, input) {
+export async function recordArchivePages(
+  conn: Db,
+  input: {
+    workflowId?: string | null;
+    projectId: string;
+    userId?: string | null;
+    threadTitle?: unknown;
+    conclusion?: unknown;
+    notes?: unknown;
+    taskDecisions?: Array<{
+      disposition?: string;
+      reason?: string;
+      taskId?: string;
+    }>;
+  },
+) {
   const [existing] = await query(
     conn,
     "SELECT p.id FROM wiki_pages p JOIN wiki_page_sources s ON s.page_id=p.id WHERE s.source_kind='archive' AND s.source_id=? LIMIT 1",

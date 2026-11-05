@@ -9,7 +9,7 @@ import {
   replaceVersionContent as replaceVersionContentRaw,
 } from "../server/documents/versions.ts";
 import { searchProjectMemory } from "../server/memory-search.js";
-import { getWikiPage, listWikiPages } from "../server/wiki-pages.js";
+import { getWikiPage, listWikiPages } from "../server/wiki-pages.ts";
 import { readProjectMemory } from "../server/memory-timeline.js";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import { loadProjectWikiIndexes, loadProjectMemoryEntryIndex } from "../server/project-memory.js";

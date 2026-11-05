@@ -9,7 +9,7 @@ import {
   setOrganizationMember,
   changeProjectOrganizationLink,
 } from "../server/organizations.js";
-import { createWikiPage, getWikiPage } from "../server/wiki-pages.js";
+import { createWikiPage, getWikiPage } from "../server/wiki-pages.ts";
 import { loginLanding, readOrgShelf } from "../server/org-shelf.ts";
 import { askWikiQuestion } from "../server/wiki-questions.js";
 

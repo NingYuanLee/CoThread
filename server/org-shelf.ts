@@ -3,13 +3,15 @@ import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { requireAdminPermission } from "./admin-rbac.ts";
-import { getWikiPage, listWikiPages } from "./wiki-pages.js";
+import { getWikiPage, listWikiPages } from "./wiki-pages.ts";
 
+import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";
 
 /** 组织货架用到的 Service 视图。 */
 type OrgService = {
-  db: Db;
+  db: Pool;
+  member(user: OrgUser, projectId: string, write?: boolean): Promise<{ role?: string | null }>;
   [method: string]: unknown;
 };
 

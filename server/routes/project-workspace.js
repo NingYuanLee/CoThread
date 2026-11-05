@@ -9,7 +9,7 @@ import { registerCloudbaseRoutes } from "./cloudbase-routes.ts";
 import { registerMiniprogramRoutes } from "./miniprogram.js";
 import { readVisualArtifact } from "../visual-artifacts.ts";
 import { trackSse } from "../sse-streams.ts";
-import { getWikiPage, listWikiPages } from "../wiki-pages.js";
+import { getWikiPage, listWikiPages } from "../wiki-pages.ts";
 import {
   confirmMemoryEntry,
   listProjectMemoryEntries,

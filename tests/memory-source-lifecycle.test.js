@@ -11,7 +11,7 @@ import {
 import { processConversationWindow } from "../server/conversation-memory-runner.js";
 import { searchProjectMemory } from "../server/memory-search.js";
 import { supersedeMemoryEntry, confirmMemoryEntry } from "../server/memory-timeline.js";
-import { getWikiPage } from "../server/wiki-pages.js";
+import { getWikiPage } from "../server/wiki-pages.ts";
 import { listMemoryHistory, readMemoryRevision } from "../server/memory-history.js";
 import {
   resolveMemorySourceFamily,

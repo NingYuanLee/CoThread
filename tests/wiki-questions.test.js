@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { createWikiPage } from "../server/wiki-pages.js";
+import { createWikiPage } from "../server/wiki-pages.ts";
 import {
   askWebQuestion,
   askWikiQuestion,

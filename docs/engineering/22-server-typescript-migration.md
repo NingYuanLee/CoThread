@@ -355,13 +355,19 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 它需要给外部 SDK 的类型单独开一个局部形状：`HostingManager`（`uploadFiles` / `setWebsiteDocument` / `getInfo`）。CloudBase 的 manager 在 JS 里是动态对象，这里只声明本文件真正调用的三个方法，不做全量建模。
 
+第三十二批：`documents/file-upload.ts`(232 行，分片上传的三个入口)。
+
+**这是一次提高批量后的回调：** 我同批改了 3 个文件（`file-index-jobs` 270 行、`project-library` 276 行、`file-upload` 232 行），一次报出 91 个错。逐个修到一半发现，剩下两个的尾巴太长，及时回退——只保留已经干净通过 typecheck 的 `file-upload`。**批量大小要按「修完的把握」定，不是按「想推进多少」定。**
+
+`file-upload` 里值得记的一处：这个文件真正调用的 Service 方法只有 5 个（`thread` / `member` / `assertOfficialOrganizing` / `uploadCacheDraft` / `uploadOfficialDocument`）。我先用索引签名 `Record<string, (...args) => ...>` 接，结果 `service.uploadCacheDraft` 的类型变成 `unknown`，反而更糟。改成把这 5 个方法**显式声明成最小契约**，问题消失——迁移期的 Service 视图应当按实际调用点写，不是按「随便什么方法都能调」写。
+
 剩余 59 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                                | 文件数            |
 | ---- | ----------------------------------------------------------------------------------- | ----------------- |
 | 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                           | 10                |
 | 4    | 被 2–4 个文件引用                                                                   | 14                |
-| 5    | 被 5–9 个文件引用                                                                   | 17                |
+| 5    | 被 5–9 个文件引用                                                                   | 16                |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）              | 1（已计入批次 3） |
 

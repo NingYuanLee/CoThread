@@ -1,4 +1,24 @@
 import { randomUUID } from "node:crypto";
+
+import type { Pool } from "mysql2/promise";
+import type { Db } from "../types.ts";
+
+/** 迁移到一半的文件用：只要 db 与任意可调用方法。 */
+/** 本文件真正调用的 Service 方法（迁移期最小契约）。 */
+type LooseService = {
+  db: Db;
+  thread(
+    user: unknown,
+    threadId: string,
+    write?: boolean,
+    db?: Db,
+  ): Promise<{ project_id: string }>;
+  member(user: unknown, projectId: string, write?: boolean, db?: Db): Promise<unknown>;
+  assertOfficialOrganizing(db: Db, projectId: string): Promise<unknown>;
+  uploadCacheDraft(...args: unknown[]): Promise<unknown>;
+  uploadOfficialDocument(...args: unknown[]): Promise<unknown>;
+};
+
 import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
 import { resolveStoredMime } from "./preview-mime.ts";
@@ -16,7 +36,7 @@ import {
   lastChunkSize,
 } from "../../shared/upload-limits.js";
 
-const fail = (status, message) => {
+const fail = (status: number, message: string): never => {
   throw new HttpError(status, message);
 };
 const id = z.string().uuid();
@@ -27,17 +47,25 @@ const filenameSchema = z
   .max(200)
   .refine((x) => !/[\\/\x00-\x1f]/.test(x), "文件名不可包含路径");
 
-async function purgeExpired(db) {
+async function purgeExpired(db: Db) {
   await query(db, "DELETE FROM file_upload_sessions WHERE expires_at < UTC_TIMESTAMP(3)");
 }
 
-function expectedChunkLength(session, index) {
+function expectedChunkLength(
+  session: { chunk_count: number; chunk_size: number; byte_size: number },
+  index: number,
+): number {
   if (index < session.chunk_count - 1) return session.chunk_size;
   return lastChunkSize(session.byte_size, session.chunk_size);
 }
 
-export async function startFileUpload(service, user, input) {
-  if (!["session", "api"].includes(user.kind)) fail(403, "分片上传需要人工或已授权的 MCP 账号");
+export async function startFileUpload(
+  service: LooseService,
+  user: { id: string; kind?: string | null },
+  input: unknown,
+) {
+  if (!["session", "api"].includes(String(user.kind)))
+    fail(403, "分片上传需要人工或已授权的 MCP 账号");
   const data = z
     .object({
       kind: z.enum(["cache_draft", "official_file"]),
@@ -58,15 +86,17 @@ export async function startFileUpload(service, user, input) {
   if (data.kind === "cache_draft" && !data.threadId) fail(400, "对话缓存上传需要 threadId");
   if (data.kind === "official_file" && !data.projectId) fail(400, "正式文件上传需要 projectId");
   const chunkCount = fileChunkCount(data.byteSize, data.chunkSize);
-  return transaction(service.db, async (db) => {
+  return transaction(service.db as Pool, async (db) => {
     await purgeExpired(db);
     let projectId = data.projectId;
     if (data.kind === "cache_draft") {
-      const thread = await service.thread(user, data.threadId, true, db);
+      const thread = (await service.thread(user, String(data.threadId), true, db)) as {
+        project_id: string;
+      };
       projectId = thread.project_id;
     } else {
-      await service.member(user, projectId, true, db);
-      await service.assertOfficialOrganizing(db, projectId);
+      await service.member(user, String(projectId), true, db);
+      await service.assertOfficialOrganizing(db, String(projectId));
     }
     const [usage] = await query(
       db,
@@ -115,7 +145,12 @@ export async function startFileUpload(service, user, input) {
   });
 }
 
-export async function putFileUploadChunk(service, user, uploadId, input) {
+export async function putFileUploadChunk(
+  service: LooseService,
+  user: { id: string; kind?: string | null },
+  uploadId: string,
+  input: unknown,
+) {
   id.parse(uploadId);
   const data = z
     .object({
@@ -129,7 +164,7 @@ export async function putFileUploadChunk(service, user, uploadId, input) {
     sha256: chunkSha,
     maxBytes: FILE_CHUNK_MAX,
   });
-  return transaction(service.db, async (db) => {
+  return transaction(service.db as Pool, async (db) => {
     await purgeExpired(db);
     const [session] = await query(
       db,
@@ -171,11 +206,16 @@ export async function putFileUploadChunk(service, user, uploadId, input) {
   });
 }
 
-export async function completeFileUpload(service, user, uploadId, input = {}) {
+export async function completeFileUpload(
+  service: LooseService,
+  user: { id: string; kind?: string | null },
+  uploadId: string,
+  input: Record<string, unknown> = {},
+) {
   id.parse(uploadId);
   const data = z.object({ sha256: z.string().optional() }).parse(input || {});
   const confirmSha = parseSha256(data.sha256);
-  return transaction(service.db, async (db) => {
+  return transaction(service.db as Pool, async (db) => {
     await purgeExpired(db);
     const [session] = await query(
       db,
@@ -224,7 +264,7 @@ export async function completeFileUpload(service, user, uploadId, input = {}) {
           );
     await query(db, "DELETE FROM file_upload_chunks WHERE session_id=?", [uploadId]);
     await query(db, "UPDATE file_upload_sessions SET version_id=? WHERE id=?", [
-      result.id,
+      (result as { id: string }).id,
       uploadId,
     ]);
     return result;

@@ -18,11 +18,15 @@ const KIND_LABEL = { github: "GitHub", yunxiao: "云效" };
 function hintOf(secret) {
   const value = String(secret || "");
   if (!value) return null;
-  return value.length <= 4 ? "****" : `${"*".repeat(Math.min(8, value.length - 4))}${value.slice(-4)}`;
+  return value.length <= 4
+    ? "****"
+    : `${"*".repeat(Math.min(8, value.length - 4))}${value.slice(-4)}`;
 }
 
 function normalizeRemoteUrl(url) {
-  const trimmed = String(url || "").trim().replace(/\.git$/i, "");
+  const trimmed = String(url || "")
+    .trim()
+    .replace(/\.git$/i, "");
   if (!/^https:\/\//i.test(trimmed) && !/^git@/i.test(trimmed)) {
     throw new HttpError(400, "代码仓库地址须为 https:// 或 git@ 形式");
   }
@@ -44,7 +48,8 @@ function hostOf(remoteUrl) {
 function platformForHost(host) {
   if (!host) return null;
   if (host === "github.com" || host.endsWith(".github.com")) return "github";
-  if (host.includes("codeup") || host.includes("aliyun") || host.includes("devops")) return "yunxiao";
+  if (host.includes("codeup") || host.includes("aliyun") || host.includes("devops"))
+    return "yunxiao";
   return null;
 }
 
@@ -76,14 +81,19 @@ function redactedConnector(row) {
 }
 
 async function loadConnectorRow(db, projectId, kind) {
-  const [row] = await query(db, `SELECT id,kind,enabled,token_ciphertext,token_hint,organization_id,updated_at
-    FROM project_code_connectors WHERE project_id=? AND kind=?`, [projectId, kind]);
+  const [row] = await query(
+    db,
+    `SELECT id,kind,enabled,token_ciphertext,token_hint,organization_id,updated_at
+    FROM project_code_connectors WHERE project_id=? AND kind=?`,
+    [projectId, kind],
+  );
   return row || null;
 }
 
 async function decryptConnectorToken(db, projectId, kind) {
   const row = await loadConnectorRow(db, projectId, kind);
-  if (!row?.token_ciphertext) throw new HttpError(409, `请先保存 ${KIND_LABEL[kind] || kind} 连接器令牌`);
+  if (!row?.token_ciphertext)
+    throw new HttpError(409, `请先保存 ${KIND_LABEL[kind] || kind} 连接器令牌`);
   if (!Number(row.enabled)) throw new HttpError(409, `请先启用 ${KIND_LABEL[kind] || kind} 连接器`);
   return { row, token: await decryptToken(row.token_ciphertext, vaultId(projectId)) };
 }
@@ -103,19 +113,37 @@ export async function revealProjectCodeConnectorToken(service, user, projectId, 
 export async function listProjectCodeConfig(service, user, projectId) {
   await service.member(user, projectId, false);
   const [connectors, remotes] = await Promise.all([
-    query(service.db, `SELECT kind,enabled,token_ciphertext,token_hint,organization_id,updated_at
-      FROM project_code_connectors WHERE project_id=? ORDER BY kind`, [projectId]),
-    query(service.db, `SELECT id,platform,external_id,label,remote_url,sort_order,updated_at
-      FROM project_git_remotes WHERE project_id=? ORDER BY sort_order,id`, [projectId]),
+    query(
+      service.db,
+      `SELECT kind,enabled,token_ciphertext,token_hint,organization_id,updated_at
+      FROM project_code_connectors WHERE project_id=? ORDER BY kind`,
+      [projectId],
+    ),
+    query(
+      service.db,
+      `SELECT id,platform,external_id,label,remote_url,sort_order,updated_at
+      FROM project_git_remotes WHERE project_id=? ORDER BY sort_order,id`,
+      [projectId],
+    ),
   ]);
   const byKind = Object.fromEntries(connectors.map((row) => [row.kind, redactedConnector(row)]));
   return {
     connectors: {
       github: byKind.github || {
-        kind: "github", enabled: false, hasToken: false, tokenHint: null, organizationId: null, updatedAt: null,
+        kind: "github",
+        enabled: false,
+        hasToken: false,
+        tokenHint: null,
+        organizationId: null,
+        updatedAt: null,
       },
       yunxiao: byKind.yunxiao || {
-        kind: "yunxiao", enabled: false, hasToken: false, tokenHint: null, organizationId: null, updatedAt: null,
+        kind: "yunxiao",
+        enabled: false,
+        hasToken: false,
+        tokenHint: null,
+        organizationId: null,
+        updatedAt: null,
       },
     },
     remotes: remotes.map(redactedRemote),
@@ -124,16 +152,20 @@ export async function listProjectCodeConfig(service, user, projectId) {
 
 export async function upsertProjectCodeConnector(service, user, projectId, input) {
   await service.member(user, projectId, true, service.db, true);
-  const data = z.object({
-    kind: KIND,
-    enabled: z.boolean(),
-    token: z.string().trim().min(1).max(4000).optional(),
-    clearToken: z.boolean().optional(),
-    organizationId: z.string().trim().max(128).nullable().optional(),
-  }).parse(input);
-  const [existing] = await query(service.db,
+  const data = z
+    .object({
+      kind: KIND,
+      enabled: z.boolean(),
+      token: z.string().trim().min(1).max(4000).optional(),
+      clearToken: z.boolean().optional(),
+      organizationId: z.string().trim().max(128).nullable().optional(),
+    })
+    .parse(input);
+  const [existing] = await query(
+    service.db,
     "SELECT id,token_ciphertext,token_hint,organization_id FROM project_code_connectors WHERE project_id=? AND kind=?",
-    [projectId, data.kind]);
+    [projectId, data.kind],
+  );
   let tokenCipher = existing?.token_ciphertext || null;
   let tokenHint = existing?.token_hint || null;
   if (data.clearToken) {
@@ -144,19 +176,35 @@ export async function upsertProjectCodeConnector(service, user, projectId, input
     tokenHint = hintOf(data.token);
   }
   if (data.enabled && !tokenCipher) throw new HttpError(400, "启用连接器前请先填写访问令牌");
-  const organizationId = data.organizationId === undefined
-    ? (existing?.organization_id || null)
-    : (data.organizationId || null);
+  const organizationId =
+    data.organizationId === undefined
+      ? existing?.organization_id || null
+      : data.organizationId || null;
   const id = existing?.id || randomUUID();
   if (existing) {
-    await query(service.db, `UPDATE project_code_connectors
+    await query(
+      service.db,
+      `UPDATE project_code_connectors
       SET enabled=?,token_ciphertext=?,token_hint=?,organization_id=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?`,
-      [data.enabled ? 1 : 0, tokenCipher, tokenHint, organizationId, id]);
+      [data.enabled ? 1 : 0, tokenCipher, tokenHint, organizationId, id],
+    );
   } else {
-    await query(service.db, `INSERT INTO project_code_connectors
+    await query(
+      service.db,
+      `INSERT INTO project_code_connectors
       (id,project_id,kind,enabled,token_ciphertext,token_hint,organization_id,created_by,updated_at)
       VALUES(?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`,
-      [id, projectId, data.kind, data.enabled ? 1 : 0, tokenCipher, tokenHint, organizationId, user.id]);
+      [
+        id,
+        projectId,
+        data.kind,
+        data.enabled ? 1 : 0,
+        tokenCipher,
+        tokenHint,
+        organizationId,
+        user.id,
+      ],
+    );
   }
   return listProjectCodeConfig(service, user, projectId);
 }
@@ -170,12 +218,21 @@ async function fetchJson(url, headers) {
   }
   const text = await response.text();
   let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = text;
+  }
   if (!response.ok) {
-    const detail = typeof body === "object" && body
-      ? (body.message || body.errorMessage || body.errorCode || body.error || body.code
-        || JSON.stringify(body).slice(0, 300))
-      : String(text || response.statusText).slice(0, 300);
+    const detail =
+      typeof body === "object" && body
+        ? body.message ||
+          body.errorMessage ||
+          body.errorCode ||
+          body.error ||
+          body.code ||
+          JSON.stringify(body).slice(0, 300)
+        : String(text || response.statusText).slice(0, 300);
     throw new HttpError(400, `拉取仓库列表失败（HTTP ${response.status}）：${detail || "无详情"}`);
   }
   return { body, headers: response.headers };
@@ -196,25 +253,32 @@ async function resolveYunxiaoOrganizationId(token, preferred) {
   url.searchParams.set("page", "1");
   url.searchParams.set("perPage", "100");
   const { body } = await fetchJson(url.toString(), yunxiaoHeaders(token));
-  const list = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
+  const list = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : [];
   if (!list.length) {
-    throw new HttpError(409, "未找到云效组织。请填写组织 ID（在云效组织管理 → 基本信息，或地址栏 /organization/ 后面那段）");
+    throw new HttpError(
+      409,
+      "未找到云效组织。请填写组织 ID（在云效组织管理 → 基本信息，或地址栏 /organization/ 后面那段）",
+    );
   }
   if (list.length === 1) {
     const only = list[0];
     return String(only.id || only.organizationId || only.orgId || "");
   }
   const names = list
-    .map((item) => `${item.name || item.organizationName || "未命名"}(${item.id || item.organizationId || "?"})`)
+    .map(
+      (item) =>
+        `${item.name || item.organizationName || "未命名"}(${item.id || item.organizationId || "?"})`,
+    )
     .slice(0, 8)
     .join("、");
-  throw new HttpError(409,
-    `检测到多个云效组织，请先填写组织 ID 再拉取。可选：${names}`);
+  throw new HttpError(409, `检测到多个云效组织，请先填写组织 ID 再拉取。可选：${names}`);
 }
 
 async function listGitHubRepositories(token, search) {
   const items = [];
-  const queryText = String(search || "").trim().toLowerCase();
+  const queryText = String(search || "")
+    .trim()
+    .toLowerCase();
   for (let page = 1; page <= 5; page += 1) {
     const url = new URL("https://api.github.com/user/repos");
     url.searchParams.set("per_page", "100");
@@ -232,8 +296,14 @@ async function listGitHubRepositories(token, search) {
       const label = repo.full_name || repo.name;
       const remoteUrl = repo.clone_url || repo.html_url;
       if (!label || !remoteUrl) continue;
-      if (queryText && !String(label).toLowerCase().includes(queryText)
-        && !String(repo.description || "").toLowerCase().includes(queryText)) continue;
+      if (
+        queryText &&
+        !String(label).toLowerCase().includes(queryText) &&
+        !String(repo.description || "")
+          .toLowerCase()
+          .includes(queryText)
+      )
+        continue;
       items.push({
         externalId: String(repo.id),
         label: String(label).slice(0, 128),
@@ -263,16 +333,24 @@ function yunxiaoRepoLabel(repo) {
   const stripOrg = (value) => {
     const text = String(value || "").trim();
     if (!text) return "";
-    const spaced = text.split(/\s+\/\s+/).map((part) => part.trim()).filter(Boolean);
+    const spaced = text
+      .split(/\s+\/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
     if (spaced.length > 1 && orgId.test(spaced[0])) return spaced.slice(1).join(" / ");
-    const parts = text.split("/").map((part) => part.trim()).filter(Boolean);
+    const parts = text
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean);
     if (parts.length > 1 && orgId.test(parts[0])) return parts.slice(1).join("/");
     return text;
   };
-  return stripOrg(repo.pathWithNamespace)
-    || stripOrg(repo.nameWithNamespace)
-    || String(repo.name || "").trim()
-    || stripOrg(repo.pathWithNamespace || repo.nameWithNamespace);
+  return (
+    stripOrg(repo.pathWithNamespace) ||
+    stripOrg(repo.nameWithNamespace) ||
+    String(repo.name || "").trim() ||
+    stripOrg(repo.pathWithNamespace || repo.nameWithNamespace)
+  );
 }
 
 async function listYunxiaoRepositories(token, organizationId, search) {
@@ -294,7 +372,7 @@ async function listYunxiaoRepositories(token, organizationId, search) {
     url.searchParams.set("archived", "false");
     if (queryText) url.searchParams.set("search", queryText);
     const { body, headers } = await fetchJson(url.toString(), yunxiaoHeaders(token));
-    const pageItems = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
+    const pageItems = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : [];
     for (const repo of pageItems) {
       const remoteUrl = yunxiaoCloneUrl(repo);
       const label = yunxiaoRepoLabel(repo);
@@ -318,12 +396,15 @@ export async function listPlatformRepositories(service, user, projectId, kind, {
   await service.member(user, projectId, true, service.db, true);
   const parsedKind = GIT_KIND.parse(kind);
   const { row, token } = await decryptConnectorToken(service.db, projectId, parsedKind);
-  const repositories = parsedKind === "github"
-    ? await listGitHubRepositories(token, search)
-    : await listYunxiaoRepositories(token, row.organization_id, search);
-  const selected = await query(service.db,
+  const repositories =
+    parsedKind === "github"
+      ? await listGitHubRepositories(token, search)
+      : await listYunxiaoRepositories(token, row.organization_id, search);
+  const selected = await query(
+    service.db,
     `SELECT external_id FROM project_git_remotes WHERE project_id=? AND platform=?`,
-    [projectId, parsedKind]);
+    [projectId, parsedKind],
+  );
   const selectedIds = new Set(selected.map((item) => String(item.external_id || "")));
   return {
     kind: parsedKind,
@@ -338,13 +419,19 @@ export async function syncPlatformScope(service, user, projectId, kind, input) {
   await service.member(user, projectId, true, service.db, true);
   const parsedKind = GIT_KIND.parse(kind);
   await decryptConnectorToken(service.db, projectId, parsedKind);
-  const data = z.object({
-    repositories: z.array(z.object({
-      externalId: z.string().trim().min(1).max(191),
-      label: z.string().trim().min(1).max(128),
-      remoteUrl: z.string().trim().min(1).max(1024),
-    })).max(MAX_SCOPE),
-  }).parse(input);
+  const data = z
+    .object({
+      repositories: z
+        .array(
+          z.object({
+            externalId: z.string().trim().min(1).max(191),
+            label: z.string().trim().min(1).max(128),
+            remoteUrl: z.string().trim().min(1).max(1024),
+          }),
+        )
+        .max(MAX_SCOPE),
+    })
+    .parse(input);
   if (data.repositories.length > MAX_SCOPE) {
     throw new HttpError(400, `每个平台最多勾选 ${MAX_SCOPE} 个代码仓库`);
   }
@@ -361,9 +448,11 @@ export async function syncPlatformScope(service, user, projectId, kind, input) {
     };
   });
   await transaction(service.db, async (db) => {
-    const existing = await query(db,
+    const existing = await query(
+      db,
       `SELECT id,external_id FROM project_git_remotes WHERE project_id=? AND platform=?`,
-      [projectId, parsedKind]);
+      [projectId, parsedKind],
+    );
     const byExternal = new Map(existing.map((row) => [String(row.external_id || ""), row]));
     const keep = new Set(normalized.map((item) => item.externalId));
     for (const row of existing) {
@@ -374,14 +463,29 @@ export async function syncPlatformScope(service, user, projectId, kind, input) {
     for (const item of normalized) {
       const found = byExternal.get(item.externalId);
       if (found) {
-        await query(db, `UPDATE project_git_remotes
+        await query(
+          db,
+          `UPDATE project_git_remotes
           SET label=?,remote_url=?,sort_order=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?`,
-          [item.label, item.remoteUrl, item.sortOrder, found.id]);
+          [item.label, item.remoteUrl, item.sortOrder, found.id],
+        );
       } else {
-        await query(db, `INSERT INTO project_git_remotes
+        await query(
+          db,
+          `INSERT INTO project_git_remotes
           (id,project_id,platform,external_id,label,remote_url,credential_ciphertext,credential_hint,sort_order,created_by,updated_at)
           VALUES(?,?,?,?,?,?,NULL,NULL,?,?,UTC_TIMESTAMP(3))`,
-          [randomUUID(), projectId, parsedKind, item.externalId, item.label, item.remoteUrl, item.sortOrder, user.id]);
+          [
+            randomUUID(),
+            projectId,
+            parsedKind,
+            item.externalId,
+            item.label,
+            item.remoteUrl,
+            item.sortOrder,
+            user.id,
+          ],
+        );
       }
     }
   });
@@ -390,12 +494,14 @@ export async function syncPlatformScope(service, user, projectId, kind, input) {
 
 /** @deprecated Prefer syncPlatformScope; kept for tests/migrations of old flows. */
 export async function createProjectGitRemote(service, user, projectId, input) {
-  const data = z.object({
-    label: z.string().trim().min(1).max(128),
-    remoteUrl: z.string().trim().min(1).max(1024),
-    platform: KIND.optional(),
-    externalId: z.string().trim().min(1).max(191).optional(),
-  }).parse(input);
+  const data = z
+    .object({
+      label: z.string().trim().min(1).max(128),
+      remoteUrl: z.string().trim().min(1).max(1024),
+      platform: KIND.optional(),
+      externalId: z.string().trim().min(1).max(191).optional(),
+    })
+    .parse(input);
   const remoteUrl = normalizeRemoteUrl(data.remoteUrl);
   const platform = data.platform || platformForHost(hostOf(remoteUrl));
   if (!platform) throw new HttpError(400, "无法识别仓库所属平台，请使用 GitHub 或云效地址");
@@ -419,8 +525,11 @@ export async function createProjectGitRemote(service, user, projectId, input) {
 
 export async function deleteProjectGitRemote(service, user, projectId, remoteId) {
   await service.member(user, projectId, true, service.db, true);
-  const result = await query(service.db,
-    "DELETE FROM project_git_remotes WHERE id=? AND project_id=?", [remoteId, projectId]);
+  const result = await query(
+    service.db,
+    "DELETE FROM project_git_remotes WHERE id=? AND project_id=?",
+    [remoteId, projectId],
+  );
   if (!result.affectedRows) throw new HttpError(404, "代码仓库不存在");
   return listProjectCodeConfig(service, user, projectId);
 }
@@ -443,7 +552,9 @@ export function formatGitFailure(result) {
     result?.error?.message,
     result?.signal ? `signal ${result.signal}` : "",
     result?.status != null && result.status !== 0 ? `exit ${result.status}` : "",
-  ].map((part) => String(part || "").trim()).filter(Boolean);
+  ]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
   const detail = redactGitDetail(parts.join(" | ") || "git 失败").slice(0, 500);
   return `读取代码库失败：${detail}`;
 }
@@ -461,20 +572,32 @@ export function parseGithubOwnerRepo(remoteUrl, label) {
   try {
     if (String(remoteUrl || "").startsWith("git@")) {
       const path = String(remoteUrl).split(":")[1] || "";
-      const parts = path.replace(/\.git$/i, "").split("/").filter(Boolean);
+      const parts = path
+        .replace(/\.git$/i, "")
+        .split("/")
+        .filter(Boolean);
       if (parts.length >= 2) return { owner: parts[0], repo: parts[1] };
     } else if (remoteUrl) {
-      const parts = new URL(remoteUrl).pathname.replace(/\.git$/i, "").split("/").filter(Boolean);
+      const parts = new URL(remoteUrl).pathname
+        .replace(/\.git$/i, "")
+        .split("/")
+        .filter(Boolean);
       if (parts.length >= 2) return { owner: parts[0], repo: parts[1] };
     }
-  } catch { /* fall through */ }
-  const parts = String(label || "").split("/").map((part) => part.trim()).filter(Boolean);
+  } catch {
+    /* fall through */
+  }
+  const parts = String(label || "")
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (parts.length >= 2) return { owner: parts[0], repo: parts[1] };
   throw new HttpError(400, "无法解析 GitHub 仓库 owner/repo");
 }
 
 function githubRepoApiBase(remote) {
-  if (remote.external_id) return `https://api.github.com/repositories/${encodeURIComponent(remote.external_id)}`;
+  if (remote.external_id)
+    return `https://api.github.com/repositories/${encodeURIComponent(remote.external_id)}`;
   const { owner, repo } = parseGithubOwnerRepo(remote.remote_url, remote.label);
   return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 }
@@ -494,13 +617,25 @@ async function fetchCodeJson(url, headers) {
   }
   const text = await response.text();
   let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = text;
+  }
   if (!response.ok) {
-    const detail = typeof body === "object" && body
-      ? (body.message || body.errorMessage || body.errorCode || body.error || body.code
-        || JSON.stringify(body).slice(0, 300))
-      : String(text || response.statusText).slice(0, 300);
-    throw new HttpError(400, `读取代码库失败（HTTP ${response.status}）：${redactGitDetail(detail || "无详情")}`);
+    const detail =
+      typeof body === "object" && body
+        ? body.message ||
+          body.errorMessage ||
+          body.errorCode ||
+          body.error ||
+          body.code ||
+          JSON.stringify(body).slice(0, 300)
+        : String(text || response.statusText).slice(0, 300);
+    throw new HttpError(
+      400,
+      `读取代码库失败（HTTP ${response.status}）：${redactGitDetail(detail || "无详情")}`,
+    );
   }
   return { body, headers: response.headers };
 }
@@ -528,7 +663,9 @@ async function githubListRefs(token, remote) {
 
 async function githubListTree(token, remote, { ref, path = "" } = {}) {
   const base = githubRepoApiBase(remote);
-  const prefix = String(path || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  const prefix = String(path || "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
   const encoded = prefix.split("/").filter(Boolean).map(encodeURIComponent).join("/");
   const url = new URL(`${base}/contents${encoded ? `/${encoded}` : ""}`);
   const normalized = normalizeRefParam(ref);
@@ -542,7 +679,8 @@ async function githubListTree(token, remote, { ref, path = "" } = {}) {
     entries.push({
       type: item.type === "dir" ? "dir" : "file",
       path: item.path || item.name,
-      size: item.type === "dir" ? null : (Number.isFinite(Number(item.size)) ? Number(item.size) : null),
+      size:
+        item.type === "dir" ? null : Number.isFinite(Number(item.size)) ? Number(item.size) : null,
     });
     if (entries.length >= MAX_TREE) break;
   }
@@ -563,7 +701,10 @@ async function githubReadFile(token, remote, { ref, path } = {}) {
   const size = Number(body.size);
   if (!Number.isFinite(size)) throw new HttpError(400, "无法读取文件大小");
   if (size > MAX_FILE_BYTES) {
-    throw new HttpError(400, `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`);
+    throw new HttpError(
+      400,
+      `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`,
+    );
   }
   if (body.encoding && body.encoding !== "base64") {
     throw new HttpError(400, `不支持的文件编码：${body.encoding}`);
@@ -575,8 +716,9 @@ async function githubReadFile(token, remote, { ref, path } = {}) {
 
 async function yunxiaoRepoContext(db, projectId, remote, token, connector) {
   const orgId = await resolveYunxiaoOrganizationId(token, connector.organization_id);
-  const repositoryId = remote.external_id
-    || (() => {
+  const repositoryId =
+    remote.external_id ||
+    (() => {
       try {
         const path = new URL(remote.remote_url).pathname.replace(/^\//, "").replace(/\.git$/i, "");
         return path || null;
@@ -601,7 +743,7 @@ async function yunxiaoPaged(url, token, mapItem) {
     url.searchParams.set("page", String(page));
     url.searchParams.set("perPage", "100");
     const { body, headers } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
-    const pageItems = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
+    const pageItems = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : [];
     for (const item of pageItems) {
       const mapped = mapItem(item);
       if (mapped) items.push(mapped);
@@ -625,16 +767,12 @@ async function yunxiaoListRefs(token, { orgId, repositoryId }) {
       return { sha, ref: `refs/heads/${name}` };
     },
   );
-  const tags = await yunxiaoPaged(
-    yunxiaoRepoUrl(orgId, repositoryId, "/tags"),
-    token,
-    (item) => {
-      const name = item.name || item.tagName;
-      const sha = item.commit?.id || item.id;
-      if (!name || !sha) return null;
-      return { sha, ref: `refs/tags/${name}` };
-    },
-  );
+  const tags = await yunxiaoPaged(yunxiaoRepoUrl(orgId, repositoryId, "/tags"), token, (item) => {
+    const name = item.name || item.tagName;
+    const sha = item.commit?.id || item.id;
+    if (!name || !sha) return null;
+    return { sha, ref: `refs/tags/${name}` };
+  });
   return [...branches, ...tags].slice(0, 200);
 }
 
@@ -643,22 +781,23 @@ async function yunxiaoDefaultRef(token, { orgId, repositoryId }) {
   url.searchParams.set("page", "1");
   url.searchParams.set("perPage", "100");
   const { body } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
-  const list = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
-  const preferred = list.find((item) => item.defaultBranch)?.name
-    || list[0]?.name
-    || list[0]?.branchName;
+  const list = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : [];
+  const preferred =
+    list.find((item) => item.defaultBranch)?.name || list[0]?.name || list[0]?.branchName;
   return preferred || "master";
 }
 
 async function yunxiaoListTree(token, ctx, { ref, path = "" } = {}) {
   const url = yunxiaoRepoUrl(ctx.orgId, ctx.repositoryId, "/files/tree");
-  const prefix = String(path || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  const prefix = String(path || "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
   if (prefix) url.searchParams.set("path", prefix);
-  const normalized = normalizeRefParam(ref) || await yunxiaoDefaultRef(token, ctx);
+  const normalized = normalizeRefParam(ref) || (await yunxiaoDefaultRef(token, ctx));
   url.searchParams.set("ref", normalized);
   url.searchParams.set("type", "DIRECT");
   const { body } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
-  const list = Array.isArray(body) ? body : (Array.isArray(body?.result) ? body.result : []);
+  const list = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : [];
   const entries = [];
   for (const item of list) {
     entries.push({
@@ -674,13 +813,16 @@ async function yunxiaoListTree(token, ctx, { ref, path = "" } = {}) {
 async function yunxiaoReadFile(token, ctx, { ref, path } = {}) {
   // 云效要求整段路径 URL-Encode（斜杠变成 %2F），而不是按段拆开。
   const url = yunxiaoRepoUrl(ctx.orgId, ctx.repositoryId, `/files/${encodeURIComponent(path)}`);
-  const normalized = normalizeRefParam(ref) || await yunxiaoDefaultRef(token, ctx);
+  const normalized = normalizeRefParam(ref) || (await yunxiaoDefaultRef(token, ctx));
   url.searchParams.set("ref", normalized);
   const { body } = await fetchCodeJson(url.toString(), yunxiaoHeaders(token));
   const size = Number(body?.size);
   if (!Number.isFinite(size)) throw new HttpError(400, "无法读取文件大小");
   if (size > MAX_FILE_BYTES) {
-    throw new HttpError(400, `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`);
+    throw new HttpError(
+      400,
+      `文件超过 ${MAX_FILE_BYTES} 字节只读上限，请改用更小的路径或让成员提供摘录`,
+    );
   }
   const encoding = String(body?.encoding || "base64").toLowerCase();
   let raw;
@@ -697,20 +839,39 @@ async function yunxiaoReadFile(token, ctx, { ref, path } = {}) {
 
 export async function agentListCodeSources(db, projectId) {
   const [connectors, remotes] = await Promise.all([
-    query(db, `SELECT kind,enabled,token_ciphertext,token_hint,organization_id,updated_at
-      FROM project_code_connectors WHERE project_id=?`, [projectId]),
-    query(db, `SELECT id,platform,external_id,label,remote_url,sort_order,updated_at
-      FROM project_git_remotes WHERE project_id=? ORDER BY sort_order,id`, [projectId]),
+    query(
+      db,
+      `SELECT kind,enabled,token_ciphertext,token_hint,organization_id,updated_at
+      FROM project_code_connectors WHERE project_id=?`,
+      [projectId],
+    ),
+    query(
+      db,
+      `SELECT id,platform,external_id,label,remote_url,sort_order,updated_at
+      FROM project_git_remotes WHERE project_id=? ORDER BY sort_order,id`,
+      [projectId],
+    ),
   ]);
   const byKind = Object.fromEntries(connectors.map((row) => [row.kind, redactedConnector(row)]));
   return {
-    policy: "只读。仅在任务确实需要对照源码，或人类成员明确要求查阅代码库时使用；不要浏览无关目录或大段粘贴源码。项目范围以已勾选仓库为准。",
+    policy:
+      "只读。仅在任务确实需要对照源码，或人类成员明确要求查阅代码库时使用；不要浏览无关目录或大段粘贴源码。项目范围以已勾选仓库为准。",
     connectors: {
       github: byKind.github || {
-        kind: "github", enabled: false, hasToken: false, tokenHint: null, organizationId: null, updatedAt: null,
+        kind: "github",
+        enabled: false,
+        hasToken: false,
+        tokenHint: null,
+        organizationId: null,
+        updatedAt: null,
       },
       yunxiao: byKind.yunxiao || {
-        kind: "yunxiao", enabled: false, hasToken: false, tokenHint: null, organizationId: null, updatedAt: null,
+        kind: "yunxiao",
+        enabled: false,
+        hasToken: false,
+        tokenHint: null,
+        organizationId: null,
+        updatedAt: null,
       },
     },
     remotes: remotes.map((row) => ({
@@ -724,8 +885,10 @@ export async function agentListCodeSources(db, projectId) {
 }
 
 async function getRemoteRow(db, projectId, remoteId) {
-  const [row] = await query(db, "SELECT * FROM project_git_remotes WHERE id=? AND project_id=?",
-    [remoteId, projectId]);
+  const [row] = await query(db, "SELECT * FROM project_git_remotes WHERE id=? AND project_id=?", [
+    remoteId,
+    projectId,
+  ]);
   if (!row) throw new HttpError(404, "代码仓库不存在");
   return row;
 }
@@ -733,23 +896,30 @@ async function getRemoteRow(db, projectId, remoteId) {
 export async function agentListCodeRefs(db, projectId, remoteId) {
   const remote = await getRemoteRow(db, projectId, remoteId);
   const { platform, token, connector } = await requireRemoteAccess(db, projectId, remote);
-  const refs = platform === "github"
-    ? await githubListRefs(token, remote)
-    : await yunxiaoListRefs(token, await yunxiaoRepoContext(db, projectId, remote, token, connector));
+  const refs =
+    platform === "github"
+      ? await githubListRefs(token, remote)
+      : await yunxiaoListRefs(
+          token,
+          await yunxiaoRepoContext(db, projectId, remote, token, connector),
+        );
   return { remoteId, label: remote.label, refs };
 }
 
 export async function agentListCodeTree(db, projectId, remoteId, { ref, path = "" } = {}) {
   const remote = await getRemoteRow(db, projectId, remoteId);
   const { platform, token, connector } = await requireRemoteAccess(db, projectId, remote);
-  const prefix = String(path || "").replace(/^\/+/, "").replace(/\/+$/, "");
-  const entries = platform === "github"
-    ? await githubListTree(token, remote, { ref, path: prefix })
-    : await yunxiaoListTree(
-      token,
-      await yunxiaoRepoContext(db, projectId, remote, token, connector),
-      { ref, path: prefix },
-    );
+  const prefix = String(path || "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  const entries =
+    platform === "github"
+      ? await githubListTree(token, remote, { ref, path: prefix })
+      : await yunxiaoListTree(
+          token,
+          await yunxiaoRepoContext(db, projectId, remote, token, connector),
+          { ref, path: prefix },
+        );
   return { remoteId, label: remote.label, ref: ref || "HEAD", path: prefix || "", entries };
 }
 
@@ -760,13 +930,14 @@ export async function agentReadCodeFile(db, projectId, remoteId, { ref, path } =
   }
   const remote = await getRemoteRow(db, projectId, remoteId);
   const { platform, token, connector } = await requireRemoteAccess(db, projectId, remote);
-  const file = platform === "github"
-    ? await githubReadFile(token, remote, { ref, path: filePath })
-    : await yunxiaoReadFile(
-      token,
-      await yunxiaoRepoContext(db, projectId, remote, token, connector),
-      { ref, path: filePath },
-    );
+  const file =
+    platform === "github"
+      ? await githubReadFile(token, remote, { ref, path: filePath })
+      : await yunxiaoReadFile(
+          token,
+          await yunxiaoRepoContext(db, projectId, remote, token, connector),
+          { ref, path: filePath },
+        );
   return {
     remoteId,
     label: remote.label,

@@ -30,8 +30,16 @@ test("account audit pages are open to members but view-all is opt-in", async () 
       db,
       "INSERT INTO account_change_logs(id,target_user_id,actor_user_id,action,details) VALUES(?,?,?,?,?),(?,?,?,?,?)",
       [
-        randomUUID(), member.id, admin.id, "password_reset", JSON.stringify({}),
-        randomUUID(), other.id, admin.id, "disabled", JSON.stringify({}),
+        randomUUID(),
+        member.id,
+        admin.id,
+        "password_reset",
+        JSON.stringify({}),
+        randomUUID(),
+        other.id,
+        admin.id,
+        "disabled",
+        JSON.stringify({}),
       ],
     );
     await query(
@@ -39,19 +47,56 @@ test("account audit pages are open to members but view-all is opt-in", async () 
       `INSERT INTO login_logs(id,user_id,email,ip,country,province,city,district,success,failure_reason)
        VALUES(?,?,?,?,?,?,?,?,?,?),(?,?,?,?,?,?,?,?,?,?),(?,?,?,?,?,?,?,?,?,?)`,
       [
-        randomUUID(), member.id, member.username, "127.0.0.1", "本机", null, null, null, 1, null,
-        randomUUID(), null, member.username, "127.0.0.1", "本机", null, null, null, 0, "密码错误",
-        randomUUID(), other.id, other.username, "127.0.0.1", "本机", null, null, null, 1, null,
+        randomUUID(),
+        member.id,
+        member.username,
+        "127.0.0.1",
+        "本机",
+        null,
+        null,
+        null,
+        1,
+        null,
+        randomUUID(),
+        null,
+        member.username,
+        "127.0.0.1",
+        "本机",
+        null,
+        null,
+        null,
+        0,
+        "密码错误",
+        randomUUID(),
+        other.id,
+        other.username,
+        "127.0.0.1",
+        "本机",
+        null,
+        null,
+        null,
+        1,
+        null,
       ],
     );
 
     const ownChanges = await listAccountChanges(db, member, {});
     assert.equal(ownChanges.canViewAll, false);
-    assert.deepEqual(ownChanges.items.map((item) => item.user_number), [member.user_number]);
-    assert.equal((await listAccountChanges(db, member, { userNumber: other.user_number })).total, 0);
+    assert.deepEqual(
+      ownChanges.items.map((item) => item.user_number),
+      [member.user_number],
+    );
+    assert.equal(
+      (await listAccountChanges(db, member, { userNumber: other.user_number })).total,
+      0,
+    );
     const ownLogins = await listAccountLogins(db, member, {});
     assert.equal(ownLogins.total, 2);
-    assert.ok(ownLogins.items.every((item) => item.user_number === member.user_number || item.identifier === member.username));
+    assert.ok(
+      ownLogins.items.every(
+        (item) => item.user_number === member.user_number || item.identifier === member.username,
+      ),
+    );
     assert.equal((await listAccountLogins(db, member, { userNumber: other.user_number })).total, 0);
 
     const allChanges = await listAccountChanges(db, admin, {});

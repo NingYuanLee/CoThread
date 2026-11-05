@@ -11,6 +11,7 @@ public/vendor/
 # Dimina runtime is vendored third-party build output (see scripts/vendor-dimina-runtime.mjs);
 # reformatting it would produce a huge diff and could break the bundle.
 public/dimina/
+public/sdk/
 
 # Legacy monolith is formatted incrementally during the Documents refactor.
 web/Documents.tsx

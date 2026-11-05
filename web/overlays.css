@@ -635,7 +635,8 @@ html body [data-overlay="menu"] [role="menuitem"].danger {
   color: var(--c-a3332d);
 }
 /* 菜单项是 button，会继承全局发丝线。边框已经是 0，这里再收掉 ::after。 */
-html body
+html
+  body
   [data-overlay="menu"]
   :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"])::after {
   content: none;
@@ -1634,7 +1635,8 @@ html[data-theme="night"] body .dialog-header::after {
 }
 
 /* 记忆类弹窗把下边框颜色写死在自身规则里，单独覆盖一次。 */
-html[data-theme="night"] body
+html[data-theme="night"]
+  body
   :is(.project-memory-dialog, .project-memory-detail-dialog, .project-memory-confirm-dialog)
   .dialog-header {
   border-bottom-color: transparent !important;

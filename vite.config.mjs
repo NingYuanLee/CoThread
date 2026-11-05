@@ -11,10 +11,8 @@ export default defineConfig({
     watch: {
       ignored(path) {
         const normalized = path.replaceAll("\\", "/").toLowerCase();
-        return (
-          [".tmpdir", "/.git/", "/.local/", "/dist/", "/node_modules/"].some((part) =>
-            normalized.includes(part),
-          )
+        return [".tmpdir", "/.git/", "/.local/", "/dist/", "/node_modules/"].some((part) =>
+          normalized.includes(part),
         );
       },
     },

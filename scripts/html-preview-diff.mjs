@@ -12,9 +12,7 @@ const raw = await service.version(sessionUser, versionId);
 const source = Buffer.isBuffer(raw.content)
   ? raw.content.toString("utf8")
   : String(raw.content ?? "");
-const preview = (
-  await service.versionPreview(sessionUser, versionId, "")
-).content.toString("utf8");
+const preview = (await service.versionPreview(sessionUser, versionId, "")).content.toString("utf8");
 
 function stripPreviewInjections(html) {
   return html

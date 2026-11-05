@@ -1,6 +1,5 @@
 /* 分段滑块。轨道、滑块和 0.26s 平移在所有尺寸里相同。 */
 .slide-switch {
-
   --slide-pad: 0.214rem;
 
   --slide-radius: 0.571rem;
@@ -61,7 +60,6 @@
   transform-origin: 0 0;
 }
 
-
 .slide-switch.is-stretch {
   display: flex;
   width: 100%;
@@ -79,7 +77,6 @@
 }
 
 .slide-switch-thumb {
-
   position: absolute;
 
   z-index: 0;
@@ -124,7 +121,6 @@
   transform-origin: 0 0;
 }
 
-
 .slide-switch.is-ready .slide-switch-thumb {
   transition:
     transform 0.26s cubic-bezier(0.32, 0.08, 0.24, 1),
@@ -157,7 +153,8 @@
   white-space: nowrap;
   transition: color 0.18s ease;
 
-  --stroke-radius: calc((calc(var(--slide-radius) - var(--slide-pad))) * 2);}
+  --stroke-radius: calc((calc(var(--slide-radius) - var(--slide-pad))) * 2);
+}
 
 .slide-switch.is-stretch > button {
   flex: 1 1 0;

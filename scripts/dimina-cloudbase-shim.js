@@ -1,6 +1,6 @@
 // Runs inside Dimina's service worker after the browser CloudBase SDK bundle.
 // Keep the SDK private so mini-program source selects wx.cloud in Web preview.
-;(function () {
+(function () {
   const root = globalThis;
   const sdk = root.CloudbaseSDK?.default || root.CloudbaseSDK;
   const nativeWx = root.__cothreadWx;
@@ -32,31 +32,39 @@
     if (!signIn) {
       const runtime = root.__COTHREAD_RUNTIME__;
       const auth = getApp().auth();
-      signIn = (String(runtime?.channel || "").startsWith("admin")
-        ? auth.getLoginState().then((state) => {
-            const user = state?.data?.user || state?.user;
-            if (!user) throw new Error("Admin CloudBase 尚未完成密码登录");
-            return state;
-          })
-        : auth.signInAnonymously().then((result) => {
-            if (result?.error) throw result.error;
-            return result;
-          })).catch((error) => {
-            signIn = undefined;
-            throw error;
-          });
+      signIn = (
+        String(runtime?.channel || "").startsWith("admin")
+          ? auth.getLoginState().then((state) => {
+              const user = state?.data?.user || state?.user;
+              if (!user) throw new Error("Admin CloudBase 尚未完成密码登录");
+              return state;
+            })
+          : auth.signInAnonymously().then((result) => {
+              if (result?.error) throw result.error;
+              return result;
+            })
+      ).catch((error) => {
+        signIn = undefined;
+        throw error;
+      });
     }
     return signIn;
   }
 
   const cloud = {
-    init() { return cloud; },
+    init() {
+      return cloud;
+    },
     async callFunction({ name, data } = {}) {
       await ensureSignedIn();
       return getApp().callFunction({ name, data: data || {} });
     },
-    database() { return getApp().database(); },
-    auth() { return getApp().auth(); },
+    database() {
+      return getApp().database();
+    },
+    auth() {
+      return getApp().auth();
+    },
   };
   if (nativeWx) nativeWx.cloud = cloud;
   root.wx = nativeWx || { cloud };

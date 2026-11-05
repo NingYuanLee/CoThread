@@ -43,13 +43,23 @@ export function normalizeUploadMime(mime) {
 }
 
 function fileExt(filename) {
-  return String(filename || "").split(".").pop()?.toLowerCase() || "";
+  return (
+    String(filename || "")
+      .split(".")
+      .pop()
+      ?.toLowerCase() || ""
+  );
 }
 
 export function storedContentType(filename) {
   const ext = fileExt(filename);
   if (STORED_MIME_BY_EXT[ext]) return STORED_MIME_BY_EXT[ext];
-  if (/^(txt|py|ts|tsx|jsx|csv|sql|ya?ml|jsonc|log|env|ini|conf|toml|properties|sh|bash|gitignore)$/.test(ext)) return "text/plain";
+  if (
+    /^(txt|py|ts|tsx|jsx|csv|sql|ya?ml|jsonc|log|env|ini|conf|toml|properties|sh|bash|gitignore)$/.test(
+      ext,
+    )
+  )
+    return "text/plain";
   return "application/octet-stream";
 }
 
@@ -70,5 +80,3 @@ export function previewContentType(mime, filename) {
   }
   return "application/octet-stream";
 }
-
-

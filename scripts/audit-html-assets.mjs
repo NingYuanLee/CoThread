@@ -23,15 +23,9 @@ for (const row of htmlRows) {
     ? raw.content.toString("utf8")
     : String(raw.content ?? "");
 
-  const refs = [...source.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map(
-    (m) => m[1],
-  );
+  const refs = [...source.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map((m) => m[1]);
   const rel = refs.filter(
-    (h) =>
-      !/^https?:/i.test(h) &&
-      !/^#/.test(h) &&
-      !/^data:/i.test(h) &&
-      !/^mailto:/i.test(h),
+    (h) => !/^https?:/i.test(h) && !/^#/.test(h) && !/^data:/i.test(h) && !/^mailto:/i.test(h),
   );
 
   console.log("=".repeat(60));
@@ -39,12 +33,9 @@ for (const row of htmlRows) {
   console.log("version:", row.id);
   console.log("folder:", row.folder_id || "(none)");
 
-  const preview = (
-    await service.versionPreview(sessionUser, row.id, "")
-  ).content.toString("utf8");
+  const preview = (await service.versionPreview(sessionUser, row.id, "")).content.toString("utf8");
   const onlyBaseDiff =
-    preview.replace(/<base\s[^>]*>/i, "").replace(/\s+/g, " ") ===
-    source.replace(/\s+/g, " ");
+    preview.replace(/<base\s[^>]*>/i, "").replace(/\s+/g, " ") === source.replace(/\s+/g, " ");
 
   console.log("preview mutation: only <base> inject:", onlyBaseDiff);
 
@@ -59,9 +50,7 @@ for (const row of htmlRows) {
     const path = ref.replace(/^\.\//, "");
     try {
       const asset = await service.versionPreview(sessionUser, row.id, path);
-      console.log(
-        `  OK ${ref} → ${asset.filename} (${asset.content.length} bytes, ${asset.mime})`,
-      );
+      console.log(`  OK ${ref} → ${asset.filename} (${asset.content.length} bytes, ${asset.mime})`);
     } catch (e) {
       console.log(`  FAIL ${ref} → ${e.message}`);
     }

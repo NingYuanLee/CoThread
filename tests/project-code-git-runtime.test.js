@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import {
-  codeMirrorBase, formatGitFailure, parseGithubOwnerRepo,
+  codeMirrorBase,
+  formatGitFailure,
+  parseGithubOwnerRepo,
 } from "../server/project-code-sources.js";
 
 test("code mirror base uses cwd/.local", () => {
@@ -16,23 +18,24 @@ test("git failure detail surfaces spawn errors and redacts credentials", () => {
   );
   const message = formatGitFailure({
     status: 128,
-    stderr: "fatal: Authentication failed for 'https://x-access-token:ghp_secret@github.com/a/b.git/'",
+    stderr:
+      "fatal: Authentication failed for 'https://x-access-token:ghp_secret@github.com/a/b.git/'",
   });
   assert.match(message, /x-access-token:\*\*\*@/);
   assert.doesNotMatch(message, /ghp_secret/);
 });
 
 test("parseGithubOwnerRepo accepts https, ssh and label", () => {
-  assert.deepEqual(
-    parseGithubOwnerRepo("https://github.com/NingYuanLee/CoThread.git", ""),
-    { owner: "NingYuanLee", repo: "CoThread" },
-  );
-  assert.deepEqual(
-    parseGithubOwnerRepo("git@github.com:NingYuanLee/CoThread.git", ""),
-    { owner: "NingYuanLee", repo: "CoThread" },
-  );
-  assert.deepEqual(
-    parseGithubOwnerRepo("", "NingYuanLee/CoThread"),
-    { owner: "NingYuanLee", repo: "CoThread" },
-  );
+  assert.deepEqual(parseGithubOwnerRepo("https://github.com/NingYuanLee/CoThread.git", ""), {
+    owner: "NingYuanLee",
+    repo: "CoThread",
+  });
+  assert.deepEqual(parseGithubOwnerRepo("git@github.com:NingYuanLee/CoThread.git", ""), {
+    owner: "NingYuanLee",
+    repo: "CoThread",
+  });
+  assert.deepEqual(parseGithubOwnerRepo("", "NingYuanLee/CoThread"), {
+    owner: "NingYuanLee",
+    repo: "CoThread",
+  });
 });

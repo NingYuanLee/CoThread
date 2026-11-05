@@ -95,10 +95,7 @@ function conditionExpression(command, condition) {
     return { [field]: command.exists(operator === "exists") };
   }
   if (type === "null" && (operator === "eq" || operator === "neq")) {
-    return command.and(
-      { [field]: command.exists(true) },
-      { [field]: command[operator](null) },
-    );
+    return command.and({ [field]: command.exists(true) }, { [field]: command[operator](null) });
   }
   if (operator === "regex" || operator === "regex_i") {
     if (type !== "string") invalid("正则匹配只适用于字符串");
@@ -114,13 +111,19 @@ function conditionExpression(command, condition) {
     if (type !== "string") invalid("包含、开头和结尾条件只适用于字符串");
     const escaped = String(condition.value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pattern =
-      operator === "starts_with" ? `^${escaped}` : operator === "ends_with" ? `${escaped}$` : escaped;
+      operator === "starts_with"
+        ? `^${escaped}`
+        : operator === "ends_with"
+          ? `${escaped}$`
+          : escaped;
     return { [field]: new RegExp(pattern) };
   }
   if (operator === "any_eq" || operator === "any_neq") {
     if (type !== "array" && !type.startsWith("array_")) invalid("任意元素比较只适用于数组");
-    const itemType = type === "array" ? String(condition.arrayItemType || "") : type.slice("array_".length);
-    if (!["string", "number", "boolean"].includes(itemType)) invalid(`未知数组元素类型 ${itemType}`);
+    const itemType =
+      type === "array" ? String(condition.arrayItemType || "") : type.slice("array_".length);
+    if (!["string", "number", "boolean"].includes(itemType))
+      invalid(`未知数组元素类型 ${itemType}`);
     const rawValues = Array.isArray(condition.value) ? condition.value : [condition.value];
     if (!rawValues.length) invalid("数组比较至少需要一个值");
     if (rawValues.length > 100) invalid("数组比较最多支持 100 个值");

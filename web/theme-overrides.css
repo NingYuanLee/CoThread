@@ -172,8 +172,14 @@ html[data-theme="ink"] {
     background: var(--c-e9eee5);
   }
 
-  html[data-theme="night"] .composer-mode-menu .composer-mode-option.is-active .composer-mode-option-icon,
-  html[data-theme="ink"] .composer-mode-menu .composer-mode-option.is-active .composer-mode-option-icon {
+  html[data-theme="night"]
+    .composer-mode-menu
+    .composer-mode-option.is-active
+    .composer-mode-option-icon,
+  html[data-theme="ink"]
+    .composer-mode-menu
+    .composer-mode-option.is-active
+    .composer-mode-option-icon {
     background: transparent;
   }
 
@@ -571,7 +577,6 @@ html:is([data-theme="ink"], [data-theme="night"]) .admin-nav-group a[aria-curren
   background: var(--c-fff);
 }
 
-
 html[data-theme="night"] {
   /* 暗夜强调色：蓝色 10 档。
      主底 2563eb · 悬停 3b82f6 · 按压/深底 1e40af · 深蓝底 172554
@@ -603,7 +608,6 @@ html:is([data-theme="ink"], [data-theme="night"])
     .account-login-another,
     .agent-log-row > span:first-child
   ) {
-
   color: #fff !important;
 
   --stroke: transparent;
@@ -615,7 +619,8 @@ html:is([data-theme="ink"], [data-theme="night"])
 }
 
 /* 暗夜强调按钮的字走蓝色阶最亮档 eff6ff，纯白留给需要最高对比的地方。 */
-html[data-theme="night"] body
+html[data-theme="night"]
+  body
   :is(
     button.primary,
     .welcome-create,
@@ -692,13 +697,21 @@ html[data-theme="ink"] .project-tab:not(.selected):hover {
   background: #516858;
 }
 
-html[data-theme="night"] .project-tabs.is-reordering .project-tab:not(.is-dragging):not(.selected):hover,
-html[data-theme="night"] .project-tabs.is-reordering .project-tab.pinned:not(.is-dragging):not(.selected):hover {
+html[data-theme="night"]
+  .project-tabs.is-reordering
+  .project-tab:not(.is-dragging):not(.selected):hover,
+html[data-theme="night"]
+  .project-tabs.is-reordering
+  .project-tab.pinned:not(.is-dragging):not(.selected):hover {
   background: #353638;
 }
 
-html[data-theme="ink"] .project-tabs.is-reordering .project-tab:not(.is-dragging):not(.selected):hover,
-html[data-theme="ink"] .project-tabs.is-reordering .project-tab.pinned:not(.is-dragging):not(.selected):hover {
+html[data-theme="ink"]
+  .project-tabs.is-reordering
+  .project-tab:not(.is-dragging):not(.selected):hover,
+html[data-theme="ink"]
+  .project-tabs.is-reordering
+  .project-tab.pinned:not(.is-dragging):not(.selected):hover {
   background: #3d4c42;
 }
 
@@ -718,7 +731,6 @@ html:is([data-theme="ink"], [data-theme="night"])
     .library-organize-actions button.danger,
     .mcp-local-executor-confirm button.danger
   ) {
-
   background: var(--danger-tint-bg);
 
   color: var(--danger-tint-text) !important;
@@ -782,7 +794,6 @@ html[data-theme="night"] .miniprogram-status.failed {
 /* ===== 7. 只靠阴影的浮起面板：补可见边框 ===== */
 html:is([data-theme="ink"], [data-theme="night"])
   :is(.context-panel.context-open, .composer.chat-composer) {
-
   border: 0.071rem solid transparent;
   position: relative;
   --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
@@ -790,7 +801,8 @@ html:is([data-theme="ink"], [data-theme="night"])
   overflow: clip;
   overflow-clip-margin: 0.857rem;
 }
-html:is([data-theme="ink"], [data-theme="night"]) :is(.context-panel.context-open, .composer.chat-composer)::after {
+html:is([data-theme="ink"], [data-theme="night"])
+  :is(.context-panel.context-open, .composer.chat-composer)::after {
   content: "";
   position: absolute;
   left: -1px;
@@ -807,7 +819,6 @@ html:is([data-theme="ink"], [data-theme="night"]) :is(.context-panel.context-ope
 }
 
 html:is([data-theme="ink"], [data-theme="night"]) aside.file-explorer.doc-browser-tree {
-
   border-left: 0.071rem solid transparent;
   position: relative;
   --stroke: color-mix(in srgb, var(--c-27362f) 34%, transparent);
@@ -964,7 +975,9 @@ html[data-theme="night"]
 
 /* 按下：中性按钮与可选行再深一档，强调按钮有自己的蓝色档 */
 html[data-theme="night"]
-  :is(button, .thread-row, .task-pool-item, .field-select-option, .theme-grid > button):active:not(:disabled):not(.primary):not(.danger) {
+  :is(button, .thread-row, .task-pool-item, .field-select-option, .theme-grid > button):active:not(
+    :disabled
+  ):not(.primary):not(.danger) {
   background: #43454a;
 }
 
@@ -1022,11 +1035,7 @@ html[data-theme="night"]
 /* 强调态按压：底色是蓝色的其它控件，按下留在蓝色阶，
    不能被上面的中性按下色（43454a）覆盖。蓝阶按压档 = 1e40af，最深 = 172554。 */
 html[data-theme="night"]
-  :is(
-    button.cite-source,
-    a.workspace-space-switch,
-    .ask-elder
-  ):active:not(:disabled) {
+  :is(button.cite-source, a.workspace-space-switch, .ask-elder):active:not(:disabled) {
   background: #1e40af !important;
 }
 
@@ -1154,7 +1163,8 @@ html[data-theme="night"] .task-pool-dialog-list::before {
    在弹窗作用域内把这些文字 token 统一成正常正文色 #e9ecf2：
    弹窗里默认文字就是一个正常颜色，不再按灰阶分档；
    只有禁用态才稍微暗一点（#81858c）。状态色与 --stroke 不动。 */
-html[data-theme="night"] :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"]) {
+html[data-theme="night"]
+  :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"]) {
   /* 正文 / 主字 */
   --c-27362f: #e9ecf2;
   --c-354238: #e9ecf2;
@@ -1195,7 +1205,9 @@ html[data-theme="night"] :is([data-overlay="dialog-shell"], dialog[data-overlay]
 /* 弹窗内唯一的例外：禁用态稍微暗一点（主按钮 / 危险按钮保持自身的白字）。 */
 html[data-theme="night"]
   :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"])
-  :is(button, input, select, textarea, a):is(:disabled, [aria-disabled="true"]):not(.primary):not(.danger) {
+  :is(button, input, select, textarea, a):is(:disabled, [aria-disabled="true"]):not(.primary):not(
+    .danger
+  ) {
   color: #81858c !important;
 }
 
@@ -1242,14 +1254,18 @@ html[data-theme="night"]
 }
 
 html[data-theme="night"]
-  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary):not(:disabled):hover {
+  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary):not(
+    :disabled
+  ):hover {
   background: #3b82f6;
   border-color: #3b82f6;
   color: #eff6ff;
 }
 
 html[data-theme="night"]
-  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary):not(:disabled):active {
+  :is(.account-login-another, .miniprogram-config-actions button, .miniprogram-secondary):not(
+    :disabled
+  ):active {
   background: #1e40af;
   border-color: #1e40af;
   color: #eff6ff;
@@ -1414,8 +1430,7 @@ html[data-theme="night"] {
    环境变量的「保存 / 清除 / 说明」：原来各自是 1b1b1c 的深色小块，
    文字也分档（有的还是 81858c）。统一成「蓝色文字动作」：
    透明底 + 3b82f6 字，悬停 60a5fa，靠文字本身表达可点。 */
-html[data-theme="night"]
-  :is(.profile-field-action, .field-action, .profile-id-copy),
+html[data-theme="night"] :is(.profile-field-action, .field-action, .profile-id-copy),
 html[data-theme="night"] .workspace-settings .mcp-settings button,
 html[data-theme="night"] .workspace-settings .env-var-value button,
 html[data-theme="night"] .workspace-settings table button.secondary {
@@ -1459,7 +1474,9 @@ html[data-theme="night"] .project-code-connectors .pcc-switch input:checked {
 
 /* 输入框浮动 label 的遮线底色：默认取 --c-fff（面板色 1b1b1c），
    放在弹窗（2c2c2e）里就比周围暗一块。弹窗内改为跟弹窗同色。 */
-html[data-theme="night"] :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"]) .field {
+html[data-theme="night"]
+  :is([data-overlay="dialog-shell"], dialog[data-overlay], [data-overlay="dialog"])
+  .field {
   --field-mask: #2c2c2e;
 }
 

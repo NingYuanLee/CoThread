@@ -22,12 +22,22 @@ test("my work is implicit, read-only, and limited to joined related records", as
       await query(
         db,
         "INSERT INTO users(id,email,name,password_hash,is_super_admin,avatar) VALUES(?,?,?,?,?,?)",
-        [user.id, `${user.id}@test.com`, user.id === admin.id ? "管理员" : "成员", "unused", user.id === admin.id, avatar],
+        [
+          user.id,
+          `${user.id}@test.com`,
+          user.id === admin.id ? "管理员" : "成员",
+          "unused",
+          user.id === admin.id,
+          avatar,
+        ],
       );
     const service = new Service(db);
     assert.deepEqual((await adminAccess(db, member)).permissions, IMPLICIT_ADMIN_PERMISSIONS);
 
-    const joined = await service.adminCreateProject(admin, { name: "已加入项目", description: "范围" });
+    const joined = await service.adminCreateProject(admin, {
+      name: "已加入项目",
+      description: "范围",
+    });
     const hidden = await service.adminCreateProject(admin, { name: "未加入项目", description: "" });
     const iteration = await service.createThread(admin, joined.id, { title: "已加入迭代" });
     await service.createThread(admin, hidden.id, { title: "未加入迭代" });
@@ -53,8 +63,14 @@ test("my work is implicit, read-only, and limited to joined related records", as
 
     await service.addMember(admin, joined.id, { userId: member.id });
     const projects = await listMyProjects(db, member);
-    assert.deepEqual(projects.map((project) => project.name), ["已加入项目"]);
-    assert.equal(projects[0].members.some((item) => item.id === member.id), true);
+    assert.deepEqual(
+      projects.map((project) => project.name),
+      ["已加入项目"],
+    );
+    assert.equal(
+      projects[0].members.some((item) => item.id === member.id),
+      true,
+    );
     assert.ok(projects[0].changes.some((change) => change.action === "member_added"));
     assert.equal(projects[0].can_recover_legacy_roles, false);
     const iterations = await listMyWork(db, member, "iterations", { projectId: hidden.id });
@@ -65,7 +81,10 @@ test("my work is implicit, read-only, and limited to joined related records", as
     );
     assert.equal((await listMyWork(db, member, "iterations", {})).items[0].title, "已加入迭代");
     const tasks = await listMyWork(db, member, "tasks", {});
-    assert.deepEqual(tasks.items.map((item) => item.id), [assignedId]);
+    assert.deepEqual(
+      tasks.items.map((item) => item.id),
+      [assignedId],
+    );
     assert.equal((await myTaskDetail(db, member, assignedId)).goal, "指派给成员");
     await assert.rejects(myTaskDetail(db, member, unrelatedId), { status: 404 });
 
@@ -91,7 +110,10 @@ test("my work is implicit, read-only, and limited to joined related records", as
         });
       const mine = await request("/admin/my/projects");
       assert.equal(mine.status, 200);
-      assert.deepEqual((await mine.json()).map((project) => project.name), ["已加入项目"]);
+      assert.deepEqual(
+        (await mine.json()).map((project) => project.name),
+        ["已加入项目"],
+      );
       assert.equal((await request("/admin/my/projects", "POST", { name: "越权" })).status, 403);
       assert.equal((await request("/admin/projects")).status, 403);
       assert.equal((await request(`/admin/my/tasks/${unrelatedId}`)).status, 404);

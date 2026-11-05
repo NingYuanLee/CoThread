@@ -16,8 +16,15 @@ export function createDevProxyAgent() {
 }
 
 const hopByHop = new Set([
-  "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-  "proxy-connection", "te", "trailers", "transfer-encoding", "upgrade",
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection",
+  "te",
+  "trailers",
+  "transfer-encoding",
+  "upgrade",
 ]);
 
 export function isApiPath(url = "/") {
@@ -68,29 +75,37 @@ function forwardHttp(req, res, options, attempt = 0, bufferedBody) {
       .catch((error) => failForward(req, res, error));
     return;
   }
-  const headers = forwardHeaders(req.headers, options.hostHeader, { includeContentLength: getLike });
+  const headers = forwardHeaders(req.headers, options.hostHeader, {
+    includeContentLength: getLike,
+  });
   if (!getLike || attempt > 0) {
     headers.connection = "close";
   }
   if (!getLike) {
     headers["content-length"] = String(bufferedBody.length);
   }
-  const backend = http.request({
-    hostname: "127.0.0.1",
-    port: options.port,
-    path: req.url,
-    method: req.method,
-    headers,
-    timeout: options.timeoutMs,
-    agent: getLike && attempt === 0 ? options.agent : false,
-  }, (incoming) => {
-    if (res.headersSent || res.destroyed) {
-      incoming.resume();
-      return;
-    }
-    res.writeHead(incoming.statusCode || 502, forwardHeaders(incoming.headers, req.headers.host || options.hostHeader));
-    incoming.pipe(res);
-  });
+  const backend = http.request(
+    {
+      hostname: "127.0.0.1",
+      port: options.port,
+      path: req.url,
+      method: req.method,
+      headers,
+      timeout: options.timeoutMs,
+      agent: getLike && attempt === 0 ? options.agent : false,
+    },
+    (incoming) => {
+      if (res.headersSent || res.destroyed) {
+        incoming.resume();
+        return;
+      }
+      res.writeHead(
+        incoming.statusCode || 502,
+        forwardHeaders(incoming.headers, req.headers.host || options.hostHeader),
+      );
+      incoming.pipe(res);
+    },
+  );
   const abort = () => backend.destroy();
   req.once("aborted", abort);
   backend.on("timeout", () => backend.destroy(new Error("代理超时")));
@@ -132,7 +147,7 @@ export function startDevGateway({ host = "127.0.0.1", uiPort, apiPort, vitePort 
     const api = isApiPath(req.url);
     forwardHttp(req, res, {
       port: api ? apiPort : vitePort,
-      hostHeader: api ? (req.headers.host || publicHost) : publicHost,
+      hostHeader: api ? req.headers.host || publicHost : publicHost,
       timeoutMs: 120_000,
       agent: api ? apiAgent : viteAgent,
     });

@@ -6,7 +6,8 @@ function minimalMemberContext(value) {
   return Object.fromEntries(
     Object.entries(value)
       .filter(([key]) => !["avatar", "author_avatar"].includes(key))
-      .map(([key, item]) => [key,
+      .map(([key, item]) => [
+        key,
         key === "members" && Array.isArray(item)
           ? item.map(({ id, name, role, kind }) => ({ id, name, role, ...(kind ? { kind } : {}) }))
           : minimalMemberContext(item),
@@ -24,7 +25,13 @@ export function modelDiscussion(context) {
     ...discussion,
     // Raw inputs/outputs can embed earlier contexts (including legacy avatars).
     // Return execution status without recursively replaying tool transcripts.
-    events: (events || []).map(({ id, message_id, tool, status, created_at, finished_at }) =>
-      ({ id, message_id, tool, status, created_at, finished_at })),
+    events: (events || []).map(({ id, message_id, tool, status, created_at, finished_at }) => ({
+      id,
+      message_id,
+      tool,
+      status,
+      created_at,
+      finished_at,
+    })),
   });
 }

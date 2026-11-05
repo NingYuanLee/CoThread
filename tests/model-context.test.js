@@ -10,19 +10,58 @@ const threadId = "ede432bd-69c1-4a65-924d-c50aec6999dc";
 const projectId = "4cfe4fff-aab4-418d-8e92-80ebd2d7f63b";
 const versionId = "ad62dc74-57ec-46ce-8a60-67e96832817b";
 const avatar = "data:image/png;base64," + "A".repeat(200_000);
-const message = { id: "message", author_id: "user", author: "成员", author_role: "产品", body: "请梳理讨论中的图片附件", refs: [versionId], author_avatar: avatar };
-const members = [{ id: "user", name: "成员", email: "member@example.com", role: "editor", motto: "个人签名", identity_tags: ["产品"], avatar }];
+const message = {
+  id: "message",
+  author_id: "user",
+  author: "成员",
+  author_role: "产品",
+  body: "请梳理讨论中的图片附件",
+  refs: [versionId],
+  author_avatar: avatar,
+};
+const members = [
+  {
+    id: "user",
+    name: "成员",
+    email: "member@example.com",
+    role: "editor",
+    motto: "个人签名",
+    identity_tags: ["产品"],
+    avatar,
+  },
+];
 const context = {
-  id: threadId, project_id: projectId, status: "active",
+  id: threadId,
+  project_id: projectId,
+  status: "active",
   messages: Array.from({ length: 22 }, (_, sequence) => ({ ...message, sequence })),
   members,
   archive_snapshot: { messages: [message], members, conclusion: "保留归档结论" },
   reviews: [{ decision: "approved", comment: "保留审核" }],
-  runs: [{ status: "succeeded", output: "tests passed" }], replies: [],
+  runs: [{ status: "succeeded", output: "tests passed" }],
+  replies: [],
   contextUsage: { used: 1_000_000 },
-  events: [{ id: 1, tool: "read_iteration", status: "completed", input: "{}", output: JSON.stringify({ messages: [message] }).slice(0, 30000) }],
+  events: [
+    {
+      id: 1,
+      tool: "read_iteration",
+      status: "completed",
+      input: "{}",
+      output: JSON.stringify({ messages: [message] }).slice(0, 30000),
+    },
+  ],
 };
-const project = { id: projectId, name: "项目", description: "", created_by: "user", created_at: "2026-01-01", archived_at: null, members, threads: [{ id: threadId, title: "迭代" }], versions: [{ id: versionId, mime: "image/png" }] };
+const project = {
+  id: projectId,
+  name: "项目",
+  description: "",
+  created_by: "user",
+  created_at: "2026-01-01",
+  archived_at: null,
+  members,
+  threads: [{ id: threadId, title: "迭代" }],
+  versions: [{ id: versionId, mime: "image/png" }],
+};
 
 function checkDiscussion(result) {
   assert.equal(result.messages.length, 22);
@@ -54,15 +93,26 @@ test("model discussion removes repeated avatars and legacy tool payloads without
 test("built-in read_iteration and project_context return compact results and log no avatars", async () => {
   const outputs = [];
   const service = {
-    db: { execute: async (sql, args) => {
-      if (sql.startsWith("SELECT status")) return [[{ status: "running" }]];
-      if (sql.startsWith("UPDATE agent_events SET status='completed'")) { outputs.push(args[0]); return [{}]; }
-      return [[]];
-    } },
-    thread: async () => context, member: async () => ({}),
-    context: async () => context, project: async () => project,
+    db: {
+      execute: async (sql, args) => {
+        if (sql.startsWith("SELECT status")) return [[{ status: "running" }]];
+        if (sql.startsWith("UPDATE agent_events SET status='completed'")) {
+          outputs.push(args[0]);
+          return [{}];
+        }
+        return [[]];
+      },
+    },
+    thread: async () => context,
+    member: async () => ({}),
+    context: async () => context,
+    project: async () => project,
   };
-  const call = createAgentTools(service, { id: "user" }, { thread_id: threadId, message_id: "message" });
+  const call = createAgentTools(
+    service,
+    { id: "user" },
+    { thread_id: threadId, message_id: "message" },
+  );
   checkDiscussion(await call("read_iteration", { threadId }));
   const result = await call("project_context", {});
   assert.deepEqual(result.members, [{ id: "user", name: "成员", role: "editor" }]);
@@ -72,12 +122,19 @@ test("built-in read_iteration and project_context return compact results and log
 });
 
 test("MCP filters context avatars but retains explicitly requested document bytes", async () => {
-  const server = createMcpServer({
-    context: async () => context,
-    project: async () => project,
-    member: async () => ({ role: "editor" }),
-    version: async () => ({ id: versionId, mime: "image/png", content: Buffer.from("actual image bytes") }),
-  }, { id: "user" });
+  const server = createMcpServer(
+    {
+      context: async () => context,
+      project: async () => project,
+      member: async () => ({ role: "editor" }),
+      version: async () => ({
+        id: versionId,
+        mime: "image/png",
+        content: Buffer.from("actual image bytes"),
+      }),
+    },
+    { id: "user" },
+  );
   const client = new Client({ name: "regression-test", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);

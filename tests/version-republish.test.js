@@ -30,11 +30,9 @@ test("republishing the same task bytes reuses the existing version", async () =>
     const second = await service.submitVersion(agent, thread.id, input, null, message.id);
     assert.equal(second.reused, true);
     assert.equal(second.id, first.id);
-    const [count] = await query(
-      db,
-      "SELECT COUNT(*) count FROM versions WHERE artifact_id=?",
-      [first.artifactId],
-    );
+    const [count] = await query(db, "SELECT COUNT(*) count FROM versions WHERE artifact_id=?", [
+      first.artifactId,
+    ]);
     assert.equal(Number(count.count), 1);
   } finally {
     await database.close();

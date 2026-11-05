@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fileDisplayName, isImageFile, nextDuplicateName, uniqueDisplayTitle } from "../shared/document-name.js";
+import {
+  fileDisplayName,
+  isImageFile,
+  nextDuplicateName,
+  uniqueDisplayTitle,
+} from "../shared/document-name.js";
 
 test("fileDisplayName uses title and keeps filename extension", () => {
   assert.equal(fileDisplayName({ title: "需求说明", filename: "req.md" }), "需求说明.md");
@@ -25,8 +30,20 @@ test("nextDuplicateName appends (n) before the extension", () => {
 });
 
 test("uniqueDisplayTitle allows the same stem when the suffix differs", () => {
-  assert.equal(uniqueDisplayTitle("纪要", "notes.md", [{ title: "纪要", filename: "notes.pdf" }]), "纪要");
-  assert.equal(uniqueDisplayTitle("纪要", "notes.pdf", [{ title: "纪要", filename: "notes.md" }]), "纪要");
-  assert.equal(uniqueDisplayTitle("纪要", "notes.md", [{ title: "纪要", filename: "notes.md" }]), "纪要 (2)");
-  assert.equal(uniqueDisplayTitle("纪要.md", "notes.md", [{ title: "纪要", filename: "notes.md" }]), "纪要 (2).md");
+  assert.equal(
+    uniqueDisplayTitle("纪要", "notes.md", [{ title: "纪要", filename: "notes.pdf" }]),
+    "纪要",
+  );
+  assert.equal(
+    uniqueDisplayTitle("纪要", "notes.pdf", [{ title: "纪要", filename: "notes.md" }]),
+    "纪要",
+  );
+  assert.equal(
+    uniqueDisplayTitle("纪要", "notes.md", [{ title: "纪要", filename: "notes.md" }]),
+    "纪要 (2)",
+  );
+  assert.equal(
+    uniqueDisplayTitle("纪要.md", "notes.md", [{ title: "纪要", filename: "notes.md" }]),
+    "纪要 (2).md",
+  );
 });

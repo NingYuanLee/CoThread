@@ -51,13 +51,16 @@ for (const row of rows) {
     console.log("base tag:", m?.[0]);
   }
 
-  const hrefs = [...sourceText.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map(
-    (m) => m[1],
-  );
+  const hrefs = [...sourceText.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map((m) => m[1]);
   const unique = [...new Set(hrefs)].slice(0, 12);
-  console.log("relative refs in source:", unique.filter((h) => !/^https?:/i.test(h) && !/^#/));
+  console.log(
+    "relative refs in source:",
+    unique.filter((h) => !/^https?:/i.test(h) && !/^#/),
+  );
 
-  for (const ref of unique.filter((h) => !/^https?:/i.test(h) && !/^#/.test(h) && !/^data:/i.test(h)).slice(0, 5)) {
+  for (const ref of unique
+    .filter((h) => !/^https?:/i.test(h) && !/^#/.test(h) && !/^data:/i.test(h))
+    .slice(0, 5)) {
     try {
       await service.versionPreview(sessionUser, row.id, ref.replace(/^\.\//, ""));
       console.log("  asset OK:", ref);

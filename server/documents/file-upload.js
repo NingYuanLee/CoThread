@@ -86,9 +86,21 @@ export async function startFileUpload(service, user, input) {
         byte_size,sha256,chunk_size,chunk_count,expires_at)
        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(3), INTERVAL ? SECOND))`,
       [
-        uploadId, user.id, data.kind, projectId, data.threadId || null, data.folderId || null,
-        data.title, data.filename, data.mime, data.note, data.byteSize, sha256,
-        data.chunkSize, chunkCount, FILE_UPLOAD_TTL_MS / 1000,
+        uploadId,
+        user.id,
+        data.kind,
+        projectId,
+        data.threadId || null,
+        data.folderId || null,
+        data.title,
+        data.filename,
+        data.mime,
+        data.note,
+        data.byteSize,
+        sha256,
+        data.chunkSize,
+        chunkCount,
+        FILE_UPLOAD_TTL_MS / 1000,
       ],
     );
     return {
@@ -128,8 +140,7 @@ export async function putFileUploadChunk(service, user, uploadId, input) {
     if (session.version_id) fail(409, "该上传已完成");
     if (data.index >= session.chunk_count) fail(400, "分片编号无效");
     const expected = expectedChunkLength(session, data.index);
-    if (decoded.byteSize !== expected)
-      fail(400, `分片 ${data.index} 长度应为 ${expected} 字节`);
+    if (decoded.byteSize !== expected) fail(400, `分片 ${data.index} 长度应为 ${expected} 字节`);
     const [existing] = await query(
       db,
       "SELECT sha256 FROM file_upload_chunks WHERE session_id=? AND chunk_index=? FOR UPDATE",
@@ -191,8 +202,7 @@ export async function completeFileUpload(service, user, uploadId, input = {}) {
       fail(400, "上传分片不完整");
     const bytes = Buffer.concat(chunks.map((chunk) => chunk.content));
     const verified = verifyBytes(bytes, session.sha256, FILE_MAX_BYTES);
-    if (verified.byteSize !== session.byte_size)
-      fail(400, "合并后的文件大小与声明不一致");
+    if (verified.byteSize !== session.byte_size) fail(400, "合并后的文件大小与声明不一致");
     const payload = {
       title: session.title,
       filename: session.filename,
@@ -200,11 +210,23 @@ export async function completeFileUpload(service, user, uploadId, input = {}) {
       note: session.note,
       sha256: verified.sha256,
     };
-    const result = session.kind === "cache_draft"
-      ? await service.uploadCacheDraft(user, session.thread_id, payload, { db, bytes: verified.bytes })
-      : await service.uploadOfficialDocument(user, session.project_id, { ...payload, folderId: session.folder_id || undefined }, { db, bytes: verified.bytes });
+    const result =
+      session.kind === "cache_draft"
+        ? await service.uploadCacheDraft(user, session.thread_id, payload, {
+            db,
+            bytes: verified.bytes,
+          })
+        : await service.uploadOfficialDocument(
+            user,
+            session.project_id,
+            { ...payload, folderId: session.folder_id || undefined },
+            { db, bytes: verified.bytes },
+          );
     await query(db, "DELETE FROM file_upload_chunks WHERE session_id=?", [uploadId]);
-    await query(db, "UPDATE file_upload_sessions SET version_id=? WHERE id=?", [result.id, uploadId]);
+    await query(db, "UPDATE file_upload_sessions SET version_id=? WHERE id=?", [
+      result.id,
+      uploadId,
+    ]);
     return result;
   });
 }

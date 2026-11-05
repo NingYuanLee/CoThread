@@ -41,7 +41,6 @@
 .field .field-control .field-input,
 .field .field-control .field-textarea,
 .field .field-control .field-select {
-
   box-sizing: border-box;
 
   display: block;
@@ -90,7 +89,8 @@
     border-color 0.15s,
     box-shadow 0.15s;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 .field-control {
   --stroke: var(--field-border);
   --stroke-radius: calc(var(--field-flush-radius, var(--radius-control)) * 2);
@@ -115,7 +115,6 @@
   transform-origin: 0 0;
   z-index: 1;
 }
-
 
 /* 未上浮时 label 本身就是占位。原生 placeholder 会叠在同一位置，先藏起来。 */
 .field:not(.is-floating) :is(.field-input, .field-textarea)::placeholder {
@@ -389,7 +388,8 @@
   text-align: left;
   cursor: pointer;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 
 .field-select-option.is-active,
 .field-select-option:hover {
@@ -514,7 +514,8 @@
   cursor: pointer;
   z-index: 2;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 
 .field-select-clear:hover {
   background: color-mix(in srgb, var(--c-27362f) 12%, transparent);
@@ -579,7 +580,8 @@
   font-size: var(--field-flush-font, 0.857rem);
   line-height: calc(var(--field-flush-height, 2rem) - 0.143rem);
 
-  --stroke-radius: calc((var(--field-flush-radius, var(--radius-control))) * 2);}
+  --stroke-radius: calc((var(--field-flush-radius, var(--radius-control))) * 2);
+}
 
 .field--flush.field--active .field-control .field-input,
 .field--flush.field--active .field-control .field-select {

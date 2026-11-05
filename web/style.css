@@ -47,7 +47,6 @@ a {
 }
 
 button {
-
   cursor: pointer;
 
   border: 1px solid transparent;
@@ -82,7 +81,6 @@ button::after {
   transform: scale(0.5);
   transform-origin: 0 0;
 }
-
 
 button:hover {
   background: var(--c-edf2ec);
@@ -130,7 +128,6 @@ a:hover {
 }
 
 .primary {
-
   background: var(--c-426b4b);
 
   color: white;
@@ -150,7 +147,6 @@ a:hover {
 input,
 textarea,
 select {
-
   width: 100%;
 
   border: 1px solid var(--c-d9e1d9);
@@ -165,7 +161,8 @@ select {
 
   outline: none;
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 
 /* :focus-visible 必须单独写。浏览器原生描边挂在 :focus-visible（特异性高于裸元素），
    只在 input 上写 outline:none 压不住。聚焦只改边框色，不要外圈光晕。 */
@@ -189,7 +186,6 @@ select:-moz-focusring {
 input:focus,
 textarea:focus,
 select:focus {
-
   border-color: var(--c-70916f);
 }
 
@@ -253,7 +249,6 @@ label select {
 }
 
 .error {
-
   background: var(--c-fff0ec);
 
   color: var(--c-a24b3d);
@@ -290,7 +285,6 @@ label select {
   transform: scale(0.5);
   transform-origin: 0 0;
 }
-
 
 .login {
   min-height: 100vh;
@@ -385,7 +379,6 @@ label select {
 }
 
 .login-card {
-
   --spot-x: 50%;
 
   --spot-y: 35%;
@@ -425,7 +418,8 @@ label select {
     border-color 0.28s ease;
   --stroke: rgba(207, 216, 201, 0.92);
 
-  --stroke-radius: calc((var(--radius-control)) * 2);}
+  --stroke-radius: calc((var(--radius-control)) * 2);
+}
 .login-card::after {
   content: none;
   position: absolute;
@@ -440,9 +434,7 @@ label select {
   border-width: inherit;
   border-radius: var(--stroke-radius);
   transform: none;
-
 }
-
 
 @media (hover: hover) and (pointer: fine) {
   .login-story:hover {
@@ -452,7 +444,6 @@ label select {
     opacity: 1;
   }
   .login-card:hover {
-
     transform: translateY(-0.214rem);
 
     --stroke: rgba(183, 202, 172, 0.96);
@@ -464,9 +455,9 @@ label select {
       0 1.286rem 2.929rem rgba(54, 66, 48, 0.17),
       0 0.429rem 1rem rgba(54, 66, 48, 0.1);
 
-  overflow: clip;
-  overflow-clip-margin: 0.857rem;
-}
+    overflow: clip;
+    overflow-clip-margin: 0.857rem;
+  }
 }
 
 .login-card h2 {
@@ -546,7 +537,6 @@ label select {
 }
 
 .login-links a {
-
   display: inline-flex;
 
   align-items: center;
@@ -596,9 +586,7 @@ label select {
   transform-origin: 0 0;
 }
 
-
 .login-links a:hover {
-
   --stroke: var(--c-54704e);
 
   border-color: transparent;
@@ -616,7 +604,6 @@ label select {
 }
 
 .auth-notice {
-
   margin-top: 0.857rem;
 
   padding: 0.643rem 0.786rem;
@@ -654,7 +641,6 @@ label select {
   transform-origin: 0 0;
 }
 
-
 .password-field {
   display: grid;
   gap: 0.357rem;
@@ -674,7 +660,8 @@ label select {
   border-radius: 0.071rem;
   background: color-mix(in srgb, #8d948c 34%, transparent);
 
-  --stroke-radius: 0.143rem;}
+  --stroke-radius: 0.143rem;
+}
 
 .password-strength small {
   min-width: 6.286rem;
@@ -726,7 +713,6 @@ label select {
 }
 
 .captcha-image {
-
   width: 9rem;
 
   height: 3rem;
@@ -743,7 +729,8 @@ label select {
   position: relative;
   --stroke: var(--c-dce3d6);
 
-  --stroke-radius: 0.571rem;}
+  --stroke-radius: 0.571rem;
+}
 .captcha-image::after {
   content: "";
   position: absolute;
@@ -760,7 +747,6 @@ label select {
   transform: scale(0.5);
   transform-origin: 0 0;
 }
-
 
 .captcha-image img {
   display: block;
@@ -791,7 +777,8 @@ label select {
   color: var(--c-7b866a);
   font-size: 0.857rem;
 
-  --stroke-radius: 1rem;}
+  --stroke-radius: 1rem;
+}
 
 :root {
   --workspace-top-strip-height: 2.571rem;
@@ -873,7 +860,8 @@ summary {
   background: var(--c-f8faf8);
   text-align: left;
 
-  --stroke-radius: 1.143rem;}
+  --stroke-radius: 1.143rem;
+}
 
 .account-switch-item.current {
   background: var(--c-edf2ec);
@@ -889,7 +877,6 @@ summary {
 }
 
 .account-switch-action {
-
   display: inline-flex;
 
   align-items: center;
@@ -938,7 +925,6 @@ summary {
   transform: scale(0.5);
   transform-origin: 0 0;
 }
-
 
 .account-switch-action:hover:not(:disabled) {
   background: var(--c-fff1ec);
@@ -1051,7 +1037,6 @@ summary {
 }
 
 .account-switch-tile {
-
   display: flex;
 
   flex-direction: column;
@@ -1103,9 +1088,7 @@ summary {
   transform-origin: 0 0;
 }
 
-
 .account-switch-tile:hover:not(:disabled) {
-
   --stroke: var(--c-b7c9a8);
 
   border-color: transparent;
@@ -1123,7 +1106,8 @@ summary {
   border-radius: 0.5rem;
   font-size: 0.857rem;
 
-  --stroke-radius: 1rem;}
+  --stroke-radius: 1rem;
+}
 
 .account-switch-tile strong {
   max-width: 100%;
@@ -1162,7 +1146,8 @@ summary {
   object-fit: cover;
   border-radius: inherit;
 
-  --stroke-radius: calc((inherit) * 2);}
+  --stroke-radius: calc((inherit) * 2);
+}
 
 /* 岗位色固定，不参与主题生成：近黑 / 墨玉下也保留各自的色相
    （暗夜生成器会把紫、青等色相量化成蓝阶或灰阶，岗位就分不出来了）。 */

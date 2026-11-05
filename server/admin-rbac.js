@@ -77,11 +77,14 @@ export async function listAdminRoles(db, user) {
         ELSE (SELECT COUNT(*) FROM admin_user_roles ur WHERE ur.role_id=r.id)
       END member_count
     FROM roles r ORDER BY r.scope,r.is_builtin DESC,r.created_at,r.id`,
-  ).then((rows) => rows.map((role) => ({
-    ...role,
-    is_builtin: !!Number(role.is_builtin),
-    permissions: role.scope === "platform" ? expandAdminPermissions(decode(role.permissions) || []) : [],
-  })));
+  ).then((rows) =>
+    rows.map((role) => ({
+      ...role,
+      is_builtin: !!Number(role.is_builtin),
+      permissions:
+        role.scope === "platform" ? expandAdminPermissions(decode(role.permissions) || []) : [],
+    })),
+  );
 }
 
 async function readAdminRoles(db) {
@@ -172,9 +175,11 @@ export async function deleteAdminRole(db, user, roleId) {
   uuid.parse(roleId);
   return transaction(db, async (conn) => {
     const access = await requireAdminPermission(conn, user, "roles.manage");
-    const [role] = await query(conn, "SELECT permissions FROM roles WHERE id=? AND scope='platform' AND is_builtin=FALSE FOR UPDATE", [
-      roleId,
-    ]);
+    const [role] = await query(
+      conn,
+      "SELECT permissions FROM roles WHERE id=? AND scope='platform' AND is_builtin=FALSE FOR UPDATE",
+      [roleId],
+    );
     if (!role) throw new HttpError(404, "角色不存在");
     if (
       expandAdminPermissions(decode(role.permissions)).some(

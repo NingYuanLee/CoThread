@@ -39,22 +39,28 @@ function treeMarkup(project) {
     if (!children.has(key)) children.set(key, []);
     children.get(key).push(folder);
   }
-  for (const list of children.values()) list.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
+  for (const list of children.values())
+    list.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
   const filesByFolder = new Map();
   for (const version of versions) {
     const key = version.folder_id || "root";
     if (!filesByFolder.has(key)) filesByFolder.set(key, []);
     filesByFolder.get(key).push(version);
   }
-  for (const list of filesByFolder.values()) list.sort((a, b) => String(a.filename).localeCompare(String(b.filename), "zh-CN"));
+  for (const list of filesByFolder.values())
+    list.sort((a, b) => String(a.filename).localeCompare(String(b.filename), "zh-CN"));
   const renderFolder = (folderId, depth = 0) => {
     const rows = [];
     for (const folder of children.get(folderId) || []) {
-      rows.push(`<li class="folder"><span class="folder-icon">▾</span><span>${escapeHtml(folder.name)}</span>`);
+      rows.push(
+        `<li class="folder"><span class="folder-icon">▾</span><span>${escapeHtml(folder.name)}</span>`,
+      );
       rows.push(`<ul>${renderFolder(folder.id, depth + 1)}</ul></li>`);
     }
     for (const version of filesByFolder.get(folderId) || []) {
-      rows.push(`<li class="file"><span class="file-icon">▤</span><span>${escapeHtml(version.filename || version.title)}</span><small>v${escapeHtml(version.version)}</small></li>`);
+      rows.push(
+        `<li class="file"><span class="file-icon">▤</span><span>${escapeHtml(version.filename || version.title)}</span><small>v${escapeHtml(version.version)}</small></li>`,
+      );
     }
     return rows.join("");
   };
@@ -100,7 +106,9 @@ async function captureHtml(html, { waitMs = 300, fullPage = true } = {}) {
 }
 
 async function captureSandboxHtml(sandbox, root, relativePath) {
-  const entry = String(relativePath || "").replaceAll("\\", "/").replace(/^\/+/, "");
+  const entry = String(relativePath || "")
+    .replaceAll("\\", "/")
+    .replace(/^\/+/, "");
   if (!/\.html?$/i.test(entry)) throw new Error("只能截图 HTML 沙箱文件");
   return withBrowser(async (browser) => {
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT, deviceScaleFactor: 1 });
@@ -115,7 +123,10 @@ async function captureSandboxHtml(sandbox, root, relativePath) {
           ? await sandbox.readFile(path)
           : await sandbox.files.read(path);
         const content = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-        await route.fulfill({ body: content, contentType: storedContentType(posix.basename(requested)).split(";")[0] });
+        await route.fulfill({
+          body: content,
+          contentType: storedContentType(posix.basename(requested)).split(";")[0],
+        });
       } catch {
         await route.abort();
       }
@@ -130,7 +141,12 @@ async function captureSandboxHtml(sandbox, root, relativePath) {
 
 export async function captureDocumentTree(service, user, projectId) {
   const project = await service.project(user, projectId);
-  return { content: await captureProjectTree(project), mime: "image/png", filename: "document-tree.png", source: "document_tree" };
+  return {
+    content: await captureProjectTree(project),
+    mime: "image/png",
+    filename: "document-tree.png",
+    source: "document_tree",
+  };
 }
 
 export async function captureDocumentPreview(service, user, versionId) {
@@ -148,9 +164,23 @@ export async function captureDocumentPreview(service, user, versionId) {
   } else {
     html = `<pre style="white-space:pre-wrap;font:14px/1.6 Consolas,monospace;padding:24px">${escapeHtml(version.content.toString("utf8"))}</pre>`;
   }
-  return { content: await captureHtml(`<!doctype html><html><body style="margin:0;background:#fff">${html}</body></html>`), mime: "image/png", filename: `${filename}.preview.png`, source: "document_preview", versionId };
+  return {
+    content: await captureHtml(
+      `<!doctype html><html><body style="margin:0;background:#fff">${html}</body></html>`,
+    ),
+    mime: "image/png",
+    filename: `${filename}.preview.png`,
+    source: "document_preview",
+    versionId,
+  };
 }
 
 export async function captureSandboxPreview(sandbox, root, path) {
-  return { content: await captureSandboxHtml(sandbox, root, path), mime: "image/png", filename: `${posix.basename(path)}.preview.png`, source: "sandbox_html", path };
+  return {
+    content: await captureSandboxHtml(sandbox, root, path),
+    mime: "image/png",
+    filename: `${posix.basename(path)}.preview.png`,
+    source: "sandbox_html",
+    path,
+  };
 }

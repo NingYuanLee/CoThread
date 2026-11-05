@@ -66,10 +66,8 @@ export function assertExternalAdmitted() {
 export async function assertCurrentExecutorEpoch(conn) {
   const fence = assertExternalAdmitted();
   if (!fence) return;
-  const [row] = await query(
-    conn,
-    "SELECT epoch FROM executor_fence WHERE lock_name=? FOR UPDATE",
-    [fence.lockName],
-  );
+  const [row] = await query(conn, "SELECT epoch FROM executor_fence WHERE lock_name=? FOR UPDATE", [
+    fence.lockName,
+  ]);
   if (!row || Number(row.epoch) !== fence.epoch) throw lost("执行器代次已变更");
 }

@@ -13,13 +13,19 @@ before(async () => {
   db = database.db;
   service = new Service(db);
   user = { id: randomUUID(), kind: "session", name: "预览成员" };
-  await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-    [user.id, `${user.id}@preview.test`, user.name, "unused"]);
+  await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+    user.id,
+    `${user.id}@preview.test`,
+    user.name,
+    "unused",
+  ]);
   project = await service.createProject(user, { name: "HTML 预览" });
   thread = await service.createThread(user, project.id, { title: "预览迭代" });
 });
 
-after(async () => { await database?.close(); });
+after(async () => {
+  await database?.close();
+});
 
 async function save(filename, body, mime = "text/plain") {
   const agent = { ...user, kind: "agent" };
@@ -42,8 +48,14 @@ test("versionPreview uses html css js types even when stored mime is text/plain"
   assert.match(text, new RegExp(`base href="/api/versions/${html.id}/preview/~t~[^/"]+/"`));
   assert.match(text, /data-cothread-preview-console/);
   assert.match(text, /\.\/style\.css/);
-  assert.equal((await service.versionPreview(user, html.id, "style.css")).mime, "text/css; charset=utf-8");
-  assert.equal((await service.versionPreview(user, html.id, "script.js")).mime, "text/javascript; charset=utf-8");
+  assert.equal(
+    (await service.versionPreview(user, html.id, "style.css")).mime,
+    "text/css; charset=utf-8",
+  );
+  assert.equal(
+    (await service.versionPreview(user, html.id, "script.js")).mime,
+    "text/javascript; charset=utf-8",
+  );
 });
 
 test("versionSource can return a byte prefix for large text files", async () => {
@@ -171,7 +183,10 @@ test("versionPreview serves linked pages and nested iframe html with directory b
     about.content.toString("utf8"),
     new RegExp(`base href="/api/versions/${html.id}/preview/~t~[^/"]+/" target="_self"`),
   );
-  assert.equal((await service.versionPreview(user, html.id, "about.css")).mime, "text/css; charset=utf-8");
+  assert.equal(
+    (await service.versionPreview(user, html.id, "about.css")).mime,
+    "text/css; charset=utf-8",
+  );
   const widget = await service.versionPreview(user, html.id, "embed/widget.html");
   assert.equal(widget.mime, "text/html; charset=utf-8");
   const widgetText = widget.content.toString("utf8");
@@ -189,7 +204,10 @@ test("versionPreview serves linked pages and nested iframe html with directory b
 
 test("versionPreview rejects path traversal", async () => {
   const html = await save("page.html", "<html><body>ok</body></html>");
-  await assert.rejects(service.versionPreview(user, html.id, "../secret.txt"), (error) => error.status === 403);
+  await assert.rejects(
+    service.versionPreview(user, html.id, "../secret.txt"),
+    (error) => error.status === 403,
+  );
 });
 
 test("markdown png and pdf stay outside html preview", async () => {

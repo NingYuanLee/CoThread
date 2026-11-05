@@ -4,8 +4,11 @@ import { randomUUID } from "node:crypto";
 import { query } from "../server/db.js";
 import { Service } from "../server/service.js";
 import {
-  createProjectGitRemote, listProjectCodeConfig, revealProjectCodeConnectorToken,
-  syncPlatformScope, upsertProjectCodeConnector,
+  createProjectGitRemote,
+  listProjectCodeConfig,
+  revealProjectCodeConnectorToken,
+  syncPlatformScope,
+  upsertProjectCodeConnector,
   agentListCodeSources,
 } from "../server/project-code-sources.js";
 import { testDatabase } from "./database.js";
@@ -19,25 +22,39 @@ before(async () => {
   owner = { id: randomUUID(), kind: "session", name: "Owner" };
   member = { id: randomUUID(), kind: "session", name: "Member" };
   for (const user of [owner, member]) {
-    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)",
-      [user.id, `${user.id}@code.test`, user.name, "unused"]);
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      user.id,
+      `${user.id}@code.test`,
+      user.name,
+      "unused",
+    ]);
   }
   const project = await service.createProject(owner, { name: "Code Sources" });
   projectId = project.id;
-  await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [projectId, member.id]);
+  await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [
+    projectId,
+    member.id,
+  ]);
 });
 
-after(async () => { await database?.close(); });
+after(async () => {
+  await database?.close();
+});
 
 test("only project owner can configure code connectors", async () => {
   await assert.rejects(
-    () => upsertProjectCodeConnector(service, member, projectId, {
-      kind: "github", enabled: true, token: "ghp_test",
-    }),
+    () =>
+      upsertProjectCodeConnector(service, member, projectId, {
+        kind: "github",
+        enabled: true,
+        token: "ghp_test",
+      }),
     /项目管理员|操作权限/,
   );
   const saved = await upsertProjectCodeConnector(service, owner, projectId, {
-    kind: "github", enabled: true, token: "ghp_test_token_1234",
+    kind: "github",
+    enabled: true,
+    token: "ghp_test_token_1234",
   });
   assert.equal(saved.connectors.github.enabled, true);
   assert.equal(saved.connectors.github.hasToken, true);
@@ -59,11 +76,13 @@ test("project owner can reveal saved connector token", async () => {
 
 test("owner can sync platform scope from selected repositories", async () => {
   await syncPlatformScope(service, owner, projectId, "github", {
-    repositories: [{
-      externalId: "101",
-      label: "example/demo",
-      remoteUrl: "https://github.com/example/demo.git",
-    }],
+    repositories: [
+      {
+        externalId: "101",
+        label: "example/demo",
+        remoteUrl: "https://github.com/example/demo.git",
+      },
+    ],
   });
   const sources = await agentListCodeSources(db, projectId);
   assert.equal(sources.remotes.length >= 1, true);

@@ -26,7 +26,14 @@ const feDir = join(workDir, "fe");
 const sdkDist = join(feDir, "packages", "container-sdk", "dist");
 const target = join(root, "public", "dimina");
 const sdkTarget = join(root, "public", "sdk", "cloudbase.esm.js");
-const cloudbaseSdkEntry = join(root, "node_modules", "@cloudbase", "js-sdk", "dist", "index.esm.js");
+const cloudbaseSdkEntry = join(
+  root,
+  "node_modules",
+  "@cloudbase",
+  "js-sdk",
+  "dist",
+  "index.esm.js",
+);
 
 function run(command, args, options = {}) {
   console.log(`> ${command} ${args.join(" ")}`);
@@ -119,10 +126,17 @@ async function vendor() {
   const cloudbaseShim = await readFile(join(root, "scripts", "dimina-cloudbase-shim.js"), "utf8");
   const servicePath = join(target, "service.js");
   const serviceSource = await readFile(servicePath, "utf8");
-  const workerStorage = "globalThis.localStorage=globalThis.localStorage||{_d:Object.create(null),getItem(k){return this._d[k]??null},setItem(k,v){this._d[k]=String(v)},removeItem(k){delete this._d[k]},clear(){this._d=Object.create(null)}};globalThis.sessionStorage=globalThis.sessionStorage||globalThis.localStorage;";
+  const workerStorage =
+    "globalThis.localStorage=globalThis.localStorage||{_d:Object.create(null),getItem(k){return this._d[k]??null},setItem(k,v){this._d[k]=String(v)},removeItem(k){delete this._d[k]},clear(){this._d=Object.create(null)}};globalThis.sessionStorage=globalThis.sessionStorage||globalThis.localStorage;";
   await writeFile(
     servicePath,
-    serviceSource + "\n;globalThis.window=globalThis;globalThis.__cothreadWx=globalThis.wx;globalThis.wx=undefined;" + workerStorage + "\n" + cloudbase.outputFiles[0].text + "\n" + cloudbaseShim,
+    serviceSource +
+      "\n;globalThis.window=globalThis;globalThis.__cothreadWx=globalThis.wx;globalThis.wx=undefined;" +
+      workerStorage +
+      "\n" +
+      cloudbase.outputFiles[0].text +
+      "\n" +
+      cloudbaseShim,
     "utf8",
   );
   console.log("bundled CloudBase SDK and wx.cloud shim into service.js");

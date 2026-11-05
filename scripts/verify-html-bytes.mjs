@@ -10,7 +10,9 @@ const u = { id: user.id, kind: "session" };
 const raw = await service.version(u, versionId);
 const source = await service.versionSource(u, versionId);
 const rawBuf = Buffer.isBuffer(raw.content) ? raw.content : Buffer.from(String(raw.content));
-const srcBuf = Buffer.isBuffer(source.content) ? source.content : Buffer.from(String(source.content));
+const srcBuf = Buffer.isBuffer(source.content)
+  ? source.content
+  : Buffer.from(String(source.content));
 
 console.log("raw vs /source identical:", rawBuf.equals(srcBuf));
 console.log("raw mime field:", raw.mime);

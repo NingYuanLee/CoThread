@@ -5,7 +5,9 @@ export function formatTaskThreadNumber(threadNumber) {
 }
 
 export function taskThreadNumberSearchMatch(task, query) {
-  const raw = String(query || "").trim().toLowerCase();
+  const raw = String(query || "")
+    .trim()
+    .toLowerCase();
   if (!raw) return true;
   const needle = raw.startsWith("#") ? raw.slice(1) : raw;
   const title = String(task.title || "").toLowerCase();

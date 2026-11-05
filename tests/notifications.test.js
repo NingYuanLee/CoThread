@@ -9,8 +9,18 @@ test("notifications persist, isolate recipients, import projects and enforce rev
   const database = await testDatabase();
   try {
     const service = new Service(database.db);
-    const users = ["负责人", "小明", "小明同学", "路人"].map((name) => ({ id: randomUUID(), name, kind: "session" }));
-    for (const user of users) await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [user.id, `${user.id}@test.com`, user.name, "unused"]);
+    const users = ["负责人", "小明", "小明同学", "路人"].map((name) => ({
+      id: randomUUID(),
+      name,
+      kind: "session",
+    }));
+    for (const user of users)
+      await query(database.db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+        user.id,
+        `${user.id}@test.com`,
+        user.name,
+        "unused",
+      ]);
     const [owner, member, other, outsider] = users;
     const project = await service.createProject(owner, { name: "通知测试" });
     await service.addMember(owner, project.id, { userId: member.id });
@@ -56,27 +66,43 @@ test("notifications persist, isolate recipients, import projects and enforce rev
     await service.readNotification(member);
     assert.equal((await service.notifications(member)).unread, 0);
     await assert.rejects(service.notifications({ ...member, kind: "api" }), { status: 403 });
-    for (let i = 0; i < 52; i++) await service.notify(database.db, member.id, project.id, "member_removed", `分页 ${i}`);
+    for (let i = 0; i < 52; i++)
+      await service.notify(database.db, member.id, project.id, "member_removed", `分页 ${i}`);
     const first = await service.notifications(member);
     const second = await service.notifications(member, first.next);
     assert.equal(first.items.length, 50);
     assert.ok(second.items.length > 0);
     assert.ok(second.items.every((n) => !first.items.some((x) => x.id === n.id)));
-    const removed = await service.notifications(member, undefined, { kind: "member_removed", limit: 12 });
+    const removed = await service.notifications(member, undefined, {
+      kind: "member_removed",
+      limit: 12,
+    });
     assert.equal(removed.items.length, 12);
     assert.ok(removed.items.every((n) => n.kind === "member_removed"));
     assert.equal(removed.counts.member_removed.total, 53);
     assert.equal(removed.counts.member_removed.unread, 52);
-    const nextRemoved = await service.notifications(member, removed.next, { kind: "member_removed", limit: 12 });
+    const nextRemoved = await service.notifications(member, removed.next, {
+      kind: "member_removed",
+      limit: 12,
+    });
     assert.equal(nextRemoved.items.length, 12);
-    assert.ok(nextRemoved.items.every((n) => n.kind === "member_removed" && !removed.items.some((x) => x.id === n.id)));
+    assert.ok(
+      nextRemoved.items.every(
+        (n) => n.kind === "member_removed" && !removed.items.some((x) => x.id === n.id),
+      ),
+    );
     const mentions = await service.notifications(member, undefined, { kind: "mention", limit: 12 });
     assert.equal(mentions.items.length, 1);
     assert.equal(mentions.next, null);
-    const outsiderPage = await service.notifications(outsider, undefined, { kind: "member_removed", limit: 12 });
+    const outsiderPage = await service.notifications(outsider, undefined, {
+      kind: "member_removed",
+      limit: 12,
+    });
     assert.equal(outsiderPage.items.length, 0);
     assert.deepEqual(outsiderPage.counts, {});
     await assert.rejects(service.notifications(member, undefined, { kind: "invalid" }));
     await assert.rejects(service.notifications(member, undefined, { limit: "12 UNION SELECT" }));
-  } finally { await database.close(); }
+  } finally {
+    await database.close();
+  }
 });

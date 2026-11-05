@@ -13,7 +13,10 @@ export function recordQuery(start) {
 
 function summary(metrics) {
   const intervals = [...metrics.queries].sort((a, b) => a[0] - b[0]);
-  let db = 0, sum = 0, max = 0, end = 0;
+  let db = 0,
+    sum = 0,
+    max = 0,
+    end = 0;
   for (const [start, stop] of intervals) {
     sum += stop - start;
     max = Math.max(max, stop - start);
@@ -31,7 +34,12 @@ export function requestTiming(req, res, next) {
     res.writeHead = function (...args) {
       const times = summary(metrics);
       res.setHeader("X-CoThread-Request-Id", metrics.id);
-      res.setHeader("Server-Timing", Object.entries(times).map(([name, value]) => `${name};dur=${value.toFixed(1)}`).join(", ") + `, db_count;desc="${metrics.queries.length}"`);
+      res.setHeader(
+        "Server-Timing",
+        Object.entries(times)
+          .map(([name, value]) => `${name};dur=${value.toFixed(1)}`)
+          .join(", ") + `, db_count;desc="${metrics.queries.length}"`,
+      );
       return writeHead.apply(this, args);
     };
     res.once("finish", () => {
@@ -41,9 +49,16 @@ export function requestTiming(req, res, next) {
       const liveOk = path === "/api/threads/:id/live" && res.statusCode < 500;
       if (liveOk && process.env.REQUEST_TIMING_LOG !== "true") return;
       if (times.app >= 1000 || res.statusCode >= 500 || process.env.REQUEST_TIMING_LOG === "true")
-        console.log("Request timing", { requestId: metrics.id, method: req.method,
-          path, status: res.statusCode,
-          ...Object.fromEntries(Object.entries(times).map(([key, value]) => [key, Math.round(value)])), queries: metrics.queries.length });
+        console.log("Request timing", {
+          requestId: metrics.id,
+          method: req.method,
+          path,
+          status: res.statusCode,
+          ...Object.fromEntries(
+            Object.entries(times).map(([key, value]) => [key, Math.round(value)]),
+          ),
+          queries: metrics.queries.length,
+        });
     });
     next();
   });

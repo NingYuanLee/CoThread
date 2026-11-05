@@ -1,13 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { previewContentType, resolveStoredMime, storedContentType } from "../server/documents/preview-mime.js";
+import {
+  previewContentType,
+  resolveStoredMime,
+  storedContentType,
+} from "../server/documents/preview-mime.js";
 
 test("preview prefers filename over stored text/plain", () => {
   assert.equal(previewContentType("text/plain", "index.html"), "text/html; charset=utf-8");
   assert.equal(previewContentType("text/plain", "style.css"), "text/css; charset=utf-8");
   assert.equal(previewContentType("text/plain", "script.js"), "text/javascript; charset=utf-8");
   assert.equal(previewContentType("text/plain", "notes.txt"), "text/plain; charset=utf-8");
-  assert.equal(previewContentType("application/pdf", "report.pdf"), "application/pdf; charset=utf-8");
+  assert.equal(
+    previewContentType("application/pdf", "report.pdf"),
+    "application/pdf; charset=utf-8",
+  );
 });
 
 test("agent stored mime maps html css js md json svg", () => {

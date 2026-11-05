@@ -9,11 +9,14 @@ import { dshModelPatch } from "../server/model-config.js";
 test("DSH starts with a custom OpenAI-compatible provider route", async () => {
   const home = await mkdtemp(join(tmpdir(), "cothread-model-route-"));
   const patch = join(home, "model.yml");
-  await writeFile(patch, dshModelPatch({
-    baseUrl: "http://127.0.0.1:1/v1",
-    apiKey: "not-written-to-patch",
-    model: "local-model",
-  }));
+  await writeFile(
+    patch,
+    dshModelPatch({
+      baseUrl: "http://127.0.0.1:1/v1",
+      apiKey: "not-written-to-patch",
+      model: "local-model",
+    }),
+  );
   const env = {};
   for (const key of ["PATH", "Path", "SystemRoot", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATHEXT"])
     if (process.env[key]) env[key] = process.env[key];

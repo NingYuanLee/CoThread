@@ -83,4 +83,6 @@ writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
 console.log(`\n产物：${tgz}`);
 console.log(`清单：${manifestPath}`);
-console.log("上传：在 Cursor 让 Agent 按 last-deploy.json 调 OOS_CodeDeploy，或自行 scp + ecs-promote。");
+console.log(
+  "上传：在 Cursor 让 Agent 按 last-deploy.json 调 OOS_CodeDeploy，或自行 scp + ecs-promote。",
+);

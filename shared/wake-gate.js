@@ -11,13 +11,19 @@ export function createWakeGate(invoke, now = Date.now) {
     }
     states.set(id, state);
     state.active = true;
-    return Promise.resolve().then(() => invoke(id)).then(() => {
-      state.failures = 0;
-      state.next = now() + 15000;
-    }).catch((error) => {
-      state.failures++;
-      state.next = now() + Math.min(120000, 15000 * 2 ** Math.min(state.failures, 3));
-      onError(error.message);
-    }).finally(() => { state.active = false; });
+    return Promise.resolve()
+      .then(() => invoke(id))
+      .then(() => {
+        state.failures = 0;
+        state.next = now() + 15000;
+      })
+      .catch((error) => {
+        state.failures++;
+        state.next = now() + Math.min(120000, 15000 * 2 ** Math.min(state.failures, 3));
+        onError(error.message);
+      })
+      .finally(() => {
+        state.active = false;
+      });
   };
 }

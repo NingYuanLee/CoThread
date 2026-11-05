@@ -1,70 +1,180 @@
-import {test} from 'node:test';
-import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
-import {testDatabase} from './database.js';
-import {Service} from '../server/service.js';
-import {query} from '../server/db.js';
-import {trackThinking} from '../server/agent-thinking.js';
-import {createAgentTools} from '../server/agent-tools.js';
-test('thinking, intermediate text and tools retain actual order; final text is marked separately',async()=>{
- const database=await testDatabase(),db=database.db;
- try{
-  const user={id:randomUUID(),kind:'session'},service=new Service(db);
-  await query(db,'INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)',[user.id,user.id+'@test.com','测试','unused']);
-  const project=await service.createProject(user,{name:'顺序测试'}),thread=await service.createThread(user,project.id,{title:'执行过程'});
-  const message=await service.postMessage(user,thread.id,{body:'@小祥 验证'});
-  await query(db,"UPDATE assistant_replies SET status='running' WHERE message_id=?",[message.id]);
-  const tracker=trackThinking(db,message.id,'s');
-  const emit=(type,data={})=>tracker.notify({method:'session.event',params:{sessionId:'s',event:{type,data}}});
-  const chunk=(type,text)=>emit('assistant/chunk',{chunk:{type,text}});
-  emit('step/start',{step:1});await tracker.flush();
-  assert.equal((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at,null);
-  chunk('reasoning-delta','');await tracker.flush();
-  assert.equal((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at,null);
-  chunk('reasoning-delta','先确认成员。');await tracker.flush();
-  const firstResponse=(await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at;
-  assert.ok(firstResponse);
-  chunk('text-delta','我先读取项目成员。');emit('tool/call');await tracker.flush();
-  await createAgentTools(service,user,{message_id:message.id,thread_id:thread.id})('list_members',{});
-  emit('step/start',{step:2});chunk('reasoning-delta','成员资料已齐全。');chunk('text-delta','最终结果：资料完整。');emit('assistant/message');emit('step/end');await tracker.close('completed','最终结果：资料完整。');
-  const rows=await query(db,'SELECT id,tool,output,status FROM agent_events WHERE message_id=? ORDER BY id',[message.id]);
-  assert.deepEqual(rows.map(e=>e.tool),['thinking','assistant_text','list_members','thinking','assistant_final']);
-  assert.equal(rows[0].output,'先确认成员。');assert.equal(rows[1].output,'我先读取项目成员。');assert.equal(rows[3].output,'成员资料已齐全。');
-  assert.ok(rows.every(e=>e.status==='completed'));
-  assert.equal((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[message.id]))[0].first_response_at,firstResponse);
-  const [live]=await query(db,'SELECT event_id FROM agent_live_output WHERE message_id=?',[message.id]);assert.equal(String(live.event_id),String(rows[4].id));
-  const published=[];
-  const visible=trackThinking(db,message.id,'visible',{onVisibleText:async(text)=>published.push(text)});
-  const say=(type,data={})=>visible.notify({method:'session.event',params:{sessionId:'visible',event:{type,data}}});
-  const sayChunk=(type,text)=>say('assistant/chunk',{chunk:{type,text}});
-  say('step/start');sayChunk('reasoning-delta','内部思考');sayChunk('text-delta','第一句给成员看。');say('tool/call');
-  await visible.flush();
-  assert.deepEqual(published,['第一句给成员看。']);
-  say('step/start');sayChunk('text-delta','第二句给成员看。');say('assistant/message');
-  await visible.close('completed','第二句给成员看。');
-  assert.deepEqual(published,['第一句给成员看。','第二句给成员看。']);
-  const direct=await service.postMessage(user,thread.id,{body:'直接调用工具'});
-  await query(db,"UPDATE assistant_replies SET status='running' WHERE message_id=?",[direct.id]);
-  const toolOnly=trackThinking(db,direct.id,'tool-only');
-  toolOnly.notify({method:'session.event',params:{sessionId:'tool-only',event:{type:'tool/call',data:{}}}});
-  await toolOnly.close('completed');
-  assert.ok((await query(db,'SELECT first_response_at FROM assistant_replies WHERE message_id=?',[direct.id]))[0].first_response_at);
-  const childId=randomUUID();
-  const [beforeProgress]=await query(db,'SELECT progress,first_response_at FROM assistant_replies WHERE message_id=?',[message.id]);
-  const child=trackThinking(db,message.id,childId,{updateReplyProgress:false,agentTaskId:null});
-  const childEmit=(type,data={})=>child.notify({method:'session.event',params:{sessionId:childId,event:{type,data}}});
-  childEmit('step/start');
-  childEmit('assistant/chunk',{chunk:{type:'reasoning-delta',text:'大娃先写探针。'}});
-  childEmit('assistant/chunk',{chunk:{type:'text-delta',text:'开始执行。'}});
-  childEmit('tool/call');
-  await child.flush();
-  await child.close('completed');
-  const childRows=await query(db,'SELECT tool,output,agent_session_id,agent_task_id FROM agent_events WHERE agent_session_id=? ORDER BY id',[childId]);
-  assert.deepEqual(childRows.map(e=>e.tool),['thinking','assistant_text']);
-  assert.equal(childRows[0].output,'大娃先写探针。');
-  assert.equal(childRows[0].agent_task_id,null);
-  const [afterProgress]=await query(db,'SELECT progress,first_response_at FROM assistant_replies WHERE message_id=?',[message.id]);
-  assert.equal(afterProgress.progress,beforeProgress.progress);
-  assert.equal(String(afterProgress.first_response_at),String(beforeProgress.first_response_at));
- }finally{await database.close();}
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { testDatabase } from "./database.js";
+import { Service } from "../server/service.js";
+import { query } from "../server/db.js";
+import { trackThinking } from "../server/agent-thinking.js";
+import { createAgentTools } from "../server/agent-tools.js";
+test("thinking, intermediate text and tools retain actual order; final text is marked separately", async () => {
+  const database = await testDatabase(),
+    db = database.db;
+  try {
+    const user = { id: randomUUID(), kind: "session" },
+      service = new Service(db);
+    await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,?)", [
+      user.id,
+      user.id + "@test.com",
+      "测试",
+      "unused",
+    ]);
+    const project = await service.createProject(user, { name: "顺序测试" }),
+      thread = await service.createThread(user, project.id, { title: "执行过程" });
+    const message = await service.postMessage(user, thread.id, { body: "@小祥 验证" });
+    await query(db, "UPDATE assistant_replies SET status='running' WHERE message_id=?", [
+      message.id,
+    ]);
+    const tracker = trackThinking(db, message.id, "s");
+    const emit = (type, data = {}) =>
+      tracker.notify({
+        method: "session.event",
+        params: { sessionId: "s", event: { type, data } },
+      });
+    const chunk = (type, text) => emit("assistant/chunk", { chunk: { type, text } });
+    emit("step/start", { step: 1 });
+    await tracker.flush();
+    assert.equal(
+      (
+        await query(db, "SELECT first_response_at FROM assistant_replies WHERE message_id=?", [
+          message.id,
+        ])
+      )[0].first_response_at,
+      null,
+    );
+    chunk("reasoning-delta", "");
+    await tracker.flush();
+    assert.equal(
+      (
+        await query(db, "SELECT first_response_at FROM assistant_replies WHERE message_id=?", [
+          message.id,
+        ])
+      )[0].first_response_at,
+      null,
+    );
+    chunk("reasoning-delta", "先确认成员。");
+    await tracker.flush();
+    const firstResponse = (
+      await query(db, "SELECT first_response_at FROM assistant_replies WHERE message_id=?", [
+        message.id,
+      ])
+    )[0].first_response_at;
+    assert.ok(firstResponse);
+    chunk("text-delta", "我先读取项目成员。");
+    emit("tool/call");
+    await tracker.flush();
+    await createAgentTools(service, user, { message_id: message.id, thread_id: thread.id })(
+      "list_members",
+      {},
+    );
+    emit("step/start", { step: 2 });
+    chunk("reasoning-delta", "成员资料已齐全。");
+    chunk("text-delta", "最终结果：资料完整。");
+    emit("assistant/message");
+    emit("step/end");
+    await tracker.close("completed", "最终结果：资料完整。");
+    const rows = await query(
+      db,
+      "SELECT id,tool,output,status FROM agent_events WHERE message_id=? ORDER BY id",
+      [message.id],
+    );
+    assert.deepEqual(
+      rows.map((e) => e.tool),
+      ["thinking", "assistant_text", "list_members", "thinking", "assistant_final"],
+    );
+    assert.equal(rows[0].output, "先确认成员。");
+    assert.equal(rows[1].output, "我先读取项目成员。");
+    assert.equal(rows[3].output, "成员资料已齐全。");
+    assert.ok(rows.every((e) => e.status === "completed"));
+    assert.equal(
+      (
+        await query(db, "SELECT first_response_at FROM assistant_replies WHERE message_id=?", [
+          message.id,
+        ])
+      )[0].first_response_at,
+      firstResponse,
+    );
+    const [live] = await query(db, "SELECT event_id FROM agent_live_output WHERE message_id=?", [
+      message.id,
+    ]);
+    assert.equal(String(live.event_id), String(rows[4].id));
+    const published = [];
+    const visible = trackThinking(db, message.id, "visible", {
+      onVisibleText: async (text) => published.push(text),
+    });
+    const say = (type, data = {}) =>
+      visible.notify({
+        method: "session.event",
+        params: { sessionId: "visible", event: { type, data } },
+      });
+    const sayChunk = (type, text) => say("assistant/chunk", { chunk: { type, text } });
+    say("step/start");
+    sayChunk("reasoning-delta", "内部思考");
+    sayChunk("text-delta", "第一句给成员看。");
+    say("tool/call");
+    await visible.flush();
+    assert.deepEqual(published, ["第一句给成员看。"]);
+    say("step/start");
+    sayChunk("text-delta", "第二句给成员看。");
+    say("assistant/message");
+    await visible.close("completed", "第二句给成员看。");
+    assert.deepEqual(published, ["第一句给成员看。", "第二句给成员看。"]);
+    const direct = await service.postMessage(user, thread.id, { body: "直接调用工具" });
+    await query(db, "UPDATE assistant_replies SET status='running' WHERE message_id=?", [
+      direct.id,
+    ]);
+    const toolOnly = trackThinking(db, direct.id, "tool-only");
+    toolOnly.notify({
+      method: "session.event",
+      params: { sessionId: "tool-only", event: { type: "tool/call", data: {} } },
+    });
+    await toolOnly.close("completed");
+    assert.ok(
+      (
+        await query(db, "SELECT first_response_at FROM assistant_replies WHERE message_id=?", [
+          direct.id,
+        ])
+      )[0].first_response_at,
+    );
+    const childId = randomUUID();
+    const [beforeProgress] = await query(
+      db,
+      "SELECT progress,first_response_at FROM assistant_replies WHERE message_id=?",
+      [message.id],
+    );
+    const child = trackThinking(db, message.id, childId, {
+      updateReplyProgress: false,
+      agentTaskId: null,
+    });
+    const childEmit = (type, data = {}) =>
+      child.notify({
+        method: "session.event",
+        params: { sessionId: childId, event: { type, data } },
+      });
+    childEmit("step/start");
+    childEmit("assistant/chunk", { chunk: { type: "reasoning-delta", text: "大娃先写探针。" } });
+    childEmit("assistant/chunk", { chunk: { type: "text-delta", text: "开始执行。" } });
+    childEmit("tool/call");
+    await child.flush();
+    await child.close("completed");
+    const childRows = await query(
+      db,
+      "SELECT tool,output,agent_session_id,agent_task_id FROM agent_events WHERE agent_session_id=? ORDER BY id",
+      [childId],
+    );
+    assert.deepEqual(
+      childRows.map((e) => e.tool),
+      ["thinking", "assistant_text"],
+    );
+    assert.equal(childRows[0].output, "大娃先写探针。");
+    assert.equal(childRows[0].agent_task_id, null);
+    const [afterProgress] = await query(
+      db,
+      "SELECT progress,first_response_at FROM assistant_replies WHERE message_id=?",
+      [message.id],
+    );
+    assert.equal(afterProgress.progress, beforeProgress.progress);
+    assert.equal(String(afterProgress.first_response_at), String(beforeProgress.first_response_at));
+  } finally {
+    await database.close();
+  }
 });

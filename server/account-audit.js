@@ -42,7 +42,8 @@ async function resolveScope(db, user, pageKey, input) {
       "SELECT id,user_number,username,email FROM users WHERE user_number=?",
       [userNumber],
     );
-    if (!target || (!canViewAll && target.id !== user.id)) return { data, canViewAll, target: false };
+    if (!target || (!canViewAll && target.id !== user.id))
+      return { data, canViewAll, target: false };
     return { data, canViewAll, target };
   }
   if (!canViewAll) {

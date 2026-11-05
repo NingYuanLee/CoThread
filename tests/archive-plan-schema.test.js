@@ -22,6 +22,9 @@ test("archive draft accepts decision alias and notes array", () => {
     notes: ["事项一", "事项二"],
     nextIteration: { title: "下一轮", background: "背景", goal: "目标" },
   });
-  assert.deepEqual(plan.taskDecisions.map((item) => item.disposition), ["handoff", "retain"]);
+  assert.deepEqual(
+    plan.taskDecisions.map((item) => item.disposition),
+    ["handoff", "retain"],
+  );
   assert.equal(plan.notes, "事项一\n事项二");
 });

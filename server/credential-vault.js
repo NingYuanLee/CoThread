@@ -6,7 +6,8 @@ let keyPromise;
 async function loadKey() {
   if (process.env.CREDENTIAL_ENCRYPTION_KEY) {
     const key = Buffer.from(process.env.CREDENTIAL_ENCRYPTION_KEY, "base64");
-    if (key.length !== 32) throw new Error("CREDENTIAL_ENCRYPTION_KEY 必须是 32 字节的 base64 密钥");
+    if (key.length !== 32)
+      throw new Error("CREDENTIAL_ENCRYPTION_KEY 必须是 32 字节的 base64 密钥");
     return key;
   }
   // 兼容历史本机文件；不再自动创建，密钥须人工配置到环境变量。
@@ -18,9 +19,11 @@ async function loadKey() {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  throw new Error("请人工配置 CREDENTIAL_ENCRYPTION_KEY（32 字节 base64），并长期固定；setup 不会自动生成");
+  throw new Error(
+    "请人工配置 CREDENTIAL_ENCRYPTION_KEY（32 字节 base64），并长期固定；setup 不会自动生成",
+  );
 }
-const key = () => keyPromise ??= loadKey();
+const key = () => (keyPromise ??= loadKey());
 export async function encryptToken(token, userId) {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", await key(), iv);

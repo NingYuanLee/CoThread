@@ -30,8 +30,21 @@ export type ContextUsage = {
   automaticCompacting: boolean;
   compactStatus: string;
   compactError: string | null;
-  compactResult: { before: number; after: number; changed: boolean; reason?: "already_small" | "not_smaller" } | null;
+  compactResult: {
+    before: number;
+    after: number;
+    changed: boolean;
+    reason?: "already_small" | "not_smaller";
+  } | null;
 };
-export function contextUsage(session: unknown, messages: unknown[], replies?: unknown[]): ContextUsage;
+export function contextUsage(
+  session: unknown,
+  messages: unknown[],
+  replies?: unknown[],
+): ContextUsage;
 export function discussionText(message: unknown): string;
-export function pendingMessages(messages: unknown[], seenSequence: unknown, replies?: unknown[]): unknown[];
+export function pendingMessages(
+  messages: unknown[],
+  seenSequence: unknown,
+  replies?: unknown[],
+): unknown[];

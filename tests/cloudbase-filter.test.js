@@ -22,9 +22,7 @@ test("CloudBase filters compile mixed condition and group connectors", () => {
       },
       {
         join: "or",
-        conditions: [
-          { field: "retryCount", type: "number", operator: "lt", value: "3" },
-        ],
+        conditions: [{ field: "retryCount", type: "number", operator: "lt", value: "3" }],
       },
     ],
   });
@@ -63,18 +61,20 @@ test("CloudBase filters support regex, multi-value array matching, and existence
 
 test("CloudBase filters support boolean array values and legacy array types", () => {
   const result = compileCloudbaseFilter(command, {
-    groups: [{
-      conditions: [
-        {
-          field: "flags",
-          type: "array",
-          arrayItemType: "boolean",
-          operator: "any_neq",
-          value: ["true", false],
-        },
-        { join: "and", field: "tags", type: "array_string", operator: "any_eq", value: "vip" },
-      ],
-    }],
+    groups: [
+      {
+        conditions: [
+          {
+            field: "flags",
+            type: "array",
+            arrayItemType: "boolean",
+            operator: "any_neq",
+            value: ["true", false],
+          },
+          { join: "and", field: "tags", type: "array_string", operator: "any_eq", value: "vip" },
+        ],
+      },
+    ],
   });
   assert.deepEqual(result.operands[0].flags, { operator: "nin", operands: [[true, false]] });
   assert.deepEqual(result.operands[1].tags, { operator: "in", operands: [["vip"]] });
@@ -122,7 +122,9 @@ test("CloudBase filters reject invalid fields and incompatible operators", () =>
   assert.throws(
     () =>
       compileCloudbaseFilter(command, {
-        groups: [{ conditions: [{ field: "tags", type: "array", operator: "any_eq", value: ["x"] }] }],
+        groups: [
+          { conditions: [{ field: "tags", type: "array", operator: "any_eq", value: ["x"] }] },
+        ],
       }),
     /数组元素类型/,
   );

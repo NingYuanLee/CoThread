@@ -13,23 +13,36 @@ test("super administrators manage projects and accounts without storing reset pa
   try {
     const service = new Service(database.db);
     const admin = { id: randomUUID(), kind: "session" };
-    await query(database.db,
+    await query(
+      database.db,
       "INSERT INTO users(id,email,name,password_hash,is_super_admin) VALUES(?,?,?,?,TRUE)",
-      [admin.id, `${admin.id}@test.com`, "超级管理员", await hashPassword("admin-password-123")]);
+      [admin.id, `${admin.id}@test.com`, "超级管理员", await hashPassword("admin-password-123")],
+    );
 
     const account = await service.createUser(admin, {
-      name: "项目成员", email: `${randomUUID()}@test.com`,
+      name: "项目成员",
+      email: `${randomUUID()}@test.com`,
     });
     assert.equal(typeof account.password, "string");
     assert.ok(account.user_number >= 100000 && account.user_number <= 999999);
     assert.ok(account.password.length >= 12);
-    const [createdPassword] = await query(database.db, "SELECT password_hash FROM users WHERE id=?", [account.id]);
+    const [createdPassword] = await query(
+      database.db,
+      "SELECT password_hash FROM users WHERE id=?",
+      [account.id],
+    );
     assert.notEqual(createdPassword.password_hash, account.password);
     assert.equal(await verifyPassword(account.password, createdPassword.password_hash), true);
-    const project = await service.adminCreateProject(admin, { name: "系统项目", description: "管理测试" });
+    const project = await service.adminCreateProject(admin, {
+      name: "系统项目",
+      description: "管理测试",
+    });
     await service.addMember(admin, project.id, { userId: account.id });
 
-    assert.deepEqual((await service.users(admin, project.id)).map((row) => row.id), []);
+    assert.deepEqual(
+      (await service.users(admin, project.id)).map((row) => row.id),
+      [],
+    );
     const accountView = (await service.adminAccounts(admin)).find((row) => row.id === account.id);
     assert.equal(accountView.projects[0].name, "系统项目");
     assert.equal((await service.adminProjects(admin))[0].members.length, 2);
@@ -37,38 +50,59 @@ test("super administrators manage projects and accounts without storing reset pa
     await service.setProjectArchived(admin, project.id, true);
     assert.equal((await service.projects(admin)).length, 0);
     assert.equal((await service.adminProjects(admin))[0].archived_at !== null, true);
-    await assert.rejects(service.project({ id: account.id, kind: "session" }, project.id), { status: 403 });
+    await assert.rejects(service.project({ id: account.id, kind: "session" }, project.id), {
+      status: 403,
+    });
     await service.setProjectArchived(admin, project.id, false);
     assert.equal((await service.projects(admin)).length, 1);
 
     await issueCredential(database.db, account.id, "session", "测试登录");
     const reset = await service.resetAccountPassword(admin, account.id);
-    const [stored] = await query(database.db, "SELECT password_hash FROM users WHERE id=?", [account.id]);
+    const [stored] = await query(database.db, "SELECT password_hash FROM users WHERE id=?", [
+      account.id,
+    ]);
     assert.notEqual(stored.password_hash, reset.password);
     assert.equal(await verifyPassword(reset.password, stored.password_hash), true);
-    assert.equal((await query(database.db, "SELECT id FROM credentials WHERE user_id=?", [account.id])).length, 0);
+    assert.equal(
+      (await query(database.db, "SELECT id FROM credentials WHERE user_id=?", [account.id])).length,
+      0,
+    );
 
     await service.setAccountDisabled(admin, account.id, { disabled: true });
-    assert.equal((await service.adminAccounts(admin)).find((row) => row.id === account.id).disabled_at !== null, true);
-    await assert.rejects(service.setAccountDisabled(admin, admin.id, { disabled: true }), { status: 409 });
+    assert.equal(
+      (await service.adminAccounts(admin)).find((row) => row.id === account.id).disabled_at !==
+        null,
+      true,
+    );
+    await assert.rejects(service.setAccountDisabled(admin, admin.id, { disabled: true }), {
+      status: 409,
+    });
     await service.setAccountDisabled(admin, account.id, { disabled: false });
 
     const http = createApp(database.db).listen(0, "127.0.0.1");
     try {
       await new Promise((resolve) => http.once("listening", resolve));
       const port = http.address().port;
-      const login = (password) => fetch(`http://127.0.0.1:${port}/api/login`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier: account.username, password }),
-      });
+      const login = (password) =>
+        fetch(`http://127.0.0.1:${port}/api/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: account.username, password }),
+        });
       assert.equal((await login(reset.password)).status, 200);
       assert.equal((await login("incorrect-password")).status, 401);
-    } finally { await new Promise((resolve) => http.close(resolve)); }
+    } finally {
+      await new Promise((resolve) => http.close(resolve));
+    }
 
-    const auditedAccount = (await service.adminAccounts(admin)).find((row) => row.id === account.id);
+    const auditedAccount = (await service.adminAccounts(admin)).find(
+      (row) => row.id === account.id,
+    );
     assert.equal(auditedAccount.changes, undefined);
     assert.equal(auditedAccount.logins, undefined);
-    const changes = await listAccountChanges(database.db, admin, { userNumber: account.user_number });
+    const changes = await listAccountChanges(database.db, admin, {
+      userNumber: account.user_number,
+    });
     assert.equal(changes.canViewAll, true);
     assert.ok(changes.items.some((change) => change.action === "password_reset"));
     assert.ok(changes.items.some((change) => change.action === "disabled"));
@@ -77,8 +111,12 @@ test("super administrators manage projects and accounts without storing reset pa
     assert.ok(logins.items.some((login) => login.success && login.failure_reason === null));
     assert.ok(logins.items.some((login) => !login.success && login.failure_reason === "密码错误"));
     assert.ok(logins.items.every((login) => login.country === "本机"));
-    const auditedProject = (await service.adminProjects(admin)).find((row) => row.id === project.id);
+    const auditedProject = (await service.adminProjects(admin)).find(
+      (row) => row.id === project.id,
+    );
     assert.ok(auditedProject.changes.some((change) => change.action === "member_added"));
     assert.ok(auditedProject.changes.some((change) => change.action === "archived"));
-  } finally { await database.close(); }
+  } finally {
+    await database.close();
+  }
 });

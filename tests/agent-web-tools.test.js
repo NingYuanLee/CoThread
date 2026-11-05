@@ -13,7 +13,7 @@ test("小祥 registers official web_search and web_fetch without the DSH copies"
   assert.match(tools, /"web_fetch"/);
   assert.match(prompt, /fetch: false/);
   assert.match(prompt, /search: false/);
-  assert.match(prompt, /personaPrefix: ''/);
+  assert.match(prompt, /personaPrefix: (''|"")/);
   const registered = [];
   assert.doesNotThrow(() =>
     applyProjectTools({

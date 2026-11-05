@@ -1,9 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { digest } from "../auth.js";
-import {
-  INLINE_FILE_MAX_BYTES,
-  sha256HexPattern,
-} from "../../shared/upload-limits.js";
+import { INLINE_FILE_MAX_BYTES, sha256HexPattern } from "../../shared/upload-limits.js";
 
 function fail(status, message) {
   const error = new Error(message);
@@ -38,7 +35,10 @@ export function verifyBytes(bytes, expectedSha256, maxBytes, limitMessage) {
   return { bytes, sha256, byteSize: bytes.length };
 }
 
-export function decodeUploadedBytes(contentBase64, { sha256, maxBytes = INLINE_FILE_MAX_BYTES } = {}) {
+export function decodeUploadedBytes(
+  contentBase64,
+  { sha256, maxBytes = INLINE_FILE_MAX_BYTES } = {},
+) {
   if (typeof contentBase64 !== "string") fail(400, "文件内容必须为有效的 base64");
   let bytes;
   try {

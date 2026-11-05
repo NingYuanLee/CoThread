@@ -74,8 +74,7 @@ try {
     if (row.status === "content-changed")
       console.log(`      数据库=${row.actual}  当前文件=${row.expected}`);
   }
-  if (groups.legacy)
-    console.log("提示：历史修订会在下次启动 / 迁移时自动重基线，无需人工处理。");
+  if (groups.legacy) console.log("提示：历史修订会在下次启动 / 迁移时自动重基线，无需人工处理。");
 
   if (rebaselineNames.length) {
     assertProductionWriteAllowed();

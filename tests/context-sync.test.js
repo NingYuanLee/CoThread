@@ -9,8 +9,12 @@ import { drainReplies } from "../server/reply-dispatch.js";
 
 test("slow context maintenance does not occupy the coordinator lane", async () => {
   const gate = Promise.withResolvers();
-  let routes = 0, maintenanceStarted = false;
-  const running = drainReplies(async () => false, "fixture", Date.now() + 5000,
+  let routes = 0,
+    maintenanceStarted = false;
+  const running = drainReplies(
+    async () => false,
+    "fixture",
+    Date.now() + 5000,
     async () => {
       routes++;
       if (routes === 2) gate.resolve();
@@ -21,31 +25,51 @@ test("slow context maintenance does not occupy the coordinator lane", async () =
       maintenanceStarted = true;
       await gate.promise;
       return true;
-    });
+    },
+  );
   await running;
   assert.ok(routes >= 2);
 });
 
 test("every member message enters shared context incrementally, with compaction checks and exclusive ownership", async () => {
-  const database = await testDatabase(), db = database.db, service = new Service(db);
+  const database = await testDatabase(),
+    db = database.db,
+    service = new Service(db);
   try {
     const users = [0, 1].map(() => ({ id: randomUUID(), kind: "session" }));
-    for (const user of users) await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [user.id, `${user.id}@test.com`, "成员"]);
+    for (const user of users)
+      await query(db, "INSERT INTO users(id,email,name,password_hash) VALUES(?,?,?,'unused')", [
+        user.id,
+        `${user.id}@test.com`,
+        "成员",
+      ]);
     const project = await service.createProject(users[0], { name: "增量上下文" });
-    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [project.id, users[1].id]);
+    await query(db, "INSERT INTO members(project_id,user_id,role) VALUES(?,?,'member')", [
+      project.id,
+      users[1].id,
+    ]);
     const thread = await service.createThread(users[0], project.id, { title: "自动观察" });
-    const settle = async (messageId) => query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [messageId]);
-    const ordinary = await service.postMessage(users[1], thread.id, { body: "普通成员发言，不需要 @" });
+    const settle = async (messageId) =>
+      query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [messageId]);
+    const ordinary = await service.postMessage(users[1], thread.id, {
+      body: "普通成员发言，不需要 @",
+    });
     const batches = [];
     const open = async (context, options) => {
       assert.equal(options.autoCompact, false);
       assert.equal(options.sessionLockHeld, true);
       assert.deepEqual(context.replies, []);
       batches.push(context.messages.map((m) => m.body));
-      return { close: async (completed) => {
-        assert.equal(completed, true);
-        await query(db, "INSERT INTO agent_sessions(thread_id,session_id,seen_sequence) VALUES(?,?,?) ON DUPLICATE KEY UPDATE seen_sequence=VALUES(seen_sequence)", [thread.id, randomUUID(), context.messages.at(-1).sequence]);
-      } };
+      return {
+        close: async (completed) => {
+          assert.equal(completed, true);
+          await query(
+            db,
+            "INSERT INTO agent_sessions(thread_id,session_id,seen_sequence) VALUES(?,?,?) ON DUPLICATE KEY UPDATE seen_sequence=VALUES(seen_sequence)",
+            [thread.id, randomUUID(), context.messages.at(-1).sequence],
+          );
+        },
+      };
     };
     assert.equal(await synchronizeDiscussionContext(db, thread.id, open), false);
     await settle(ordinary.id);
@@ -64,11 +88,17 @@ test("every member message enters shared context incrementally, with compaction 
     await settle(extra.id);
     assert.equal(await synchronizeDiscussionContext(db, thread.id, open), true);
     assert.deepEqual(batches, [["普通成员发言，不需要 @"], ["主助手接待回复", "另一名成员补充"]]);
-    const running = await service.postMessage(users[0], thread.id, { body: "@小祥 正在接待时不要抢会话" });
+    const running = await service.postMessage(users[0], thread.id, {
+      body: "@小祥 正在接待时不要抢会话",
+    });
     assert.equal(await synchronizeDiscussionContext(db, thread.id, open), false);
     await query(db, "UPDATE agent_requests SET status='running' WHERE message_id=?", [running.id]);
     assert.equal(await synchronizeDiscussionContext(db, thread.id, open), false);
-    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [running.id]);
+    await query(db, "UPDATE agent_requests SET status='completed' WHERE message_id=?", [
+      running.id,
+    ]);
     assert.equal(await synchronizeDiscussionContext(db, thread.id, open), true);
-  } finally { await database.close(); }
+  } finally {
+    await database.close();
+  }
 });

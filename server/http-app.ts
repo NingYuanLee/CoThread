@@ -1,7 +1,7 @@
 import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.ts";
 import express from "express";
 import { createAccountSurface } from "./routes/account.js";
-import { registerAdminRoutes } from "./routes/admin.js";
+import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerCredentialRoutes } from "./routes/credentials.ts";
 import { registerProjectRuntimeRoutes } from "./routes/project-runtime.js";
 import { registerProjectWorkspaceRoutes } from "./routes/project-workspace.js";

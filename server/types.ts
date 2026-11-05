@@ -20,7 +20,7 @@ export type RequestUser = {
   name?: string | null;
   username?: string | null;
   credential_id: string | null;
-  scope: unknown;
+  scope?: string | null;
   [field: string]: unknown;
 };
 

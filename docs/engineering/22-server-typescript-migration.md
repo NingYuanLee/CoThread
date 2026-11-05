@@ -371,11 +371,21 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 **启动烟测**（不只是类型通过）：`node server/index.ts --api-only` 实际跑起来，输出 `coThread Server 已启动：http://127.0.0.1:3100`，随后是常规执行器日志。这比"`tsc` 通过 + 单测通过"更进一步，证明 Node 的类型剥离在该入口上确实可用。
 
-剩余 58 个 `.js` 文件（被引用次数实测于 2026-11-05；入口一项已完成，批次 7 从表中移除）：
+第三十四批：`routes/admin.ts`(250 行，管理域全部端点)。本批 101 个错，符合「单文件 / 100 上下」的上限。
+
+三个模式化的处理，值得复用：
+
+- **路由处理器批量标注**：`(req, res)` → `(req: Request, res: Response)`、`(req, _res, next)` → 加 `NextFunction`。44 处一次性解决。
+- **`req.params` / `req.query` 收口**：Express 5 的类型里这些取值是 `string | string[]`，全部用 `String(...)` 包一层。
+- **领域视图的 `db` 类型统一成 `Db`**：`CapabilityService.db` 原来是 `Pool`，而 `Service.db` 是 `Db`，导致整个 `Service` 传不进去。改成 `Db`（`query()` 本来就接受 `Db`），只在真正要 `transaction()` 的地方收窄——判断依据是「这个视图是否发起事务」，不是「习惯写 Pool」。
+
+顺带把 `RequestUser.scope` 从 `unknown` 收紧成 `string | null`：多个领域视图都要求这个形状，`unknown` 会让 `Service` 和 `req.user` 都传不进这些函数。
+
+剩余 56 个 `.js` 文件（被引用次数实测于 2026-11-05；入口已完成）：
 
 | 批次 | 范围                                                                                | 文件数 |
 | ---- | ----------------------------------------------------------------------------------- | ------ |
-| 3    | 叶模块剩余（被 0–1 个文件引用）                                                     | 9      |
+| 3    | 叶模块剩余（被 0–1 个文件引用）                                                     | 8      |
 | 4    | 被 2–4 个文件引用                                                                   | 14     |
 | 5    | 被 5–9 个文件引用                                                                   | 16     |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18     |

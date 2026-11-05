@@ -11,7 +11,7 @@ import type { Db } from "./types.ts";
 
 /** 能力管理用到的 Service 视图。 */
 type CapabilityService = {
-  db: Pool;
+  db: Db;
   adminPermission(user: CapabilityUser, permission: string): Promise<unknown>;
 };
 
@@ -128,7 +128,7 @@ export async function createPromptSkill(
   await requireAdmin(service, user, "plugins.create");
   const data = skillInput.parse(input);
   const agentLevel = storedSkillLevel(data.agentLevel);
-  return transaction(service.db, async (db) => {
+  return transaction(service.db as Pool, async (db) => {
     const skillId = randomUUID();
     await query(
       db,
@@ -178,7 +178,7 @@ export async function updatePromptSkill(
   z.string().uuid().parse(skillId);
   const data = skillInput.parse(input);
   const agentLevel = storedSkillLevel(data.agentLevel);
-  return transaction(service.db, async (db) => {
+  return transaction(service.db as Pool, async (db) => {
     const [current] = await query(
       db,
       "SELECT * FROM agent_prompt_skills WHERE id=? AND source='custom' AND archived_at IS NULL FOR UPDATE",

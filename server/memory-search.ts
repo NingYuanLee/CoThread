@@ -9,6 +9,32 @@ import {
 } from "./conversation-memory-integrity.ts";
 import { hydrateFileIndexRoots } from "./file-index-roots.ts";
 import { hydrateFileIndexGroups } from "./file-index-groups.js";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 记忆检索的选项。 */
+type MemorySearchOptions = {
+  query?: unknown;
+  keyword?: unknown;
+  subjects?: unknown;
+  aboutUserId?: unknown;
+  status?: string;
+  purpose?: string;
+  asOf?: string | null;
+  depth?: number;
+  limit?: number;
+};
+
+/** 检索结果页。 */
+type MemorySearchResult = {
+  entries: Array<Record<string, unknown>>;
+  related: Array<Record<string, unknown>>;
+  purpose?: unknown;
+  asOf?: unknown;
+  total?: number;
+  coverage?: unknown;
+  [field: string]: unknown;
+};
 import { hydrateFileIndexPaths } from "./file-index-path.ts";
 
 const SOURCE_LABELS = {
@@ -22,7 +48,7 @@ const SOURCE_LABELS = {
   memory_page: "关联项目记忆",
 };
 
-function excerptOf(text, size = 240) {
+function excerptOf(text: unknown, size: number = 240): string {
   const value = String(text || "")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/[#>*_`~|]+/g, " ")
@@ -31,7 +57,7 @@ function excerptOf(text, size = 240) {
   return value.length > size ? value.slice(0, size) + "…" : value;
 }
 
-async function sourcesOf(db, pageIds) {
+async function sourcesOf(db: Db, pageIds: string[]) {
   const map = new Map();
   if (!pageIds.length) return map;
   const rows = await query(
@@ -52,7 +78,7 @@ async function sourcesOf(db, pageIds) {
     list.push({
       kind: row.sourceKind,
       id: row.sourceId,
-      label: row.label || SOURCE_LABELS[row.sourceKind] || "",
+      label: row.label || (SOURCE_LABELS as Record<string, string>)[String(row.sourceKind)] || "",
     });
     map.set(row.pageId, list);
   }
@@ -64,8 +90,8 @@ async function sourcesOf(db, pageIds) {
  * 记忆是索引不是正文，返回摘录与出处；需要原话再按出处打开。
  */
 export async function searchProjectMemory(
-  db,
-  projectId,
+  db: Db,
+  projectId: string,
   {
     query: keyword,
     subjects,
@@ -75,10 +101,10 @@ export async function searchProjectMemory(
     asOf = null,
     depth = 1,
     limit = 20,
-  } = {},
-) {
-  if (typeof db.getConnection === "function")
-    return transaction(db, (conn) =>
+  }: MemorySearchOptions = {},
+): Promise<MemorySearchResult> {
+  if (typeof (db as Pool).getConnection === "function")
+    return transaction(db as Pool, (conn) =>
       searchProjectMemory(conn, projectId, {
         query: keyword,
         subjects,
@@ -117,7 +143,7 @@ export async function searchProjectMemory(
   }
   if (aboutUserId) {
     where.push("about_user_id=?");
-    params.push(aboutUserId);
+    params.push(String(aboutUserId));
   }
   const kw = String(keyword || "")
     .trim()
@@ -214,16 +240,16 @@ export async function searchProjectMemory(
     status: row.status,
     corrected: Boolean(Number(row.corrected)),
     subject: row.subjectType,
-    subjectLabel: MEMORY_SUBJECT_LABELS[row.subjectType] || "",
+    subjectLabel: (MEMORY_SUBJECT_LABELS as Record<string, string>)[String(row.subjectType)] || "",
     subtype: row.subtype || null,
-    subtypeLabel: MEMORY_SUBTYPE_LABELS[row.subtype] || "",
+    subtypeLabel: (MEMORY_SUBTYPE_LABELS as Record<string, string>)[String(row.subtype)] || "",
     title: row.title,
     excerpt: excerptOf(row.body),
     ...(rootIds.has(row.id)
       ? {
           navigation:
-            row.body.length > 8000
-              ? `${row.body.slice(0, 8000)}\n\n导航已截断，请按主题或文件名搜索。`
+            String(row.body).length > 8000
+              ? `${String(row.body).slice(0, 8000)}\n\n导航已截断，请按主题或文件名搜索。`
               : row.body,
         }
       : {}),
@@ -232,7 +258,7 @@ export async function searchProjectMemory(
     updatedAt: row.updatedAt,
     sources: sourceMap.get(row.id) || [],
   }));
-  let related = [];
+  let related: Array<Record<string, unknown>> = [];
   if (depth > 0 && ids.length) {
     const hood = await memoryNeighborhood(db, projectId, ids, {
       depth,
@@ -265,24 +291,27 @@ export async function searchProjectMemory(
 }
 
 async function searchHistoricalRevisions(
-  db,
-  projectId,
-  { keyword, subjects, aboutUserId, asOf, limit, purpose },
-) {
+  db: Db,
+  projectId: string,
+  { keyword, subjects, aboutUserId, asOf, limit, purpose }: MemorySearchOptions,
+): Promise<MemorySearchResult> {
   const cap = Math.min(Math.max(Number(limit) || 20, 1), 50);
   const selected = (Array.isArray(subjects) ? subjects : []).filter(isMemorySubject);
   const kw = String(keyword || "")
     .trim()
     .slice(0, 200);
   const where = ["r.project_id=?", "r.recorded_at<=?", historicalFileIndexSql("p")];
-  const params = [projectId, new Date(asOf).toISOString().slice(0, 23).replace("T", " ")];
+  const params: unknown[] = [
+    projectId,
+    new Date(String(asOf)).toISOString().slice(0, 23).replace("T", " "),
+  ];
   if (selected.length) {
     where.push(`r.subject_type IN (${selected.map(() => "?").join(",")})`);
     params.push(...selected);
   }
   if (aboutUserId) {
     where.push("p.about_user_id=?");
-    params.push(aboutUserId);
+    params.push(String(aboutUserId));
   }
   if (kw) {
     where.push("(r.title LIKE ? OR r.body LIKE ?)");

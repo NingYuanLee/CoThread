@@ -12,7 +12,7 @@ import {
   processNextConversationMemory,
 } from "../server/conversation-memory-runner.js";
 import { processNextProjectMemory } from "../server/project-memory.js";
-import { searchProjectMemory } from "../server/memory-search.js";
+import { searchProjectMemory } from "../server/memory-search.ts";
 import { readProjectMemory } from "../server/memory-timeline.js";
 import { readMemberUnderstanding } from "../server/memory-cache.ts";
 import { startConversationToolBridge } from "../server/conversation-memory-tools.js";

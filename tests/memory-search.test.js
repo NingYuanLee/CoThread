@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { searchProjectMemory } from "../server/memory-search.js";
+import { searchProjectMemory } from "../server/memory-search.ts";
 import { createMemoryRelation } from "../server/memory-graph.ts";
 import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 import { callMcpTool } from "../server/mcp.js";

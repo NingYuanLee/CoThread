@@ -728,7 +728,7 @@ export function createAgentTools(
         result = await readMemoryRevision(service, user, z.string().uuid().parse(args.revisionId));
         if (result.projectId !== thread.project_id) throw new HttpError(403, "不能跨项目读取记忆");
       } else if (name === "search_memory") {
-        const { searchProjectMemory } = await import("./memory-search.js");
+        const { searchProjectMemory } = await import("./memory-search.ts");
         result = await searchProjectMemory(service.db, thread.project_id, {
           query:
             args.query === undefined ? undefined : z.string().trim().max(200).parse(args.query),

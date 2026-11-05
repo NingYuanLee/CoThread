@@ -9,7 +9,7 @@ import {
   createConversationWindow,
 } from "../server/conversation-memory-store.js";
 import { processConversationWindow } from "../server/conversation-memory-runner.js";
-import { searchProjectMemory } from "../server/memory-search.js";
+import { searchProjectMemory } from "../server/memory-search.ts";
 import { supersedeMemoryEntry, confirmMemoryEntry } from "../server/memory-timeline.js";
 import { getWikiPage } from "../server/wiki-pages.ts";
 import { listMemoryHistory, readMemoryRevision } from "../server/memory-history.js";

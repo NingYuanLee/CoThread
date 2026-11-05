@@ -405,11 +405,19 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 顺带把 `miniprogram-auth-config.ts` 的 `AuthService.db` 从 `Pool` 放宽成 `Db`——同样是因为领域视图只做查询、不发起事务。
 
-剩余 53 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第三十八批：`memory-search.ts`(315 行，记忆检索与历史修订检索)。
+
+三类反复出现的形态，一次记清：
+
+- **`as const` 标签对象不能按 `string` 索引**：`MEMORY_SUBJECT_LABELS[row.subjectType]` 在 `strict` 下报 TS7053。统一加 `as Record<string, string>` 再用 `String(...)` 取键。
+- **递归导出函数必须写返回类型**：`searchProjectMemory` 在池分支里再次调用自己，不写返回类型就是 TS7023/TS7024。
+- **返回类型要按真实结构写**：我先写了 `{ pages: [...] }`，实际返回的是 `{ entries, related, total, purpose }`——猜错会连带一串 TS2741。
+
+剩余 52 个 `.js` 文件（被引用次数实测于 2026-11-05）；入口与 200 行以内的文件均已完成，剩余全部是 270 行以上的中等/大模块。
 
 | 批次 | 范围                                                                                | 文件数 |
 | ---- | ----------------------------------------------------------------------------------- | ------ |
-| 4    | 被 2–4 个文件引用                                                                   | 13     |
+| 4    | 被 2–4 个文件引用                                                                   | 12     |
 | 5    | 被 5–9 个文件引用                                                                   | 14     |
 | 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18     |
 | 其余 | 被 0–1 个文件引用（270 行以上的独立模块）                                           | 8      |

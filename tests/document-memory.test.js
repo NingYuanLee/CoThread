@@ -8,7 +8,7 @@ import {
   createVersion as createVersionRaw,
   replaceVersionContent as replaceVersionContentRaw,
 } from "../server/documents/versions.ts";
-import { searchProjectMemory } from "../server/memory-search.js";
+import { searchProjectMemory } from "../server/memory-search.ts";
 import { getWikiPage, listWikiPages } from "../server/wiki-pages.ts";
 import { readProjectMemory } from "../server/memory-timeline.js";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.js";

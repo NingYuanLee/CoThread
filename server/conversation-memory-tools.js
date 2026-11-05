@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { query } from "./db.ts";
-import { searchProjectMemory } from "./memory-search.js";
+import { searchProjectMemory } from "./memory-search.ts";
 import { isMemorySubject } from "../shared/memory-kinds.js";
 import {
   intactConversationMemorySql,

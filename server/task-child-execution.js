@@ -18,7 +18,7 @@ import {
   latestToolFailure,
   taskRetryStats,
 } from "./task-pool-failures.ts";
-import { reconcileEndedTaskRuns, voidSelfHandledAssistTasks } from "./task-pool-recovery.js";
+import { reconcileEndedTaskRuns, voidSelfHandledAssistTasks } from "./task-pool-recovery.ts";
 import {
   TASK_ENDED,
   MAX_TASK_RETRIES,

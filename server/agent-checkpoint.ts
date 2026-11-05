@@ -2,8 +2,20 @@ import { mkdir, readdir, readFile, writeFile, rm, rename, stat } from "node:fs/p
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
+/** 会话快照：相对路径 → base64 字节。 */
+export type SessionFileMap = Record<string, string>;
+
+/** 去重时被移动的一项。 */
+export type MovedSessionLog = { id: string; kept: string; from: string; to: string };
+
+/** 一个会话目录里日志的体量与最新写入时间。 */
+type SessionLogFacts = { bytes: number; newest: number };
+
+/** 会话目录的一份副本（含所在项目目录）。 */
+type SessionCopy = SessionLogFacts & { project: string; dir: string };
+
 // Match the pinned DSH JSONL backend's project-key encoding (UTF-16 units).
-function projectKey(cwd) {
+function projectKey(cwd: string): string {
   const encoded = cwd
     .replace(/[\\/:]+/g, "-")
     .replace(
@@ -13,15 +25,15 @@ function projectKey(cwd) {
   return `--${(encoded.replace(/^-+/, "") || "root").slice(0, 251)}--`;
 }
 
-export function relocateSessionFiles(files, home) {
-  const result = new Map();
+export function relocateSessionFiles(files: SessionFileMap, home: string): Map<string, Buffer> {
+  const result = new Map<string, Buffer>();
   for (const [path, bytes] of Object.entries(files)) {
     if (path === "_cothread_context.json") continue;
     if (path.startsWith("_attachments/")) continue;
     if (!/^[A-Za-z0-9_./-]+$/.test(path) || path.startsWith("/") || path.split("/").includes(".."))
       throw new Error("无效会话快照路径");
-    let target = path,
-      content = Buffer.from(bytes, "base64");
+    let target = path;
+    let content = Buffer.from(bytes, "base64");
     // 会话日志可以是 session.jsonl，也可以是升级后的 session.vN.jsonl；
     // 只认前者会让旧路径的代数文件在恢复时原样写回（去重后又被复活）。
     const generation = path.match(/\/(session(?:\.v\d+)?\.jsonl)$/);
@@ -54,7 +66,7 @@ const SESSION_DIR_NAME =
   /^(?:session-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** 一个会话目录里是否有 DSH 的 JSONL 日志，并给出体量与最新写入时间。 */
-async function sessionLogFacts(dir) {
+async function sessionLogFacts(dir: string): Promise<SessionLogFacts | null> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
   let bytes = 0;
   let newest = 0;
@@ -76,10 +88,13 @@ async function sessionLogFacts(dir) {
  * 保留策略：日志体量最大的一份（内容最完整），相同则取最新写入，再相同按目录名。
  * 返回被移动的项，空数组表示没有重复；
  */
-export async function dedupeSessionLogs(home, { trashRoot, dryRun = false } = {}) {
+export async function dedupeSessionLogs(
+  home: string,
+  { trashRoot, dryRun = false }: { trashRoot?: string; dryRun?: boolean } = {},
+): Promise<MovedSessionLog[]> {
   const sessions = join(home, "sessions");
   const projectDirs = await readdir(sessions, { withFileTypes: true }).catch(() => []);
-  const copiesById = new Map();
+  const copiesById = new Map<string, SessionCopy[]>();
   for (const projectEntry of projectDirs) {
     if (!projectEntry.isDirectory()) continue;
     const projectDir = join(sessions, projectEntry.name);
@@ -96,7 +111,7 @@ export async function dedupeSessionLogs(home, { trashRoot, dryRun = false } = {}
   }
   const trash = join(trashRoot || join(home, ".trash"), `session-dedupe-${Date.now()}`);
   const expectedProject = projectKey(home);
-  const moved = [];
+  const moved: MovedSessionLog[] = [];
   for (const [id, copies] of copiesById) {
     copies.sort(
       (left, right) =>
@@ -137,7 +152,7 @@ export async function dedupeSessionLogs(home, { trashRoot, dryRun = false } = {}
 }
 
 /** 改写会话目录里代数文件首行的 cwd，其余字节保持不变。 */
-async function rewriteSessionCwd(dir, home) {
+async function rewriteSessionCwd(dir: string, home: string): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
@@ -145,7 +160,7 @@ async function rewriteSessionCwd(dir, home) {
     const text = await readFile(path, "utf8");
     const end = text.indexOf("\n");
     if (end < 0) continue;
-    let header;
+    let header: { type?: string; cwd?: string } | undefined;
     try {
       header = JSON.parse(text.slice(0, end));
     } catch {
@@ -158,13 +173,17 @@ async function rewriteSessionCwd(dir, home) {
 }
 
 /** True when home/sessions already holds a log for this session id. */
-export async function hasSessionLog(home, sessionId) {
+export async function hasSessionLog(home: string, sessionId: unknown): Promise<boolean> {
   if (!/^[0-9a-f-]{36}$/i.test(String(sessionId || ""))) return false;
   const entries = await readdir(join(home, "sessions"), { recursive: true }).catch(() => []);
-  return entries.some((entry) => String(entry).split(/[\\/]/).includes(sessionId));
+  return entries.some((entry) =>
+    String(entry)
+      .split(/[\\/]/)
+      .includes(sessionId as string),
+  );
 }
 
-export async function restoreSessionCheckpoint(files, home) {
+export async function restoreSessionCheckpoint(files: SessionFileMap, home: string): Promise<void> {
   const records = relocateSessionFiles(files, home);
   const attachments = Object.entries(files).filter(([path]) => path.startsWith("_attachments/"));
   for (const [path] of attachments) {
@@ -189,7 +208,7 @@ export async function restoreSessionCheckpoint(files, home) {
       try {
         await writeFile(target, content, { flag: "wx" });
       } catch (error) {
-        if (error.code !== "EEXIST") throw error;
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         if (!(await readFile(target)).equals(content))
           throw new Error(`附件快照与已有文件内容不一致: ${path}`);
       }

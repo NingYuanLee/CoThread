@@ -25,7 +25,7 @@ import {
   reconcileEndedTaskRuns,
   repairMisclosedHumanExecutionRuns,
   voidSelfHandledAssistTasks,
-} from "./task-pool-recovery.js";
+} from "./task-pool-recovery.ts";
 export {
   composeTaskInstruction,
   isXiaoxiangOwnResponsibility,

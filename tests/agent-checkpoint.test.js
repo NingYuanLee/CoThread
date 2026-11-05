@@ -8,7 +8,7 @@ import {
   dedupeSessionLogs,
   relocateSessionFiles,
   restoreSessionCheckpoint,
-} from "../server/agent-checkpoint.js";
+} from "../server/agent-checkpoint.ts";
 import { isCorruptSessionLog } from "../server/agent.js";
 import { documentSummarySchema } from "../server/project-memory.js";
 

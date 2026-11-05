@@ -4,9 +4,9 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { createUsageMeter } from "./agent-usage.js";
+import { createUsageMeter } from "./agent-usage.ts";
 import { assetPath } from "./assets.ts";
-import { restoreSessionCheckpoint } from "./agent-checkpoint.js";
+import { restoreSessionCheckpoint } from "./agent-checkpoint.ts";
 import { contextInjectionFromEvent } from "../shared/context-injection.js";
 import { elderRuntimePatch } from "./dsh-runtime-config.js";
 import { contextBudget, contextUsage } from "../shared/context.js";

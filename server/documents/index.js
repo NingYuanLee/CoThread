@@ -20,7 +20,7 @@ export * from "./library.js";
 export * from "./read-text.ts";
 export * from "./project-library.js";
 export * from "./document-tools.js";
-export * from "./document-audit.js";
+export * from "./document-audit.ts";
 export * from "./file-upload.js";
 export * from "./file-bytes.js";
 export * from "./service-preview.ts";

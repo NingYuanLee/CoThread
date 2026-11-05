@@ -11,7 +11,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "../db.ts";
-import { recordDocumentChange } from "./document-audit.js";
+import { recordDocumentChange } from "./document-audit.ts";
 
 export async function createArtifact(
   db,

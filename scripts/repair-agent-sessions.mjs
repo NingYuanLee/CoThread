@@ -10,7 +10,7 @@
 // 保留策略：日志体量最大（内容最完整）的一份，其余整体移动，不删除，便于回滚。
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { dedupeSessionLogs } from "../server/agent-checkpoint.js";
+import { dedupeSessionLogs } from "../server/agent-checkpoint.ts";
 
 const args = process.argv.slice(2);
 const apply = args.includes("--apply");

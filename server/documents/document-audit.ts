@@ -1,17 +1,57 @@
 import { randomUUID } from "node:crypto";
 import { query } from "../db.ts";
+import type { Db } from "../types.ts";
 
-function mysqlTimestamp(value) {
+/** 变更日志的筛选条件。 */
+export type DocumentChangeFilters = {
+  artifactId?: string | null;
+  folderId?: string | null;
+  action?: string | null;
+  source?: string | null;
+  fileName?: string | null;
+  from?: string | null;
+  to?: string | null;
+  before?: string | null;
+  beforeId?: string | null;
+};
+
+/** 记录一次文档变更所需字段。 */
+export type DocumentChangeInput = {
+  projectId: string;
+  artifactId?: string | null;
+  versionId?: string | null;
+  folderId?: string | null;
+  action: string;
+  source?: string;
+  actorType?: string;
+  actorId?: string | null;
+  threadId?: string | null;
+  taskId?: string | null;
+  messageId?: string | null;
+  details?: Record<string, unknown> | null;
+};
+
+function mysqlTimestamp(value: unknown): unknown {
   if (!value) return value;
-  const date = new Date(value);
+  const date = new Date(value as string);
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 23).replace("T", " ");
 }
 
 function changeFilters(
-  projectId,
-  { artifactId, folderId, action, source, fileName, from, to, before, beforeId } = {},
-) {
-  const values = [projectId];
+  projectId: string,
+  {
+    artifactId,
+    folderId,
+    action,
+    source,
+    fileName,
+    from,
+    to,
+    before,
+    beforeId,
+  }: DocumentChangeFilters = {},
+): { values: unknown[]; where: string } {
+  const values: unknown[] = [projectId];
   const filters = ["l.project_id=?"];
   if (artifactId) {
     filters.push("l.artifact_id=?");
@@ -56,7 +96,7 @@ function changeFilters(
 }
 
 export async function recordDocumentChange(
-  db,
+  db: Db,
   {
     projectId,
     artifactId = null,
@@ -70,9 +110,15 @@ export async function recordDocumentChange(
     taskId = null,
     messageId = null,
     details = {},
-  },
-) {
-  const [snapshot] = await query(
+  }: DocumentChangeInput,
+): Promise<void> {
+  const [snapshot] = await query<{
+    actor_name?: string | null;
+    artifact_title?: string | null;
+    version_filename?: string | null;
+    folder_name?: string | null;
+    memory_artifact_id?: string | null;
+  }>(
     db,
     `SELECT u.name actor_name,a.title artifact_title,v.filename version_filename,f.name folder_name,COALESCE(a.id,v.artifact_id) memory_artifact_id
     FROM (SELECT ? actor_id, ? artifact_id, ? version_id, ? folder_id) refs
@@ -113,9 +159,13 @@ export async function recordDocumentChange(
   );
 }
 
-export async function countDocumentChanges(db, projectId, filters = {}) {
+export async function countDocumentChanges(
+  db: Db,
+  projectId: string,
+  filters: DocumentChangeFilters = {},
+): Promise<number> {
   const { values, where } = changeFilters(projectId, filters);
-  const rows = await query(
+  const rows = await query<{ total: number }>(
     db,
     `SELECT COUNT(*) total FROM document_change_logs l WHERE ${where}`,
     values,
@@ -124,22 +174,26 @@ export async function countDocumentChanges(db, projectId, filters = {}) {
 }
 
 export async function listDocumentChanges(
-  db,
-  projectId,
-  { limit = 100, page = 1, ...filters } = {},
+  db: Db,
+  projectId: string,
+  {
+    limit = 100,
+    page = 1,
+    ...filters
+  }: DocumentChangeFilters & { limit?: number; page?: number } = {},
 ) {
   const { values, where } = changeFilters(projectId, filters);
   const pageSize = Math.min(Math.max(Number(limit) || 100, 1), 200);
   const requestedPage = Math.max(Number(page) || 1, 1);
   const offset = (requestedPage - 1) * pageSize;
-  const rows = await query(
+  const rows = await query<Record<string, unknown>>(
     db,
     `SELECT l.* FROM document_change_logs l
     WHERE ${where} ORDER BY l.created_at DESC,l.id DESC LIMIT ? OFFSET ?`,
     [...values, pageSize + 1, offset],
   );
   const hasMore = rows.length > pageSize;
-  const items = rows.slice(0, pageSize).map((row) => ({
+  const items = rows.slice(0, pageSize).map((row): Record<string, unknown> => ({
     ...row,
     details: typeof row.details === "string" ? JSON.parse(row.details) : row.details,
   }));

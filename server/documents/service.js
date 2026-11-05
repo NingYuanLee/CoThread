@@ -35,7 +35,7 @@ import {
 } from "./project-library.js";
 import { libraryChange } from "./library.js";
 import { previewContentType, resolveStoredMime } from "./preview-mime.ts";
-import { recordDocumentChange } from "./document-audit.js";
+import { recordDocumentChange } from "./document-audit.ts";
 import { asPreviewHtml, previewAssetInFolder, walkPreviewSubfolders } from "./service-preview.ts";
 import {
   clearArtifactOfficialLink,

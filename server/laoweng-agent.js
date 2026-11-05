@@ -5,7 +5,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
 import { assetPath } from "./assets.ts";
-import { dedupeSessionLogs, hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
+import { dedupeSessionLogs, hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.ts";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { laowengRuntimePatch, elderRuntimePatch } from "./dsh-runtime-config.js";
@@ -17,7 +17,7 @@ import {
 import { contextBudget } from "../shared/context.js";
 import { saveVisualArtifact } from "./visual-artifacts.ts";
 import { buildMaintenanceTurn } from "../shared/prompt-blocks.js";
-import { createUsageMeter } from "./agent-usage.js";
+import { createUsageMeter } from "./agent-usage.ts";
 
 const LAOWENG_CONTEXT_BUDGET = contextBudget("knowledge");
 /** 维护会话快照上限；超过即视为历史累积过量，重置会话而不是让运行反复失败。 */

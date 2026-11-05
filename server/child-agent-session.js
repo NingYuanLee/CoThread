@@ -6,7 +6,7 @@ import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
 import { publishWork } from "./work-events.ts";
 import { contextUsage } from "../shared/context.js";
-import { createUsageMeter } from "./agent-usage.js";
+import { createUsageMeter } from "./agent-usage.ts";
 
 function flattenContent(content) {
   const parts = [];

@@ -7,7 +7,7 @@ import {
   modelUsage,
   responseText,
 } from "./model-config.js";
-import { saveReplyUsage } from "./agent-usage.js";
+import { saveReplyUsage } from "./agent-usage.ts";
 import { query } from "./db.ts";
 import { mentionsAgent } from "../shared/agent-member.js";
 

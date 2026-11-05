@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createUsageMeter } from "../server/agent-usage.js";
+import { createUsageMeter } from "../server/agent-usage.ts";
 test("native usage replaces repeated samples and counts retries without counting reasoning twice", () => {
   const meter = createUsageMeter(),
     usage = {

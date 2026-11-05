@@ -5,7 +5,7 @@ import {
   resolvePublicSmtpHost,
   smtpConnectionOptions,
   smtpTransportUrl,
-} from "../server/email-delivery.js";
+} from "../server/email-delivery.ts";
 
 test("SMTP configuration uses one authenticated connection URL", () => {
   const value = "smtps://cothread%40example.com:encoded%3Asecret@smtp.example.com:465";

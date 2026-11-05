@@ -13,8 +13,8 @@ import { createAgentTools } from "./agent-tools.js";
 import { releaseSandbox } from "./agent-sandbox.js";
 import { agentSession } from "./agent-session.ts";
 import { deliverTaskUpdates } from "./agent-updates.js";
-import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.js";
-import { createUsageMeter, saveReplyUsage } from "./agent-usage.js";
+import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.ts";
+import { createUsageMeter, saveReplyUsage } from "./agent-usage.ts";
 import { publishWork } from "./work-events.ts";
 import {
   capturedModelUsage,

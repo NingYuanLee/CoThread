@@ -11,7 +11,7 @@ import {
   LIBRARY_DATE_FOLDER_NAME,
   uniqueArtifactTitle,
 } from "./project-library.js";
-import { recordDocumentChange } from "./document-audit.js";
+import { recordDocumentChange } from "./document-audit.ts";
 
 const id = z.string().uuid();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

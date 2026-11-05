@@ -8,7 +8,7 @@ import { AGENT_XIAOXIANG_MEMBER, mentionsAgent } from "../shared/agent-member.js
 import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";
 import { capturedModelUsage, redactSecrets } from "./model-config.js";
-import { createUsageMeter, saveReplyUsage, saveTurnUsage } from "./agent-usage.js";
+import { createUsageMeter, saveReplyUsage, saveTurnUsage } from "./agent-usage.ts";
 import {
   acquireCoordinatorRuntime,
   discardCoordinatorRuntime,

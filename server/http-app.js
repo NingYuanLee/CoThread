@@ -2,7 +2,7 @@ import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-main
 import express from "express";
 import { createAccountSurface } from "./routes/account.js";
 import { registerAdminRoutes } from "./routes/admin.js";
-import { registerCredentialRoutes } from "./routes/credentials.js";
+import { registerCredentialRoutes } from "./routes/credentials.ts";
 import { registerProjectRuntimeRoutes } from "./routes/project-runtime.js";
 import { registerProjectWorkspaceRoutes } from "./routes/project-workspace.js";
 import { ZodError } from "zod/v3";

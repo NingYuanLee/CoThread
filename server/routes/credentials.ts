@@ -8,8 +8,23 @@ import { query } from "../db.ts";
 import { HttpError } from "../service.js";
 import { handleMcp } from "../mcp.js";
 import { MCP_CAPABILITIES } from "../../shared/mcp-capabilities.js";
+import type { Express } from "express";
+import type { Pool } from "mysql2/promise";
 
-export function registerCredentialRoutes(app, { db, service, afterMcpMessage }) {
+/** `service` 与 `afterMcpMessage` 只透传给 `handleMcp`，类型随之派生。 */
+type McpArgs = Parameters<typeof handleMcp>;
+
+/** 账号令牌的调用方参数。 */
+type CredentialRoutesOptions = {
+  db: Pool;
+  service: McpArgs[2];
+  afterMcpMessage: McpArgs[3];
+};
+
+export function registerCredentialRoutes(
+  app: Express,
+  { db, service, afterMcpMessage }: CredentialRoutesOptions,
+): void {
   app.get("/api/tokens", async (req, res) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     res.setHeader("Cache-Control", "no-store");
@@ -27,7 +42,11 @@ export function registerCredentialRoutes(app, { db, service, afterMcpMessage }) 
       ),
     );
   });
-  const mcpCredentialResponse = (credential) => ({
+  const mcpCredentialResponse = (credential: {
+    token: unknown;
+    expiresAt: unknown;
+    version: unknown;
+  }) => ({
     token: credential.token,
     expiresAt: credential.expiresAt,
     version: credential.version,

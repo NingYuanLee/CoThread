@@ -12,7 +12,7 @@ import {
   clearUserSkillSecret,
   listUserSkills,
   saveUserSkillSecret,
-} from "../user-skill-credentials.js";
+} from "../user-skill-credentials.ts";
 import {
   clearEnvironmentVariable,
   listEnvironmentVariables,

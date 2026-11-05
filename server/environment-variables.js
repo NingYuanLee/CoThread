@@ -101,6 +101,14 @@ export async function listEnvironmentVariables(db, scope, ownerId) {
   );
 }
 
+/**
+ * 写入一个环境变量；`scope` 为 `personal` 时归属个人，否则归属项目。
+ *
+ * 这里只补 `updatedBy` 的 JSDoc：JS 默认值会让 TS 把它推成 `null`，而实际调用会
+ * 传入当前用户 ID（见 server/user-skill-credentials.ts）。
+ *
+ * @param {string | null} [updatedBy]
+ */
 export async function setEnvironmentVariable(db, scope, ownerId, key, value, updatedBy = null) {
   const entry = requireCatalogEntry(scope, key);
   const secret = entry.validate ? entry.validate(value) : String(value ?? "").trim();

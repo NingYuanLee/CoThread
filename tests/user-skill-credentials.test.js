@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertMiaowenToken } from "../server/user-skill-credentials.js";
+import { assertMiaowenToken } from "../server/user-skill-credentials.ts";
 import {
   MIAOWEN_SKILL_VERSION,
   miaowenSkillLabel,

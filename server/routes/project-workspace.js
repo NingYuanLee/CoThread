@@ -91,7 +91,7 @@ import {
   taskRejectionReview,
   updateTask,
 } from "../task-pool.js";
-import { threadTaskStats } from "../task-stats.js";
+import { threadTaskStats } from "../task-stats.ts";
 import { draftBriefSchema, generateTaskDraftBrief } from "../task-draft-brief.js";
 import {
   mentionTaskSourceNotice,

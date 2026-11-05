@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { COORDINATOR_PERSONA } from "../server/coordinator-persona.js";
+import { COORDINATOR_PERSONA } from "../server/coordinator-persona.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -564,7 +564,7 @@ export const SYSTEM_PROMPTS = Object.freeze({
     sourceFiles: [
       "dsh-layer/cothread-system-prompt.mjs",
       "dsh-layer/cothread-plugin-registry.mjs",
-      "server/coordinator-persona.js",
+      "server/coordinator-persona.ts",
     ],
   },
   child_agent: {

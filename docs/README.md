@@ -36,6 +36,7 @@
 - [19-memory-upgrade-review.md](engineering/19-memory-upgrade-review.md)：记忆作业升级的缺陷修复台账与验证记录
 - [20-memory-source-lifecycle-plan.md](engineering/20-memory-source-lifecycle-plan.md)：按来源治理记忆（两态、三来源、出处固定与检索）
 - [21-document-preview-renditions.md](engineering/21-document-preview-renditions.md)：旧版 Office（OLE2）预览派生文件的生成与失效
+- [22-server-typescript-migration.md](engineering/22-server-typescript-migration.md)：server/ 迁到 TypeScript 的运行方式、语法约束、转换工具与进度
 
 用户能看见的行为变了，同时改 `public/docs.html` 和对应的工程说明。只改内部实现时只改工程说明。表结构以 `migrations/` 为准。长期产品资料放进 `product/`。一次测量、复盘或待办不要留在 `docs/`。
 

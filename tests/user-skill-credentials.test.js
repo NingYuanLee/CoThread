@@ -6,7 +6,7 @@ import {
   miaowenSkillLabel,
   runMiaowenChat,
   scrubMiaowenSecret,
-} from "../server/miaowen-skill.js";
+} from "../server/miaowen-skill.ts";
 
 const TOKEN = "sk-mw-abc_DEF-1234";
 

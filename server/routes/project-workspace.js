@@ -52,7 +52,7 @@ import {
 import { createMemoryRelation, deleteMemoryRelation } from "../memory-graph.js";
 import { emptyLibraryRecycle, libraryChange } from "../documents/index.js";
 import { countDocumentChanges, listDocumentChanges } from "../documents/index.js";
-import { projectManagerOperation } from "../service-access.js";
+import { projectManagerOperation } from "../service-access.ts";
 import {
   clearEnvironmentVariable,
   listEnvironmentVariables,

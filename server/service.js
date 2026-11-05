@@ -10,7 +10,7 @@ import {
 } from "./service-admin.js";
 import { HttpError } from "./http-error.ts";
 import { DocumentsService } from "./documents/service.js";
-import * as accessDomain from "./service-access.js";
+import * as accessDomain from "./service-access.ts";
 import * as membersDomain from "./service-members.js";
 import * as projectsDomain from "./service-projects.js";
 import * as monitorDomain from "./service-monitor.js";

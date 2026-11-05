@@ -15,15 +15,64 @@ const ATTACHMENT_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO"]);
 const MISSING =
   "[TOKEN_NOT_FOUND] 当前登录账号还没有配置妙问 API KEY。请到个人设置的「环境变量」填写，不要把 KEY 发到对话里。";
 
-export function miaowenSkillLabel() {
+/** 一个预审附件。 */
+export type MiaowenMaterial = { content_type: string; url: string };
+
+/** 一次妙问对话的返回值。 */
+export type MiaowenChatResult = { text: string; materials: MiaowenMaterial[] };
+
+/** 调用方可以注入的依赖与回调。 */
+export type MiaowenChatOptions = {
+  onProgress?: ((line: string) => void) | null;
+  fetch?: typeof fetch;
+  timeoutMs?: number;
+};
+
+/** 妙问返回的 JSON 负载。 */
+type JsonObject = Record<string, unknown>;
+
+/** 一次对话累积下来的状态。 */
+type MiaowenChatState = {
+  markdownContent: string;
+  taskInfo: string;
+  hasError: boolean;
+  errorMessage: string;
+  versionExpired: boolean;
+  versionMessage: string;
+  totalSteps: number;
+  completedRounds: Set<number>;
+  printedInstructs: Set<string>;
+  roundResults: Record<string, string>;
+  mdMilestone: number;
+  loadingShown: boolean;
+  streamEnded: boolean;
+  thinking: boolean;
+  answering: boolean;
+  sessionId: string;
+  messageId: string;
+  progress: string[];
+  lastProgressAt: number;
+  streamInterrupted: boolean;
+};
+
+/** 只把普通对象当作负载；数组与 null 一律视为「没有对象」。 */
+function asObject(value: unknown): JsonObject | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
+}
+
+export function miaowenSkillLabel(): string {
   return `妙问技能 ${MIAOWEN_SKILL_NAME} ${MIAOWEN_SKILL_VERSION} 已装入本进程，随共序启动。`;
 }
 
-export function scrubMiaowenSecret(value) {
+export function scrubMiaowenSecret(value: unknown): string {
   return String(value || "").replace(/sk-mw-[A-Za-z0-9_-]+/g, "sk-mw-***");
 }
 
-export async function runMiaowenChat(args, token, options = {}) {
+export async function runMiaowenChat(
+  args: { query?: unknown; attachments?: unknown },
+  token: unknown,
+  options: MiaowenChatOptions = {},
+): Promise<MiaowenChatResult> {
   const queryText = String(args?.query || "").trim();
   if (!queryText) throw new Error("请提供要问妙问的问题");
   if (queryText.length > 8000) throw new Error("问题过长");
@@ -40,7 +89,7 @@ export async function runMiaowenChat(args, token, options = {}) {
 
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
   const state = createState();
-  const note = (line) => {
+  const note = (line: string): void => {
     state.progress.push(line);
     if (state.progress.length > 40) state.progress.shift();
     state.lastProgressAt = Date.now();
@@ -56,10 +105,10 @@ export async function runMiaowenChat(args, token, options = {}) {
     : null;
 
   const fetchImpl = options.fetch || globalThis.fetch;
-  const requestBody = { query: queryText };
+  const requestBody: { query: string; attachments?: MiaowenMaterial[] } = { query: queryText };
   if (attachments.value.length) requestBody.attachments = attachments.value;
   try {
-    let response;
+    let response: Response;
     try {
       response = await fetchImpl(CHAT_URL, {
         method: "POST",
@@ -109,14 +158,18 @@ export async function runMiaowenChat(args, token, options = {}) {
   }
 }
 
-function normalizeAttachments(value) {
+function normalizeAttachments(value: unknown): {
+  value: MiaowenMaterial[];
+  error?: string;
+} {
   if (value == null) return { value: [] };
   if (!Array.isArray(value)) return { error: "[ERROR] 附件必须是数组。", value: [] };
   if (value.length > 8) return { error: "[ERROR] 一次最多预审 8 个附件。", value: [] };
-  const normalized = [];
-  for (const item of value) {
+  const normalized: MiaowenMaterial[] = [];
+  for (const raw of value) {
+    const item = raw as { url?: unknown; content_type?: unknown } | null | undefined;
     const urlText = String(item?.url || "").trim();
-    let url;
+    let url: URL;
     try {
       url = new URL(urlText);
     } catch {
@@ -139,7 +192,7 @@ function normalizeAttachments(value) {
   return { value: normalized };
 }
 
-function createState() {
+function createState(): MiaowenChatState {
   return {
     markdownContent: "",
     taskInfo: "",
@@ -164,23 +217,28 @@ function createState() {
   };
 }
 
-function safeJsonParse(text) {
+function safeJsonParse(text: string): JsonObject | null {
   try {
-    return JSON.parse(text);
+    const parsed: unknown = JSON.parse(text);
+    return asObject(parsed);
   } catch {
     return null;
   }
 }
 
-function pickId(obj, key) {
+function pickId(obj: unknown, key: string): string {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return "";
-  const value = obj[key];
+  const value = (obj as JsonObject)[key];
   if (typeof value !== "string" && typeof value !== "number") return "";
   const text = String(value).trim();
   return text && text !== "0" ? text : "";
 }
 
-function collectFeedbackIds(parsed, state, note) {
+function collectFeedbackIds(
+  parsed: JsonObject,
+  state: MiaowenChatState,
+  note: (line: string) => void,
+): void {
   for (const source of [parsed, parsed.data, parsed.agent_info]) {
     const sessionId = pickId(source, "session_id");
     if (sessionId && !state.sessionId) {
@@ -192,9 +250,13 @@ function collectFeedbackIds(parsed, state, note) {
   }
 }
 
-function handleEvent(jsonData, state, note) {
+function handleEvent(
+  jsonData: string,
+  state: MiaowenChatState,
+  note: (line: string) => void,
+): void {
   const parsed = safeJsonParse(jsonData);
-  if (!parsed || typeof parsed !== "object") return;
+  if (!parsed) return;
   collectFeedbackIds(parsed, state, note);
   if (parsed.code === VERSION_EXPIRED_CODE) {
     state.versionExpired = true;
@@ -228,35 +290,37 @@ function handleEvent(jsonData, state, note) {
     }
     return;
   }
-  if (eventType === "MARKDOWN_OF_HTML" && data && typeof data.content === "string") {
-    state.markdownContent += data.content;
+  const obj = asObject(data);
+  if (eventType === "MARKDOWN_OF_HTML" && obj && typeof obj.content === "string") {
+    state.markdownContent += obj.content;
     return;
   }
-  if (eventType === "HTML_DATA" && data && typeof data === "object") {
+  if (eventType === "HTML_DATA" && obj) {
     const pieces = [
-      data.tip,
-      data.report_preface,
-      data.report_title ? `### ${data.report_title}` : "",
-      data.reply_content,
-      data.report_content,
-      data.report_content_stream,
-      data.html_content,
-      data.html_url ? `\n[在线查看完整内容](${data.html_url})` : "",
-    ].filter((item) => typeof item === "string" && item.trim());
+      obj.tip,
+      obj.report_preface,
+      obj.report_title ? `### ${obj.report_title}` : "",
+      obj.reply_content,
+      obj.report_content,
+      obj.report_content_stream,
+      obj.html_content,
+      obj.html_url ? `\n[在线查看完整内容](${obj.html_url})` : "",
+    ].filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
     if (pieces.length) {
       state.markdownContent += (state.markdownContent ? "\n\n" : "") + pieces.join("\n\n");
     }
-    const template = parsed.html_template || data.html_template || "";
-    if (template) note(`收到结构化卡片：${template}`);
+    const template = parsed.html_template || obj.html_template || "";
+    if (template) note(`收到结构化卡片：${String(template)}`);
     return;
   }
   if (eventType === "SEARCH" && Array.isArray(data) && data.length) {
-    const refs = data
-      .map((item) =>
-        item?.title
+    const refs = (data as unknown[])
+      .map((raw) => {
+        const item = asObject(raw);
+        return item?.title
           ? `- [${item.title}](${item.url || ""})${item.site_name ? ` _(${item.site_name})_` : ""}`
-          : "",
-      )
+          : "";
+      })
       .filter(Boolean)
       .join("\n");
     if (refs) {
@@ -266,23 +330,13 @@ function handleEvent(jsonData, state, note) {
     return;
   }
   if (eventType === "GUI") {
-    const answer =
-      data && typeof data === "object"
-        ? data.answer_msg || ""
-        : typeof data === "string"
-          ? data
-          : "";
+    const answer = obj ? (obj.answer_msg as string) || "" : typeof data === "string" ? data : "";
     if (answer) state.markdownContent += (state.markdownContent ? "\n\n" : "") + answer;
     note("妙问需要补充信息后才能继续。");
     return;
   }
-  if (
-    eventType === "SECURITY_TAG" &&
-    data &&
-    typeof data === "object" &&
-    data.is_need_replace_content
-  ) {
-    state.markdownContent = data.content_replace || state.markdownContent;
+  if (eventType === "SECURITY_TAG" && obj && obj.is_need_replace_content) {
+    state.markdownContent = (obj.content_replace as string) || state.markdownContent;
     note("内容安全校验已触发。");
     return;
   }
@@ -297,10 +351,10 @@ function handleEvent(jsonData, state, note) {
   if (eventType === "ERROR" || eventType === "ERROR_TIP") {
     state.hasError = true;
     let message = "未知错误";
-    let code;
-    if (data && typeof data === "object") {
-      message = data.message || data.tip || message;
-      code = data.code;
+    let code: unknown;
+    if (obj) {
+      message = (obj.message as string) || (obj.tip as string) || message;
+      code = obj.code;
     } else if (typeof data === "string" && data) message = data;
     if (code === VERSION_EXPIRED_CODE || parsed.code === VERSION_EXPIRED_CODE) {
       state.versionExpired = true;
@@ -311,33 +365,43 @@ function handleEvent(jsonData, state, note) {
   }
 }
 
-function handleThink(data, thinkSeconds, state, note) {
-  if (data && typeof data === "object") {
-    const kind = data.data_type;
+function handleThink(
+  data: unknown,
+  thinkSeconds: unknown,
+  state: MiaowenChatState,
+  note: (line: string) => void,
+): void {
+  const obj = asObject(data);
+  if (obj) {
+    const kind = obj.data_type;
     if (kind === "QUESTION_EVALUATION") {
-      note(data.question ? `问题理解：${data.question}` : "已完成问题理解。");
+      note(obj.question ? `问题理解：${obj.question}` : "已完成问题理解。");
     } else if (kind === "STEP_INSTRUCT") {
-      const round = data.round;
-      const instruct = data.instruct || "";
+      const round = obj.round as number | undefined;
+      const instruct = (obj.instruct as string) || "";
       if (round !== undefined) state.totalSteps = Math.max(state.totalSteps, Number(round) || 0);
       const key = `${round}::${instruct}`;
       if (state.printedInstructs.has(key)) return;
       state.printedInstructs.add(key);
       note(instruct ? `步骤 ${round}：${instruct}` : `正在执行分析步骤 ${round}。`);
     } else if (kind === "STEP_RESULT") {
-      const round = data.round;
-      const result = String(data.result || "").trim();
+      const round = obj.round as number | undefined;
+      const result = String(obj.result || "").trim();
       if (result && round !== undefined) {
-        const previous = state.roundResults[round] || "";
-        if (result.length >= previous.length) state.roundResults[round] = result;
+        const previous = state.roundResults[String(round)] || "";
+        if (result.length >= previous.length) state.roundResults[String(round)] = result;
       }
       const first = round === undefined || !state.completedRounds.has(round);
       if (round !== undefined) state.completedRounds.add(round);
       if (!first) return;
-      const tools = Array.isArray(data.tools) ? data.tools : [];
-      const toolNames = [...new Set(tools.map((tool) => tool?.tool_name).filter(Boolean))].join(
-        "、",
-      );
+      const tools = Array.isArray(obj.tools) ? (obj.tools as unknown[]) : [];
+      const toolNames = [
+        ...new Set(
+          tools
+            .map((raw) => asObject(raw)?.tool_name)
+            .filter((name) => typeof name === "string" && name),
+        ),
+      ].join("、");
       note(
         round === undefined
           ? "一个分析步骤已完成。"
@@ -346,7 +410,7 @@ function handleThink(data, thinkSeconds, state, note) {
             : `步骤 ${round} 已完成。`,
       );
     } else if (kind === "SUMMARY") note("分析步骤已完成，正在整合回答。");
-    if (thinkSeconds) note(`已用时 ${thinkSeconds} 秒。`);
+    if (thinkSeconds) note(`已用时 ${String(thinkSeconds)} 秒。`);
     return;
   }
   if (typeof data === "string" && !state.thinking) {
@@ -355,23 +419,23 @@ function handleThink(data, thinkSeconds, state, note) {
   }
 }
 
-function buildFallback(state) {
+function buildFallback(state: MiaowenChatState): string {
   const rounds = Object.keys(state.roundResults)
     .map(Number)
     .sort((left, right) => left - right);
   if (!rounds.length) return "";
-  const last = String(state.roundResults[rounds[rounds.length - 1]] || "").trim();
+  const last = String(state.roundResults[String(rounds[rounds.length - 1])] || "").trim();
   if (!last) return "";
   return `> 注意：本次回答在生成最终结论前中断，以下是已完成步骤的阶段性结果，可能不完整。\n\n${last}`;
 }
 
-function versionExpiredText(message) {
+function versionExpiredText(message: unknown): string {
   return scrubMiaowenSecret(
     `[VERSION_EXPIRED] ${message || `共序内置的妙问协议仍是 ${MIAOWEN_SKILL_VERSION}，服务端要求更新。`}\n请稍后再试。这不是钥匙问题，不要重新索取 API KEY。`,
   );
 }
 
-function finish(state) {
+function finish(state: MiaowenChatState): string {
   if (state.versionExpired) return versionExpiredText(state.versionMessage);
   let content = state.markdownContent.trim();
   if (!content) content = buildFallback(state);
@@ -387,8 +451,8 @@ function finish(state) {
   return "[API_ERROR] 妙问没有返回完整回答。可以稍后重试。";
 }
 
-function formatResult(state, content) {
-  const lines = [];
+function formatResult(state: MiaowenChatState, content: string): string {
+  const lines: string[] = [];
   if (state.progress.length)
     lines.push(state.progress.map((line) => `[PROGRESS] ${line}`).join("\n"));
   lines.push("[RESULT]");
@@ -405,12 +469,12 @@ function formatResult(state, content) {
   return lines.join("\n");
 }
 
-function clip(text) {
+function clip(text: string): string {
   if (text.length <= RESULT_LIMIT) return text;
   return text.slice(0, RESULT_LIMIT) + "\n\n[TRUNCATED] 回答过长，共序已截断尾部。";
 }
 
-async function readSse(response, onEvent) {
+async function readSse(response: Response, onEvent: (json: string) => void): Promise<void> {
   if (!response.body?.getReader) {
     const text = await response.text();
     for (const line of text.split("\n")) consumeLine(line, onEvent);
@@ -430,14 +494,14 @@ async function readSse(response, onEvent) {
   if (buffer.trim()) consumeLine(buffer, onEvent);
 }
 
-function consumeLine(line, onEvent) {
+function consumeLine(line: string, onEvent: (json: string) => void): void {
   const trimmed = line.trim();
   if (!trimmed.startsWith("data:")) return;
   const json = trimmed.slice(5).trim();
   if (json && json !== "[DONE]") onEvent(json);
 }
 
-async function httpFailure(response) {
+async function httpFailure(response: Response): Promise<string> {
   const body = scrubMiaowenSecret(await response.text().catch(() => ""));
   const parsed = safeJsonParse(body);
   if (parsed?.code === VERSION_EXPIRED_CODE) return versionExpiredText(parsed.message);
@@ -448,9 +512,15 @@ async function httpFailure(response) {
   return `[API_ERROR] 妙问请求失败（HTTP ${response.status}）。${detail ? `\n${detail}` : "服务端没有返回详情。"}`;
 }
 
-function networkMessage(error) {
-  const name = error?.name || "";
-  const code = error?.cause?.code || error?.code || "";
+function networkMessage(error: unknown): string {
+  const failure = (error ?? {}) as {
+    name?: string;
+    message?: unknown;
+    code?: string;
+    cause?: { code?: string };
+  };
+  const name = failure.name || "";
+  const code = failure.cause?.code || failure.code || "";
   if (name === "TimeoutError" || name === "AbortError" || code === "ABORT_ERR") {
     return "[NETWORK_ERROR] 妙问超过 10 分钟没有返回，请稍后重试。";
   }
@@ -458,5 +528,5 @@ function networkMessage(error) {
     return "[NETWORK_ERROR] 无法解析妙问域名，请检查服务器网络。";
   if (code === "ECONNREFUSED" || code === "ECONNRESET")
     return "[NETWORK_ERROR] 连接妙问失败，请稍后重试。";
-  return `[NETWORK_ERROR] ${scrubMiaowenSecret(error?.message || "网络异常")}。请稍后重试。`;
+  return `[NETWORK_ERROR] ${scrubMiaowenSecret(failure.message || "网络异常")}。请稍后重试。`;
 }

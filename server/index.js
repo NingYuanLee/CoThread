@@ -1,5 +1,5 @@
 import { interruptRunningSandboxRuns } from "./thread-activity.ts";
-import { miaowenSkillLabel } from "./miaowen-skill.js";
+import { miaowenSkillLabel } from "./miaowen-skill.ts";
 import express from "express";
 import { createServer as createHttpServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";

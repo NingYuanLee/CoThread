@@ -14,3 +14,7 @@ public/dimina/
 
 # Legacy monolith is formatted incrementally during the Documents refactor.
 web/Documents.tsx
+
+# Hand-written single page: dense hand-tuned markup with inlined CSS that prettier
+# would explode into ~1000 lines. Kept out of the formatter on purpose.
+public/about_us.html

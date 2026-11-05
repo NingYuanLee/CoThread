@@ -2,7 +2,7 @@ import { query } from "./db.ts";
 import { Service } from "./service.js";
 import { agentFailureCode } from "./agent-errors.ts";
 import { redactSecrets } from "./model-config.js";
-import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.js";
+import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.ts";
 
 // The main context observes every member message without generating a reply.
 // DSH updates metering here; compaction stays on the idle compression lane so

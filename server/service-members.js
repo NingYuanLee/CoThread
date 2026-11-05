@@ -4,7 +4,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { hashPassword } from "./auth.js";
 
-import { fail, id, title } from "./service-support.js";
+import { fail, id, title } from "./service-support.ts";
 
 export async function accountChangeOperation(
   service,

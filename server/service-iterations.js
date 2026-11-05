@@ -5,14 +5,14 @@ import {
   retryIterationArchive,
   confirmIterationArchive,
 } from "./iteration-archive.js";
-import { attachMessageQuotes } from "./message-quotes.js";
+import { attachMessageQuotes } from "./message-quotes.ts";
 import { threadReadSummary } from "./thread-reads.js";
 import { projectThreadSideState } from "./thread-side-state.js";
 import { contextUsage } from "../shared/context.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { title, json, parseMessageRow } from "./service-support.js";
+import { title, json, parseMessageRow } from "./service-support.ts";
 
 export function beginIterationArchiveOperation(service, user, threadId) {
   return beginIterationArchive(service, user, threadId);

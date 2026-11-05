@@ -17,7 +17,7 @@ import {
   installPlatformModelSettings,
   clearPlatformModelSettings,
 } from "../server/model-config.js";
-import { acquireSessionLock, discussionHasActiveCoordinator } from "../server/session-lock.js";
+import { acquireSessionLock, discussionHasActiveCoordinator } from "../server/session-lock.ts";
 
 let database, db, service;
 before(async () => {

@@ -13,15 +13,15 @@ import {
   suggestArchiveContinuation,
   suggestArchivePriorities,
 } from "../iteration-archive.js";
-import { parseStoredImage } from "../project-image.js";
+import { parseStoredImage } from "../project-image.ts";
 import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
 import { HttpError } from "../service.js";
 import { retryReply } from "../reply-actions.js";
 import { signPreviewTicket, splitPreviewAssetPath } from "../../shared/preview-ticket.mjs";
 import { randomBytes } from "node:crypto";
-import { joinThreadViewing } from "../thread-presence.js";
-import { trackSse } from "../sse-streams.js";
+import { joinThreadViewing } from "../thread-presence.ts";
+import { trackSse } from "../sse-streams.ts";
 import { getRendition } from "../documents/index.js";
 import { ensureOfficeRendition } from "../office-renditions.ts";
 

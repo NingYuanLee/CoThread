@@ -4,7 +4,7 @@ import {
   openNotification,
   readNotification,
 } from "./service-notifications.js";
-import { fail, id } from "./service-support.js";
+import { fail, id } from "./service-support.ts";
 
 export async function notifyOperation(
   service,

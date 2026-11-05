@@ -25,7 +25,7 @@ import {
   waitForHttp,
   writeDevPids,
 } from "./dev-runtime.js";
-import { resolveListenHost } from "../server/runtime-config.js";
+import { resolveListenHost } from "../server/runtime-config.ts";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 

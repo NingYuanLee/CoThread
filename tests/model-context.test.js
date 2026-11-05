@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../server/mcp.js";
 import { createAgentTools } from "../server/agent-tools.js";
-import { modelDiscussion } from "../server/model-context.js";
+import { modelDiscussion } from "../server/model-context.ts";
 
 const threadId = "ede432bd-69c1-4a65-924d-c50aec6999dc";
 const projectId = "4cfe4fff-aab4-418d-8e92-80ebd2d7f63b";

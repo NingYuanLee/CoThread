@@ -1,5 +1,5 @@
 import { query } from "./db.ts";
-import { agentSession } from "./agent-session.js";
+import { agentSession } from "./agent-session.ts";
 import {
   resolveSandboxProvider,
   sandboxProviderName,

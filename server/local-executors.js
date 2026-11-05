@@ -5,7 +5,7 @@ import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
 import { reopenLocalExecutorTask, syncLocalExecutorTaskById } from "./agent-task-sync.ts";
 import { mentionTaskSourceNotice } from "./task-source-notice.js";
-import { APP_ORIGIN } from "./runtime-config.js";
+import { APP_ORIGIN } from "./runtime-config.ts";
 import { assertIterationWritable, lockTaskIteration } from "./iteration-state.js";
 
 async function lockLocalExecutorIteration(conn, taskId, connectorId) {

@@ -7,8 +7,8 @@ import {
 import { queueLaowengContextCompression, readLaowengTaskSession } from "../laoweng-context.js";
 import { registerCloudbaseRoutes } from "./cloudbase-routes.js";
 import { registerMiniprogramRoutes } from "./miniprogram.js";
-import { readVisualArtifact } from "../visual-artifacts.js";
-import { trackSse } from "../sse-streams.js";
+import { readVisualArtifact } from "../visual-artifacts.ts";
+import { trackSse } from "../sse-streams.ts";
 import { getWikiPage, listWikiPages } from "../wiki-pages.js";
 import {
   confirmMemoryEntry,

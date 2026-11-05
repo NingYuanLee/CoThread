@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query, transaction } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { beginIterationArchive } from "../server/iteration-archive.js";
-import { sessionLockName } from "../server/session-lock.js";
+import { sessionLockName } from "../server/session-lock.ts";
 import { acquireNamedLock } from "../server/named-lock.ts";
 
 test("failed rollback destroys the live transaction and releases its uncommitted row", async () => {

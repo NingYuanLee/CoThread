@@ -11,7 +11,7 @@ import { startReplyWorker } from "./replies.js";
 import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";
 import { createShutdown } from "./shutdown.js";
 import { stopLiveOutputStreams } from "./agent-live-output.js";
-import { endSseStreams } from "./sse-streams.js";
+import { endSseStreams } from "./sse-streams.ts";
 import { migrate } from "../scripts/migrate.js";
 import { loadPlatformModelSettings, platformModelSettingsView } from "./platform-model-settings.js";
 import {
@@ -26,7 +26,7 @@ import {
   LISTEN_PORT,
   isProductionProcess,
   resolveListenHost,
-} from "./runtime-config.js";
+} from "./runtime-config.ts";
 
 const production = isProductionProcess();
 const apiOnly = process.argv.includes("--api-only");

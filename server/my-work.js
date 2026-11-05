@@ -3,7 +3,7 @@ import { query } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { adminAccess } from "./admin-rbac.js";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
-import { projectImageUrlSql } from "./project-image.js";
+import { projectImageUrlSql } from "./project-image.ts";
 import { taskStatusFilter } from "../shared/work-status.js";
 
 const uuid = z.string().uuid();

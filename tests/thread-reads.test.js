@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { joinThreadViewing } from "../server/thread-presence.js";
+import { joinThreadViewing } from "../server/thread-presence.ts";
 
 let database, service, author, reader, project, thread;
 

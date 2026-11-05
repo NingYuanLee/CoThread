@@ -11,7 +11,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { createHash } from "node:crypto";
 import { z } from "zod/v3";
 import { MCP_SERVER_NAME, mcpInstructionsForSource } from "../shared/mcp-guide.js";
-import { modelDiscussion, modelProject } from "./model-context.js";
+import { modelDiscussion, modelProject } from "./model-context.ts";
 import {
   getLaowengStatus,
   listLaowengDocumentQueue,

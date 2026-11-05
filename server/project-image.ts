@@ -16,18 +16,28 @@ export const projectImageSchema = z
   }, "请选择有效的 PNG、JPEG 或 WebP 项目图片（不超过 512 KiB）")
   .nullable();
 
-export function projectImageUrl(projectId, image, prefix = "/api/projects") {
+/** 项目图片的访问地址；没有图片时返回 `null`。 */
+export function projectImageUrl(
+  projectId: string,
+  image: unknown,
+  prefix: string = "/api/projects",
+): string | null {
   if (!image) return null;
   const version = createHash("sha256").update(String(image)).digest("hex").slice(0, 16);
   return `${prefix}/${projectId}/image?v=${version}`;
 }
 
-export function projectImageUrlSql(idSql = "p.id", prefix = "/api/projects") {
+/** 生成同规则的项目图片地址 SQL 片段，供列表查询直接带出。 */
+export function projectImageUrlSql(
+  idSql: string = "p.id",
+  prefix: string = "/api/projects",
+): string {
   if (!/^\/api\/[a-z0-9/-]+$/.test(prefix)) throw new Error("项目图片地址前缀无效");
   return `CASE WHEN p.image IS NULL OR p.image='' THEN NULL ELSE CONCAT('${prefix}/',${idSql},'/image?v=',LEFT(SHA2(p.image,256),16)) END`;
 }
 
-export function parseStoredImage(value) {
+/** 解析库里存的数据 URL，取出 MIME 与 base64 正文。 */
+export function parseStoredImage(value: unknown): RegExpMatchArray | null {
   return typeof value === "string"
     ? value.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/)
     : null;

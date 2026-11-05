@@ -8,7 +8,7 @@ import { claimReply } from "../server/reply-dispatch.js";
 import { openAgentRuntime } from "../server/agent.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 import { registerSandboxProvider } from "../server/sandbox-provider.js";
-import { acquireSessionLock, sessionLockName } from "../server/session-lock.js";
+import { acquireSessionLock, sessionLockName } from "../server/session-lock.ts";
 
 test("a child close returns its session lock when sandbox recycling fails", async () => {
   const database = await testDatabase();

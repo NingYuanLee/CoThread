@@ -132,14 +132,31 @@ npm test            # 集成测试需要测试库
 | `server/agent-errors.ts`                  | 40   | 把 Agent 失败收敛成可诊断的代码             |
 | `server/named-lock.ts`                    | 51   | MySQL 命名锁的获取与释放（受边界规则 9 管） |
 
-剩余 174 个 `.js` 文件（被引用次数统计于 2026-11-05）：
+第五批（同策略，12 个依赖已全转换的小模块）：
+
+| 文件                          | 行数 | 说明                                    |
+| ----------------------------- | ---- | --------------------------------------- |
+| `server/message-quotes.ts`    | 41   | 引用消息的单层预览（泛型保留入参形状）  |
+| `server/session-lock.ts`      | 36   | 迭代上下文锁与「是否还有活跃协调者」    |
+| `server/thread-presence.ts`   | 31   | 谁正在看哪条迭代（进程内登记表）        |
+| `server/agent-session.ts`     | 53   | 会话定位表：小祥按迭代、子 Agent 按任务 |
+| `server/runtime-config.ts`    | 38   | 监听地址、来源白名单、是否 HTTPS        |
+| `server/service-support.ts`   | 43   | `id`/`title`/`fail`/`mentions` 等基元   |
+| `server/human-challenge.ts`   | 37   | 人机校验题与 SVG                        |
+| `server/project-image.ts`     | 44   | 项目图片的校验、地址与 SQL 片段         |
+| `server/visual-artifacts.ts`  | 53   | 视觉附件的写入与读取                    |
+| `server/file-index-format.ts` | 52   | 文件索引正文渲染（状态收敛成联合类型）  |
+| `server/model-context.ts`     | 43   | 交给模型的上下文裁剪                    |
+| `server/sse-streams.ts`       | 42   | SSE 长连接登记表                        |
+
+剩余 162 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                  | 文件数 |
 | ---- | --------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）        | 17     |
-| 4    | 被 2–4 个文件引用                                                     | 76     |
-| 5    | 被 5–9 个文件引用                                                     | 48     |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 32     |
+| 4    | 被 2–4 个文件引用                                                     | 69     |
+| 5    | 被 5–9 个文件引用                                                     | 44     |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`）             | 31     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径 | 1      |
 
 入口最后转：`package.json` 的 `start` / `dev:static`、systemd `ExecStart`、`scripts/ecs-*` 都写着 `server/index.js`，改名要同步改这些地方。

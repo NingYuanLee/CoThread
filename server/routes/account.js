@@ -26,7 +26,7 @@ import { randomUUID } from "node:crypto";
 import { randomInt } from "node:crypto";
 import { digest } from "../auth.js";
 import { sweepExpired, touchWindow } from "../rate-window.ts";
-import { isProductionProcess, requestIsHttps } from "../runtime-config.js";
+import { isProductionProcess, requestIsHttps } from "../runtime-config.ts";
 
 export function createAccountSurface({ db, service, sendVerificationEmail, createHumanChallenge }) {
   const attempts = new Map();

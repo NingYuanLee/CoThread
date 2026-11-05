@@ -1,16 +1,25 @@
 import { query } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
+import type { NamedLock } from "./named-lock.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
 
-export function sessionLockName(threadId) {
+export function sessionLockName(threadId: string): string {
   return `cothread-context:${threadId}`;
 }
 
-export async function acquireSessionLock(db, threadId, waitSeconds = 0) {
+/** 取到迭代上下文锁；返回 `null` 表示当前被别人持有。 */
+export async function acquireSessionLock(
+  db: Pool,
+  threadId: string,
+  waitSeconds: number = 0,
+): Promise<NamedLock | null> {
   return acquireNamedLock(db, sessionLockName(threadId), waitSeconds);
 }
 
-export async function discussionHasActiveCoordinator(db, threadId) {
-  const [busy] = await query(
+/** 该迭代是否还有排队中或运行中的协调者工作。 */
+export async function discussionHasActiveCoordinator(db: Db, threadId: string): Promise<boolean> {
+  const [busy] = await query<{ busy: number }>(
     db,
     `SELECT 1 AS busy FROM agent_requests q JOIN messages m ON m.id=q.message_id
      WHERE m.thread_id=? AND q.status IN ('queued','running')

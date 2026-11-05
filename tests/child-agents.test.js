@@ -9,7 +9,7 @@ import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dis
 import { processNextReply } from "../server/replies.js";
 import { openAgentRuntime, stopAgent } from "../server/agent.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
-import { agentSession } from "../server/agent-session.js";
+import { agentSession } from "../server/agent-session.ts";
 import {
   processNextChildContextCompression,
   queueChildContextCompression,

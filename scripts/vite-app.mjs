@@ -2,7 +2,7 @@ import { createServer } from "vite";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { resolveDevPorts } from "./dev-runtime.js";
-import { LISTEN_HOST } from "../server/runtime-config.js";
+import { LISTEN_HOST } from "../server/runtime-config.ts";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const { uiPort, vitePort } = resolveDevPorts(process.env);

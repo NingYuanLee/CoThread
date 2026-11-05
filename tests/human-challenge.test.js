@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createHumanChallenge } from "../server/human-challenge.js";
+import { createHumanChallenge } from "../server/human-challenge.ts";
 
 test("human challenge is self-contained and avoids ambiguous characters", () => {
   const challenge = createHumanChallenge();

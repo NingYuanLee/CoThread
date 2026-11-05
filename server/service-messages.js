@@ -1,7 +1,7 @@
 import { recordMessageActivity } from "./thread-activity.js";
-import { attachMessageQuotes } from "./message-quotes.js";
+import { attachMessageQuotes } from "./message-quotes.ts";
 import { markThreadRead as saveThreadRead, threadReadSummary } from "./thread-reads.js";
-import { isViewingThread } from "./thread-presence.js";
+import { isViewingThread } from "./thread-presence.ts";
 import {
   AGENT_LAOWENG_PROFILE,
   AGENT_XIAOXIANG_MEMBER,
@@ -15,7 +15,7 @@ import * as iterationState from "./iteration-state.js";
 import { publishWork } from "./work-events.js";
 import { queueConversationMessage } from "./conversation-memory-store.js";
 
-import { fail, id, title, body, parseMessageRow } from "./service-support.js";
+import { fail, id, title, body, parseMessageRow } from "./service-support.ts";
 
 export async function insertMessageOperation(
   service,

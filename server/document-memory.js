@@ -3,7 +3,7 @@ import JSZip from "jszip";
 import sharp from "sharp";
 import { query, transaction } from "./db.ts";
 import { DEFAULT_MEMORY_SUBTYPES } from "../shared/memory-taxonomy.js";
-import { renderFileIndex } from "./file-index-format.js";
+import { renderFileIndex } from "./file-index-format.ts";
 import { ensureFileIndexRoots } from "./file-index-roots.js";
 import { fileIndexFolderPath } from "./file-index-path.js";
 

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { projectImageUrl } from "../server/project-image.js";
+import { projectImageUrl } from "../server/project-image.ts";
 import { AGENT_MEMBER } from "../shared/agent-member.js";
 
 test("member management requires the project leader or a project admin", async () => {

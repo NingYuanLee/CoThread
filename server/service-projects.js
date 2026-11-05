@@ -5,12 +5,12 @@ import {
   AGENT_MEMBER,
 } from "../shared/agent-member.js";
 import { modelConfig } from "./model-config.js";
-import { projectImageSchema, projectImageUrl, projectImageUrlSql } from "./project-image.js";
+import { projectImageSchema, projectImageUrl, projectImageUrlSql } from "./project-image.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { ensureProjectLibraryRoots } from "./documents/index.js";
-import { fail, id, title, preferredLocalExecutorJoin } from "./service-support.js";
+import { fail, id, title, preferredLocalExecutorJoin } from "./service-support.ts";
 
 export async function projectChangeOperation(
   service,

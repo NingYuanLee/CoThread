@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderFileIndex } from "../server/file-index-format.js";
+import { renderFileIndex } from "../server/file-index-format.ts";
 
 test("暂不支持文件只显示已知元数据，不把文件名当成内容摘要", () => {
   const body = renderFileIndex({

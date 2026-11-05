@@ -1,7 +1,7 @@
 import { query, transaction } from "./db.ts";
 import { HttpError, Service } from "./service.js";
 import { publishWork } from "./work-events.js";
-import { acquireSessionLock } from "./session-lock.js";
+import { acquireSessionLock } from "./session-lock.ts";
 
 export async function queueChildContextCompression(service, user, threadId, messageId) {
   if (user.kind !== "session") throw new HttpError(403, "需要登录后操作");

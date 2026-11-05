@@ -1,6 +1,6 @@
 import { query } from "./db.ts";
 import { requireAdminPermission } from "./admin-rbac.js";
-import { fail, id } from "./service-support.js";
+import { fail, id } from "./service-support.ts";
 
 export async function projectManagerOperation(service, user, projectId, db = service.db) {
   await service.member(user, projectId, false, db);

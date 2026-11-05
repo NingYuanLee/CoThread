@@ -4,7 +4,7 @@ import {
   clearThreadViewing,
   isViewingThread,
   joinThreadViewing,
-} from "../server/thread-presence.js";
+} from "../server/thread-presence.ts";
 
 test("一个人只算在最新选中的那条迭代里", () => {
   clearThreadViewing("u1");

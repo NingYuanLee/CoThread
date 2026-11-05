@@ -3,9 +3,13 @@ import { randomInt } from "node:crypto";
 const characters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
 const colors = ["#355f4b", "#315e78", "#7a493f", "#5f527d", "#49633d"];
 
-const pick = (items) => items[randomInt(0, items.length)];
+/** 从字符集或颜色表里随机取一个；两者都是「按下标取字符串」。 */
+const pick = (items: string | readonly string[]): string => items[randomInt(0, items.length)];
 
-export function createHumanChallenge() {
+/** 人机校验题：文字答案与对应的 SVG 图。 */
+export type HumanChallenge = { text: string; data: string };
+
+export function createHumanChallenge(): HumanChallenge {
   const text = Array.from({ length: 5 }, () => pick(characters)).join("");
   const glyphs = [...text]
     .map((character, index) => {

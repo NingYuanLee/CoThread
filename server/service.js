@@ -17,7 +17,7 @@ import * as monitorDomain from "./service-monitor.js";
 import * as iterationsDomain from "./service-iterations.js";
 import * as messagesDomain from "./service-messages.js";
 import * as notificationsDomain from "./service-notification-operations.js";
-import { fail, id, title } from "./service-support.js";
+import { fail, id, title } from "./service-support.ts";
 export { officialTitleWithVersion } from "./documents/service.js";
 export { HttpError };
 

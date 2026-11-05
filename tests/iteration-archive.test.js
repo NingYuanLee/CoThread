@@ -391,7 +391,7 @@ test("archive draft uses its durable session; confirmed archive leaves project m
 });
 
 test("active context synchronization blocks archive even without a running task", async () => {
-  const { acquireSessionLock } = await import("../server/session-lock.js");
+  const { acquireSessionLock } = await import("../server/session-lock.ts");
   const lock = await acquireSessionLock(db, thread.id, 0);
   assert.ok(lock);
   try {

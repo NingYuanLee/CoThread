@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "./db.ts";
 import { Service, HttpError } from "./service.js";
-import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.js";
+import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.ts";
 
 export { queueContextCompression } from "./queue-context.js";
 

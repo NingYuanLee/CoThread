@@ -12,13 +12,13 @@ import { Service } from "./service.js";
 import { registerRequestParts } from "./request-parts.ts";
 import { currentTiming, requestTiming } from "./request-timing.js";
 import { sendVerificationEmail as deliverVerificationEmail } from "./email-delivery.js";
-import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.js";
+import { createHumanChallenge as generateHumanChallenge } from "./human-challenge.ts";
 import {
   registerLocalExecutorBrowserRoutes,
   registerLocalExecutorPublicRoutes,
 } from "./local-executors.js";
 import { jsonBodyLimit } from "./json-body-limit.ts";
-import { appOrigins } from "./runtime-config.js";
+import { appOrigins } from "./runtime-config.ts";
 import { EXECUTOR_LOCK_NAME, executorStatus } from "./replies.js";
 import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";
 

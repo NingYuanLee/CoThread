@@ -15,7 +15,7 @@ import {
   normalizeLaowengTask,
 } from "../shared/agent-label.js";
 import { contextBudget } from "../shared/context.js";
-import { saveVisualArtifact } from "./visual-artifacts.js";
+import { saveVisualArtifact } from "./visual-artifacts.ts";
 import { buildMaintenanceTurn } from "../shared/prompt-blocks.js";
 import { createUsageMeter } from "./agent-usage.js";
 

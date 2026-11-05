@@ -7,7 +7,7 @@ import { latestVersionsByFolderRoots } from "./documents/index.js";
 import { modelResponse, responseText } from "./model-config.js";
 import { publishWork } from "./work-events.js";
 import { nativeHistoryFromLiveHome } from "./child-agent-session.js";
-import { acquireSessionLock } from "./session-lock.js";
+import { acquireSessionLock } from "./session-lock.ts";
 import { recordArchivePages } from "./wiki-pages.js";
 import { settleIterationMemory } from "./memory-timeline.js";
 

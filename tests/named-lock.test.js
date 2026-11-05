@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { acquireNamedLock } from "../server/named-lock.ts";
-import { acquireSessionLock, sessionLockName } from "../server/session-lock.js";
+import { acquireSessionLock, sessionLockName } from "../server/session-lock.ts";
 
 function fixture(execute) {
   const calls = [],

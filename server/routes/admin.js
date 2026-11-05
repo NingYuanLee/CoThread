@@ -22,7 +22,7 @@ import {
   myProjectMemberAvatar,
   myTaskDetail,
 } from "../my-work.js";
-import { parseStoredImage } from "../project-image.js";
+import { parseStoredImage } from "../project-image.ts";
 import {
   adminPluginManagement,
   archivePromptSkill,

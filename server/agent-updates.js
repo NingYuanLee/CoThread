@@ -1,4 +1,4 @@
-import { attachMessageQuotes } from "./message-quotes.js";
+import { attachMessageQuotes } from "./message-quotes.ts";
 import { query } from "./db.ts";
 import { discussionText } from "../shared/context.js";
 

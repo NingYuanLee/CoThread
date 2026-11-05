@@ -13,7 +13,7 @@ import {
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.js";
 import { capabilityProfile, SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
-import { fail, id, preferredLocalExecutorJoin } from "./service-support.js";
+import { fail, id, preferredLocalExecutorJoin } from "./service-support.ts";
 
 export async function agentMonitorOperation(service, user, projectId) {
   await service.member(user, projectId);

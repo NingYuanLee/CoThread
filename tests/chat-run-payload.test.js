@@ -6,7 +6,7 @@ import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createApp } from "../server/http-app.js";
 import { issueCredential } from "../server/auth.js";
-import { modelDiscussion } from "../server/model-context.js";
+import { modelDiscussion } from "../server/model-context.ts";
 
 test("chat run projection omits unused logs but retains failure details and full reads", async () => {
   const database = await testDatabase(),

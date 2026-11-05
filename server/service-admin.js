@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { hashPassword } from "./auth.js";
-import { projectImageUrlSql } from "./project-image.js";
+import { projectImageUrlSql } from "./project-image.ts";
 import { AGENT_MEMBER, AGENT_XIAOXIANG_MEMBER } from "../shared/agent-member.js";
 
 async function assertAccountManagementScope(service, user, userId, permission, db, fail) {

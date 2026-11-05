@@ -16,24 +16,83 @@ import { publishWork } from "./work-events.ts";
 import { queueConversationMessage } from "./conversation-memory-store.js";
 
 import { fail, id, title, body, parseMessageRow } from "./service-support.ts";
+import type { Pool, PoolConnection } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 一组行。 */
+type Row = Record<string, unknown>;
+
+/** INSERT / UPDATE 的写入结果头。 */
+type WriteHeader = { insertId?: unknown; affectedRows?: number };
+
+/** 已落库的消息标识。 */
+type MessageRef = { id: string };
+
+/** 消息域用到的 Service 视图。 */
+export type MessageService = {
+  db: Pool;
+  thread(
+    user: MessageUser,
+    threadId: string,
+    write?: boolean,
+    db?: Db,
+    options?: { display?: boolean },
+  ): Promise<Row>;
+  member(user: MessageUser, projectId: string): Promise<unknown>;
+  notify(
+    db: Db,
+    userId: string,
+    projectId: string,
+    kind: string,
+    text: string,
+    threadId: string | null,
+    messageId: string | null,
+    senderName: string,
+  ): Promise<void>;
+  insertMessage(...args: unknown[]): Promise<MessageRef>;
+  listMessages(
+    user: MessageUser,
+    threadId: string,
+    args: Record<string, unknown>,
+  ): Promise<{ messages: Row[] }>;
+  refs(db: Db, projectId: string, refs: string[]): Promise<unknown>;
+  folderRefs(db: Db, projectId: string, refs: string[]): Promise<unknown>;
+  submitVersion(
+    user: MessageUser,
+    threadId: string,
+    file: Record<string, unknown>,
+    unusedA: unknown,
+    unusedB: unknown,
+    silent: boolean,
+    options: { db: Db; silent: boolean },
+  ): Promise<MessageRef>;
+};
+
+/** 发消息的人。 */
+export type MessageUser = { id: string; kind?: string | null };
+
+/** 连接池要多包一层事务；事务连接直接复用。 */
+function isPool(db: Db): db is Pool {
+  return typeof (db as Pool).getConnection === "function";
+}
 
 export async function insertMessageOperation(
-  service,
-  db,
-  user,
-  threadId,
-  text,
-  refs = [],
-  source = user.kind === "agent" ? "assistant" : user.kind === "api" ? "local_ai" : "human",
-  agentTaskId = null,
-  messageId = randomUUID(),
-  executionTarget = "cloud",
-  executionTargetUserId = null,
-  folderRefs = [],
-  turnId = null,
-  options = {},
-) {
-  if (typeof db.getConnection === "function") {
+  service: MessageService,
+  db: Db,
+  user: MessageUser,
+  threadId: string,
+  text: string,
+  refs: string[] = [],
+  source: string = user.kind === "agent" ? "assistant" : user.kind === "api" ? "local_ai" : "human",
+  agentTaskId: string | null = null,
+  messageId: string = randomUUID(),
+  executionTarget: string = "cloud",
+  executionTargetUserId: string | null = null,
+  folderRefs: string[] = [],
+  turnId: string | null = null,
+  options: { inbox?: string } = {},
+): Promise<MessageRef> {
+  if (isPool(db)) {
     return iterationState.withIterationWrite(db, threadId, (conn) =>
       service.insertMessage(
         conn,
@@ -52,9 +111,10 @@ export async function insertMessageOperation(
       ),
     );
   }
-  await iterationState.assertIterationWritable(db, threadId);
-  const inserted = await query(
-    db,
+  const conn = db as PoolConnection;
+  await iterationState.assertIterationWritable(conn, threadId);
+  const inserted = (await query(
+    conn,
     "INSERT INTO messages(id,thread_id,author_id,source,body,refs,folder_refs,agent_task_id,execution_target,execution_target_user_id,turn_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
     [
       messageId,
@@ -69,29 +129,43 @@ export async function insertMessageOperation(
       executionTargetUserId,
       turnId,
     ],
-  );
-  await recordMessageActivity(db, messageId);
+  )) as unknown as WriteHeader;
+  await recordMessageActivity(conn, messageId);
   if (text && source !== "system") {
     // 和消息在同一事务持久化，避免消息已提交而联合分析信号丢失。
-    const [signalThread] = await query(db, "SELECT project_id FROM threads WHERE id=?", [threadId]);
+    const [signalThread] = await query<{ project_id?: string }>(
+      conn,
+      "SELECT project_id FROM threads WHERE id=?",
+      [threadId],
+    );
     if (signalThread?.project_id)
       await queueConversationMessage(
-        db,
+        conn,
         signalThread.project_id,
         threadId,
         String(inserted.insertId),
       );
   }
   if (source !== "system" && options.inbox !== "skip") {
-    const [thread] = await query(db, "SELECT project_id,title FROM threads WHERE id=?", [threadId]);
-    const members = await query(
-      db,
+    const [thread] = await query<{ project_id: string; title?: string }>(
+      conn,
+      "SELECT project_id,title FROM threads WHERE id=?",
+      [threadId],
+    );
+    const members = await query<{ id: string; name?: string; email?: string | null }>(
+      conn,
       "SELECT u.id,u.name,COALESCE(u.username,u.email) email FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? AND (?='assistant' OR u.id<>?)",
       [thread.project_id, source, user.id],
     );
-    const [author] = await query(db, "SELECT name FROM users WHERE id=?", [user.id]);
+    const [author] = await query<{ name?: string | null }>(
+      conn,
+      "SELECT name FROM users WHERE id=?",
+      [user.id],
+    );
+    const senderName = source === "assistant" ? AGENT_MEMBER.name : author?.name;
     for (const member of members) {
-      const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escape = (value: unknown): string =>
+        String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       if (
         [member.name, member.email].some((value) =>
           new RegExp(`(^|[^\\p{L}\\p{N}_@])@${escape(value)}(?=$|[^\\p{L}\\p{N}_@])`, "u").test(
@@ -102,14 +176,14 @@ export async function insertMessageOperation(
         // 人正在看这条迭代时，消息按已读处理，不写站内信。
         if (isViewingThread(member.id, threadId)) continue;
         await service.notify(
-          db,
+          conn,
           member.id,
           thread.project_id,
           "mention",
-          `${source === "assistant" ? AGENT_MEMBER.name : author.name} 在「${thread.title}」中 @了你：${text.slice(0, 500)}`,
+          `${senderName} 在「${thread.title}」中 @了你：${text.slice(0, 500)}`,
           threadId,
           messageId,
-          source === "assistant" ? AGENT_MEMBER.name : author.name,
+          senderName as string,
         );
       }
     }
@@ -117,20 +191,30 @@ export async function insertMessageOperation(
   return { id: messageId };
 }
 
-export async function markThreadReadOperation(service, user, threadId, input = {}) {
-  const thread = await service.thread(user, id.parse(threadId));
+export async function markThreadReadOperation(
+  service: MessageService,
+  user: MessageUser,
+  threadId: string,
+  input: { sequence?: unknown } = {},
+) {
+  const thread = await service.thread(user, id.parse(threadId) as string);
   const sequence = z
     .string()
     .regex(/^\d+$/)
     .parse(String(input.sequence || ""));
   // 人不在这条迭代时，不能把消息记成已读。连接还在才算在。
-  if (!isViewingThread(user.id, thread.id)) return { ok: true, ignored: true };
-  await saveThreadRead(service.db, user.id, thread.id, sequence);
+  if (!isViewingThread(user.id, thread.id as string)) return { ok: true, ignored: true };
+  await saveThreadRead(service.db, user.id, thread.id as string, sequence);
   return { ok: true, lastReadSequence: sequence };
 }
 
-export async function listMessagesOperation(service, user, threadId, input = {}) {
-  await service.thread(user, id.parse(threadId));
+export async function listMessagesOperation(
+  service: MessageService,
+  user: MessageUser,
+  threadId: string,
+  input: Record<string, unknown> = {},
+) {
+  await service.thread(user, id.parse(threadId) as string);
   const args = z
     .object({
       limit: z.number().int().min(1).max(100).default(20),
@@ -142,18 +226,18 @@ export async function listMessagesOperation(service, user, threadId, input = {})
     fail(400, "beforeMessageId 与 afterMessageId 不能同时使用");
   const read = await threadReadSummary(service.db, user.id, threadId);
   if (args.afterMessageId) {
-    const [anchor] = await query(
+    const [anchor] = await query<{ sequence: unknown }>(
       service.db,
       "SELECT sequence FROM messages WHERE id=? AND thread_id=?",
       [args.afterMessageId, threadId],
     );
     if (!anchor) fail(404, "消息不存在于当前会话");
-    const [latest] = await query(
+    const [latest] = await query<{ id: string; sequence: unknown }>(
       service.db,
       `SELECT id, sequence FROM messages WHERE thread_id=? AND NOT (source='human' AND agent_task_id IS NOT NULL) ORDER BY sequence DESC LIMIT 1`,
       [threadId],
     );
-    if (!latest || BigInt(latest.sequence) <= BigInt(anchor.sequence)) {
+    if (!latest || BigInt(String(latest.sequence)) <= BigInt(String(anchor.sequence))) {
       return {
         threadId,
         messages: [],
@@ -167,7 +251,7 @@ export async function listMessagesOperation(service, user, threadId, input = {})
         },
       };
     }
-    const rows = await query(
+    const rows = await query<Row>(
       service.db,
       `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,m.turn_id,u.name author,m.created_at
         FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL) AND m.sequence>?
@@ -177,7 +261,7 @@ export async function listMessagesOperation(service, user, threadId, input = {})
     const hasMore = rows.length > args.limit;
     const messages = await attachMessageQuotes(
       service.db,
-      rows.slice(0, args.limit).map(parseMessageRow),
+      rows.slice(0, args.limit).map((row) => parseMessageRow(row) as Row & { id: string }),
     );
     return {
       threadId,
@@ -192,9 +276,9 @@ export async function listMessagesOperation(service, user, threadId, input = {})
       },
     };
   }
-  let sequence;
+  let sequence: unknown;
   if (args.beforeMessageId) {
-    const [anchor] = await query(
+    const [anchor] = await query<{ sequence: unknown }>(
       service.db,
       "SELECT sequence FROM messages WHERE id=? AND thread_id=?",
       [args.beforeMessageId, threadId],
@@ -202,7 +286,7 @@ export async function listMessagesOperation(service, user, threadId, input = {})
     if (!anchor) fail(404, "消息不存在于当前会话");
     sequence = anchor.sequence;
   }
-  const rows = await query(
+  const rows = await query<Row>(
     service.db,
     `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,m.turn_id,u.name author,m.created_at
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.thread_id=? AND NOT (m.source='human' AND m.agent_task_id IS NOT NULL)${sequence ? " AND m.sequence<?" : ""}
@@ -212,7 +296,10 @@ export async function listMessagesOperation(service, user, threadId, input = {})
   const hasMore = rows.length > args.limit;
   const messages = await attachMessageQuotes(
     service.db,
-    rows.slice(0, args.limit).reverse().map(parseMessageRow),
+    rows
+      .slice(0, args.limit)
+      .reverse()
+      .map((row) => parseMessageRow(row) as Row & { id: string }),
   );
   return {
     threadId,
@@ -222,27 +309,44 @@ export async function listMessagesOperation(service, user, threadId, input = {})
   };
 }
 
-export async function readMessageOperation(service, user, threadId, messageId, before = 0) {
-  await service.thread(user, id.parse(threadId));
+export async function readMessageOperation(
+  service: MessageService,
+  user: MessageUser,
+  threadId: string,
+  messageId: string,
+  before: number = 0,
+) {
+  await service.thread(user, id.parse(threadId) as string);
   id.parse(messageId);
   z.number().int().min(0).max(20).parse(before);
-  const [row] = await query(
+  const [row] = await query<Row>(
     service.db,
     `SELECT m.id,m.thread_id,m.sequence,m.source,m.body,m.refs,m.folder_refs,m.author_id,m.turn_id,u.name author,m.created_at
       FROM messages m JOIN users u ON u.id=m.author_id WHERE m.id=? AND m.thread_id=?`,
     [messageId, threadId],
   );
   if (!row) fail(404, "消息不存在于当前会话");
-  const [message] = await attachMessageQuotes(service.db, [parseMessageRow(row)]);
+  const [message] = await attachMessageQuotes(service.db, [
+    parseMessageRow(row) as Row & { id: string },
+  ]);
   const previous = before
-    ? (await service.listMessages(user, threadId, { beforeMessageId: messageId, limit: before }))
-        .messages
+    ? (
+        await service.listMessages(user, threadId, {
+          beforeMessageId: messageId,
+          limit: before,
+        })
+      ).messages
     : [];
   return { message, previous };
 }
 
-export async function conversationMembersOperation(service, user, projectId, memberId) {
-  await service.member(user, id.parse(projectId));
+export async function conversationMembersOperation(
+  service: MessageService,
+  user: MessageUser,
+  projectId: string,
+  memberId: string | null | undefined,
+) {
+  await service.member(user, id.parse(projectId) as string);
   if (memberId === AGENT_MEMBER.id)
     return {
       id: AGENT_MEMBER.id,
@@ -260,7 +364,7 @@ export async function conversationMembersOperation(service, user, projectId, mem
       identity_tags: AGENT_XIAOXIANG_MEMBER.identity_tags,
     };
   if (memberId) id.parse(memberId);
-  const rows = await query(
+  const rows = await query<Row>(
     service.db,
     `SELECT u.id,u.name,m.role${memberId ? ",u.motto,u.identity_tags" : ""}
       FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?${memberId ? " AND u.id=?" : ""} ORDER BY u.name,u.id`,
@@ -281,7 +385,12 @@ export async function conversationMembersOperation(service, user, projectId, mem
   ];
 }
 
-export async function postMessageOperation(service, user, threadId, input) {
+export async function postMessageOperation(
+  service: MessageService,
+  user: MessageUser,
+  threadId: string,
+  input: unknown,
+) {
   const data = z
     .object({
       body,
@@ -320,14 +429,17 @@ export async function postMessageOperation(service, user, threadId, input) {
       ? `@${AGENT_MEMBER.name} ${data.body}`
       : data.body;
   body.parse(text);
-  const result = await transaction(service.db, async (db) => {
+  const result = await transaction<MessageRef & Record<string, unknown>>(service.db, async (db) => {
     const thread = await service.thread(user, threadId, true, db);
     if (data.clientMessageId) {
-      const [existing] = await query(
-        db,
-        "SELECT id,thread_id,author_id,source FROM messages WHERE id=?",
-        [data.clientMessageId],
-      );
+      const [existing] = await query<{
+        id: string;
+        thread_id?: string;
+        author_id?: string;
+        source?: string;
+      }>(db, "SELECT id,thread_id,author_id,source FROM messages WHERE id=?", [
+        data.clientMessageId,
+      ]);
       if (existing) {
         if (
           existing.thread_id !== threadId ||
@@ -335,22 +447,22 @@ export async function postMessageOperation(service, user, threadId, input) {
           existing.source !== "human"
         )
           fail(409, "消息标识已被占用");
-        return { id: existing.id, duplicate: true };
+        return { id: existing.id, duplicate: true } as MessageRef & Record<string, unknown>;
       }
     }
-    await service.refs(db, thread.project_id, data.refs);
+    await service.refs(db, thread.project_id as string, data.refs);
     const folderRefs = [...new Set(data.folderRefs)];
-    await service.folderRefs(db, thread.project_id, folderRefs);
+    await service.folderRefs(db, thread.project_id as string, folderRefs);
     const quoteIds = [...new Set(data.quoteIds)];
     if (quoteIds.length) {
-      const quoted = await query(
+      const quoted = await query<{ id: string }>(
         db,
         `SELECT id FROM messages WHERE thread_id=? AND id IN (${quoteIds.map(() => "?").join(",")})`,
         [threadId, ...quoteIds],
       );
       if (quoted.length !== quoteIds.length) fail(400, "只能引用当前会话中存在的消息");
     }
-    const files = [];
+    const files: MessageRef[] = [];
     for (const file of data.files) {
       files.push(
         await service.submitVersion(user, threadId, file, undefined, undefined, false, {
@@ -382,9 +494,9 @@ export async function postMessageOperation(service, user, threadId, input) {
       // MCP is one account capability regardless of which client wrote the config.
       // For audit and task attribution, an online connector bound to service project
       // makes the current API message connector-originated automatically.
-      let interactionSource = user.kind === "api" ? "mcp" : null;
+      let interactionSource: string | null = user.kind === "api" ? "mcp" : null;
       if (user.kind === "api") {
-        const [onlineConnector] = await query(
+        const [onlineConnector] = await query<{ id: string }>(
           db,
           `SELECT c.id FROM local_executors c
             JOIN local_executor_projects cp ON cp.local_executor_id=c.id AND cp.project_id=?
@@ -402,7 +514,7 @@ export async function postMessageOperation(service, user, threadId, input) {
       if (mentionsAgent(text)) {
         // postMessage already holds the discussion row lock. Completion and
         // dispatch use the same lock, so an update cannot fall between tasks.
-        const [existing] = await query(
+        const [existing] = await query<{ message_id: string }>(
           db,
           `SELECT r.message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id
              WHERE m.thread_id=? AND m.author_id=? AND r.status IN ('queued','running')
@@ -421,7 +533,7 @@ export async function postMessageOperation(service, user, threadId, input) {
             folder_refs: folderRefs,
             files,
             updatedTaskId: existing.message_id,
-          };
+          } as MessageRef & Record<string, unknown>;
         }
       }
       // Agent is a built-in member, so only real project memberships are
@@ -437,12 +549,13 @@ export async function postMessageOperation(service, user, threadId, input) {
         forceReply ? "reply" : "pending",
       ]);
     }
-    return { ...message, refs, folder_refs: folderRefs, files };
+    return { ...message, refs, folder_refs: folderRefs, files } as MessageRef &
+      Record<string, unknown>;
   });
   publishWork(service.db, threadId);
   // Return the committed chat row and receipt so the sender can render them
   // immediately, without waiting for a separate workspace refresh.
-  const [saved] = await query(
+  const [saved] = await query<Row>(
     service.db,
     `SELECT m.sequence,m.body,m.source,m.execution_target,m.created_at,u.name author,m.author_id,
       q.status request_status,r.participation FROM messages m JOIN users u ON u.id=m.author_id

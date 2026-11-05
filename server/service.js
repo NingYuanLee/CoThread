@@ -15,7 +15,7 @@ import * as membersDomain from "./service-members.ts";
 import * as projectsDomain from "./service-projects.ts";
 import * as monitorDomain from "./service-monitor.js";
 import * as iterationsDomain from "./service-iterations.ts";
-import * as messagesDomain from "./service-messages.js";
+import * as messagesDomain from "./service-messages.ts";
 import * as notificationsDomain from "./service-notification-operations.js";
 import { fail, id, title } from "./service-support.ts";
 export { officialTitleWithVersion } from "./documents/service.js";

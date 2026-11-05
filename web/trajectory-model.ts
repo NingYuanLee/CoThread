@@ -511,11 +511,14 @@ export function buildTrajectory(data: AgentLogData | null, now: number): Traject
         });
       }
       // 同一条消息里的 thinking / text 属于同一次返回；老翁每次「理解」「说明」都是独立请求。
+      const previousTool = lastAssistantStep?.event?.tool;
       const sameResponse =
         kind === "assistant" &&
         lastAssistantId !== null &&
         Boolean(event.messageId) &&
-        event.messageId === lastAssistantMessageId;
+        event.messageId === lastAssistantMessageId &&
+        ((previousTool === "thinking" && event.tool !== "thinking") ||
+          (previousTool === "assistant_text" && event.tool === "assistant_final"));
       const startsModelCall = kind === "assistant" && !sameResponse;
       if (startsModelCall) {
         stepNo += 1;

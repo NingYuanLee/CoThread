@@ -533,10 +533,16 @@ function eventUsageFromReply(stats) {
     "totalTokens",
     "cacheReadTokens",
     "cacheWriteTokens",
+    "reasoningTokens",
+    "decodeTokens",
+    "executionDurationMs",
+    "modelMs",
+    "ttftMs",
+    "decodeMs",
     "settingsVersion",
     "calls",
   ])
-    if (Number.isSafeInteger(value[key]) && value[key] >= 0) usage[key] = value[key];
+    if (Number.isFinite(value[key]) && value[key] >= 0) usage[key] = value[key];
   if (typeof value.model === "string" && value.model) usage.model = value.model.slice(0, 60);
   if (typeof value.reasoningEffort === "string" && value.reasoningEffort)
     usage.reasoningEffort = value.reasoningEffort.slice(0, 20);

@@ -321,6 +321,8 @@ function mapEvents(events) {
     tool: event.tool,
     status: event.status,
     input: event.input || "",
+    output: event.output || "",
+    created_at: event.created_at || null,
     finished_at: event.finished_at,
     screenshotUrl: event.visual_artifact_id
       ? `/api/agent-visual-artifacts/${event.visual_artifact_id}`
@@ -518,13 +520,14 @@ export async function readChildTaskSession(service, user, threadId, messageId) {
     );
     const events = await query(
       service.db,
-      `SELECT e.id,e.tool,e.status,LEFT(e.input,2000) input,e.finished_at,a.id visual_artifact_id
+      `SELECT e.id,e.tool,e.status,LEFT(e.input,2000) input,LEFT(e.output,4000) output,e.created_at,e.finished_at,a.id visual_artifact_id
       FROM agent_events e LEFT JOIN agent_visual_artifacts a ON a.agent_event_id=e.id
       WHERE e.message_id=? ORDER BY e.id LIMIT 200`,
       [messageId],
     );
-    let messages = nativeHistoryFromCheckpoint(row.checkpoint, { includeMetadata: true });
-    if (!messages.length) messages = await nativeHistoryFromLiveHome(messageId);
+    let history = nativeHistoryFromCheckpoint(row.checkpoint, { includeMetadata: true });
+    if (!history.length) history = await nativeHistoryFromLiveHome(messageId);
+    const messages = buildChildTimeline({ history, events, task: null });
     return {
       messageId: row.message_id,
       slot: row.agent_slot == null ? null : Number(row.agent_slot),

@@ -110,8 +110,13 @@ export function TaskSessionDialog({
         const hasAssistantMessages = !!task?.messages?.some(
           (message) => message.role === "assistant",
         );
+        const hasChronologicalTimeline = !!task?.messages?.some(
+          (message) => message.role === "process",
+        );
         const activityEvents = hasAssistantMessages
-          ? events.filter((event) => !["assistant_text", "assistant_final"].includes(event.tool))
+          ? hasChronologicalTimeline
+            ? []
+            : events.filter((event) => !["assistant_text", "assistant_final"].includes(event.tool))
           : events;
         return (
           <>

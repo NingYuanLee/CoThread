@@ -225,12 +225,13 @@ test("agent logs are isolated by project, iteration, and task without exposing r
     );
     const withUsage = await service.agentLogs(user, "thread", thread.id);
     const finalEvent = withUsage.events.find((event) => event.tool === "assistant_final");
-    // 事件用量按 eventUsageFromReply 白名单投影：cacheReadTokens 保留，executionDurationMs 不进事件用量。
+    // 事件用量按 eventUsageFromReply 白名单投影：token 和请求时长都保留。
     assert.deepEqual(finalEvent.usage, {
       inputTokens: 120,
       outputTokens: 45,
       totalTokens: 165,
       cacheReadTokens: 30,
+      executionDurationMs: 900,
     });
     assert.equal(withUsage.events.filter((event) => event.usage).length, 1);
     await assert.rejects(service.agentLogs(outsider, "project", project.id), { status: 403 });

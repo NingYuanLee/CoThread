@@ -8,7 +8,7 @@ import { createDatabase, query } from "./db.ts";
 import { createApp } from "./app.js";
 import { registerDevServerUpgrade, stopCoThreadPreviewServers } from "./miniprogram-dev-server.js";
 import { startReplyWorker } from "./replies.js";
-import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";
+import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.ts";
 import { createShutdown } from "./shutdown.ts";
 import { stopLiveOutputStreams } from "./agent-live-output.ts";
 import { endSseStreams } from "./sse-streams.ts";

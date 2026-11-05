@@ -73,7 +73,7 @@ test("老翁默认只允许时间工具，联合分析使用受限只读工具�
     "utf8",
   );
   const runtimeConfig = await readFile(
-    new URL("../server/dsh-runtime-config.js", import.meta.url),
+    new URL("../server/dsh-runtime-config.ts", import.meta.url),
     "utf8",
   );
   const mcp = await import("../server/mcp.js");

@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 import { dshModelPatch } from "../server/model-config.js";
-import { elderRuntimePatch } from "../server/dsh-runtime-config.js";
+import { elderRuntimePatch } from "../server/dsh-runtime-config.ts";
 
 test("真实 DSH runtime 注册受限的只读工具并转发调用", { timeout: 90000 }, async () => {
   const home = await mkdtemp(join(tmpdir(), "cothread-conversation-runtime-"));

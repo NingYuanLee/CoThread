@@ -6,7 +6,7 @@ import {
   resolveSandboxProvider,
   formatSandboxReference,
   parseSandboxReference,
-} from "../server/sandbox-provider.js";
+} from "../server/sandbox-provider.ts";
 import { LocalSandbox } from "../server/local-sandbox.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
 function factory() {

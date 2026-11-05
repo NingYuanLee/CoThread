@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectThreadSideState } from "../server/thread-side-state.js";
+import { projectThreadSideState } from "../server/thread-side-state.ts";
 import { THREAD_SIDE_COLLECTIONS } from "../shared/thread-side-state.js";
 
 const user = { id: "member", kind: "session" };

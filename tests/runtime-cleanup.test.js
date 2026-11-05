@@ -7,7 +7,7 @@ import { Service } from "../server/service.js";
 import { claimReply } from "../server/reply-dispatch.js";
 import { openAgentRuntime } from "../server/agent.js";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.js";
-import { registerSandboxProvider } from "../server/sandbox-provider.js";
+import { registerSandboxProvider } from "../server/sandbox-provider.ts";
 import { acquireSessionLock, sessionLockName } from "../server/session-lock.ts";
 
 test("a child close returns its session lock when sandbox recycling fails", async () => {

@@ -7,7 +7,7 @@ import {
 } from "./iteration-archive.js";
 import { attachMessageQuotes } from "./message-quotes.ts";
 import { threadReadSummary } from "./thread-reads.js";
-import { projectThreadSideState } from "./thread-side-state.js";
+import { projectThreadSideState } from "./thread-side-state.ts";
 import { contextUsage } from "../shared/context.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";

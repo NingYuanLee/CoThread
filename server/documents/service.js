@@ -15,7 +15,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
 import { HttpError } from "../http-error.ts";
 import { AGENT_MEMBER } from "../../shared/agent-member.js";
-import { decodeUploadedBytes, verifyBytes } from "./file-bytes.js";
+import { decodeUploadedBytes, verifyBytes } from "./file-bytes.ts";
 import { INLINE_FILE_MAX_BYTES } from "../../shared/upload-limits.js";
 import { publishWork } from "../work-events.ts";
 import {

@@ -4,7 +4,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./service.js";
 import { modelDiscussion } from "./model-context.ts";
-import { resolveSandboxProvider } from "./sandbox-provider.js";
+import { resolveSandboxProvider } from "./sandbox-provider.ts";
 
 export async function executeRun(
   service,

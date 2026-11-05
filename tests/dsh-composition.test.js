@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dshComposition } from "../server/dsh-runtime-config.js";
+import { dshComposition } from "../server/dsh-runtime-config.ts";
 import {
   DSH_PLUGINS,
   COTHREAD_VERSION,

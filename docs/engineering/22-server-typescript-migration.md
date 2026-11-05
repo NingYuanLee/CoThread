@@ -243,13 +243,17 @@ npm test            # 集成测试需要测试库
 
 `service-notification-operations` 现在直接用 `Parameters<typeof notify>` 等派生参数类型——被调方已带类型，不必再自己声明一遍。这是「先转实现、后转适配层」这条顺序带来的直接好处。
 
-剩余 111 个 `.js` 文件（被引用次数实测于 2026-11-05）：
+第十六批（8 个小模块，592 行）：`conversation-memory-contract`(122)、`document-organization`(100)、`sandbox-provider`(93)、`file-bytes`(69)、`dsh-runtime-config`(67)、`agent-updates`(63)、`queue-context`(45)、`thread-side-state`(33)。
+
+本批新增 `@types/js-yaml`。另外修了一处跨文件类型不一致：`document-organization-run.ts` 原来自己声明了一份 `OrganizationDocument`，与 `document-organization.ts` 导出的同名类型结构不同（`title` 是否含 `null`），改为直接 import 共享那一个。
+
+剩余 103 个 `.js` 文件（被引用次数实测于 2026-11-05）：
 
 | 批次 | 范围                                                                            | 文件数 |
 | ---- | ------------------------------------------------------------------------------- | ------ |
 | 3    | 叶模块剩余（被 0–1 个文件引用，多为路由与 `service-*` 适配层）                  | 11     |
-| 4    | 被 2–4 个文件引用                                                               | 43     |
-| 5    | 被 5–9 个文件引用                                                               | 32     |
+| 4    | 被 2–4 个文件引用                                                               | 37     |
+| 5    | 被 5–9 个文件引用                                                               | 30     |
 | 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 24     |
 | 7    | 入口 `server/index.js` 与 `package.json` / systemd / 部署脚本里的路径           | 1      |
 

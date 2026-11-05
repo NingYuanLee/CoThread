@@ -12,7 +12,7 @@ import { Service, HttpError } from "./service.js";
 import { createAgentTools } from "./agent-tools.js";
 import { releaseSandbox } from "./agent-sandbox.js";
 import { agentSession } from "./agent-session.ts";
-import { deliverTaskUpdates } from "./agent-updates.js";
+import { deliverTaskUpdates } from "./agent-updates.ts";
 import { hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.ts";
 import { createUsageMeter, saveReplyUsage } from "./agent-usage.ts";
 import { publishWork } from "./work-events.ts";
@@ -27,7 +27,7 @@ import {
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
 import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
-import { agentRuntimePatch } from "./dsh-runtime-config.js";
+import { agentRuntimePatch } from "./dsh-runtime-config.ts";
 import { persistChildContextStats } from "./child-agent-session.js";
 import { touchChildInferenceHeartbeat } from "./task-pool.js";
 import { acquireSessionLock } from "./session-lock.ts";

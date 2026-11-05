@@ -8,7 +8,7 @@ import { assetPath } from "./assets.ts";
 import { dedupeSessionLogs, hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.ts";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
-import { laowengRuntimePatch, elderRuntimePatch } from "./dsh-runtime-config.js";
+import { laowengRuntimePatch, elderRuntimePatch } from "./dsh-runtime-config.ts";
 import {
   LAOWENG_MAINTENANCE_TASKS,
   laowengTaskLabel,

@@ -6,7 +6,7 @@ import {
   sandboxProviderByName,
   parseSandboxReference,
   formatSandboxReference,
-} from "./sandbox-provider.js";
+} from "./sandbox-provider.ts";
 
 export const shellQuote = (value) => `'${value.replace(/'/g, `'"'"'`)}'`;
 const handles = new Map();

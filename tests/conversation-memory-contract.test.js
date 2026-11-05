@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateConversationMemoryResult } from "../server/conversation-memory-contract.js";
+import { validateConversationMemoryResult } from "../server/conversation-memory-contract.ts";
 
 const author = "10000000-0000-4000-8000-000000000001";
 const other = "10000000-0000-4000-8000-000000000002";

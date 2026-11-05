@@ -51,7 +51,7 @@ export async function adminPluginManagement(service, user) {
   await requireAdmin(service, user, "plugins");
   let assembledByLevel = Object.fromEntries(managementLevels.map((level) => [level, null]));
   try {
-    const { dshComposition } = await import("./dsh-runtime-config.js");
+    const { dshComposition } = await import("./dsh-runtime-config.ts");
     assembledByLevel = Object.fromEntries(
       managementLevels.map((level) => [
         level,

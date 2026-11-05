@@ -4,7 +4,7 @@ import {
   capabilityProfile,
   pluginManagementLevel,
 } from "../dsh-layer/cothread-plugin-registry.mjs";
-import { dshComposition } from "../server/dsh-runtime-config.js";
+import { dshComposition } from "../server/dsh-runtime-config.ts";
 
 test("小祥 and delegated agents expose the same plugin and tool catalog", () => {
   const parent = capabilityProfile("xiaoxiang");

@@ -7,7 +7,7 @@ import {
   listSandboxProviders,
   registerSandboxProvider,
   resolveSandboxProvider,
-} from "../server/sandbox-provider.js";
+} from "../server/sandbox-provider.ts";
 
 async function withEnv(value, fn) {
   const previous = process.env.COTHREAD_SANDBOX_PROVIDER;

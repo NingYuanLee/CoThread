@@ -3,7 +3,8 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { Service } from "./service.js";
 import { publishWork } from "./work-events.ts";
-import { listOrganizationDocuments } from "./document-organization.js";
+import { listOrganizationDocuments } from "./document-organization.ts";
+import type { OrganizationDocument } from "./document-organization.ts";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.ts";
 import { createFolder, placeArtifact } from "./documents/index.js";
 import type { PoolConnection } from "mysql2/promise";
@@ -36,7 +37,6 @@ type OrganizationJob = {
 };
 
 /** 待整理文档的清单项。 */
-type OrganizationDocument = { artifactId: string; folderId?: string | null; title?: string };
 
 /** `processNextDocumentOrganization` 的可注入依赖，测试用。 */
 type OrganizationOptions = {

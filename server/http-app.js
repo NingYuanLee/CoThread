@@ -20,7 +20,7 @@ import {
 import { jsonBodyLimit } from "./json-body-limit.ts";
 import { appOrigins } from "./runtime-config.ts";
 import { EXECUTOR_LOCK_NAME, executorStatus } from "./replies.js";
-import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.js";
+import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.ts";
 
 /** 读执行器锁当前的持有者连接 id；抽成选项是为了让健康检查的降级分支可测。 */
 function isLoopback(req) {

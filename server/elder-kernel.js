@@ -8,7 +8,7 @@ import { createUsageMeter } from "./agent-usage.ts";
 import { assetPath } from "./assets.ts";
 import { restoreSessionCheckpoint } from "./agent-checkpoint.ts";
 import { contextInjectionFromEvent } from "../shared/context-injection.js";
-import { elderRuntimePatch } from "./dsh-runtime-config.js";
+import { elderRuntimePatch } from "./dsh-runtime-config.ts";
 import { contextBudget, contextUsage } from "../shared/context.js";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";

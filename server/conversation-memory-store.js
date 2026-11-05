@@ -3,7 +3,7 @@ import { query, transaction } from "./db.ts";
 import {
   observationSchema,
   validateConversationMemoryResult,
-} from "./conversation-memory-contract.js";
+} from "./conversation-memory-contract.ts";
 import { intactConversationMemorySql } from "./conversation-memory-integrity.ts";
 
 export function readConversationCandidatePayload(value) {

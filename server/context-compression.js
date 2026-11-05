@@ -3,7 +3,7 @@ import { query, transaction } from "./db.ts";
 import { Service, HttpError } from "./service.js";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.ts";
 
-export { queueContextCompression } from "./queue-context.js";
+export { queueContextCompression } from "./queue-context.ts";
 
 /** 轨迹行里的词元写法，和前端 shortTokens 一致：11800 → 11.8K。 */
 function compactTokens(value) {

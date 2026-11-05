@@ -11,7 +11,7 @@ import {
 } from "./executor-fence.ts";
 import { Service, HttpError } from "./service.js";
 import { claimReply } from "./reply-dispatch.js";
-import { pendingTaskUpdates } from "./agent-updates.js";
+import { pendingTaskUpdates } from "./agent-updates.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { synchronizeNextDiscussion } from "./context-sync.js";
 import { processNextCoordinator } from "./coordinator.js";

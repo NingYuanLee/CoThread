@@ -1,4 +1,4 @@
-import { registerSandboxProvider } from "../server/sandbox-provider.js";
+import { registerSandboxProvider } from "../server/sandbox-provider.ts";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -14,7 +14,7 @@ import {
   processNextChildContextCompression,
   queueChildContextCompression,
 } from "../server/child-agent-context.js";
-import { deliverTaskUpdates } from "../server/agent-updates.js";
+import { deliverTaskUpdates } from "../server/agent-updates.ts";
 import { pendingMessages } from "../shared/context.js";
 import { processNextCoordinator } from "../server/coordinator.js";
 import { subscribeWork } from "../server/work-events.ts";

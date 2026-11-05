@@ -7,7 +7,7 @@ import {
   agentRuntimePatch,
   elderRuntimePatch,
   laowengRuntimePatch,
-} from "../server/dsh-runtime-config.js";
+} from "../server/dsh-runtime-config.ts";
 
 test("beijing time is a tool, not a line in the prompt", async () => {
   const registered = [];

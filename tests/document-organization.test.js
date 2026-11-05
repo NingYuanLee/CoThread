@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { queueDocumentOrganization } from "../server/document-organization.js";
+import { queueDocumentOrganization } from "../server/document-organization.ts";
 import { processNextDocumentOrganization } from "../server/document-organization-run.ts";
 
 test("formal file organization is blocked before 老翁 when the official area has no documents", async () => {

@@ -22,7 +22,7 @@ export * from "./project-library.js";
 export * from "./document-tools.js";
 export * from "./document-audit.ts";
 export * from "./file-upload.js";
-export * from "./file-bytes.js";
+export * from "./file-bytes.ts";
 export * from "./service-preview.ts";
 export * from "./preview-mime.ts";
 export * from "./versions.js";

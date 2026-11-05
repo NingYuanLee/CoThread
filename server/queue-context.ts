@@ -7,7 +7,7 @@ import type { Db } from "./types.ts";
 
 /** 申请压缩上下文所需的 Service 视图。 */
 export type QueueContextService = {
-  db: Pool;
+  db: Db;
   thread(user: QueueContextUser, threadId: string, write?: boolean, db?: Db): Promise<unknown>;
 };
 
@@ -20,7 +20,7 @@ export async function queueContextCompression(
   threadId: string,
 ): Promise<{ status: string }> {
   if (user.kind !== "session") throw new HttpError(403, "需要登录后操作");
-  const result = await transaction(service.db, async (db) => {
+  const result = await transaction(service.db as Pool, async (db) => {
     await service.thread(user, threadId, true, db);
     await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,?)", [
       threadId,

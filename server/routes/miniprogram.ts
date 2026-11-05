@@ -66,6 +66,10 @@ import {
 } from "../release-requests.js";
 import { executeRelease } from "../release-executor.ts";
 
+/** query 里的数字参数：缺省保持 undefined，交给下游默认值；非法值同样交给下游校验报错。 */
+const optionalNumber = (value: unknown): number | undefined =>
+  value === undefined || value === null || value === "" ? undefined : Number(value);
+
 export function registerMiniprogramRoutes(
   app: Express,
   { db, service }: { db: Db; service: Service },
@@ -229,7 +233,7 @@ export function registerMiniprogramRoutes(
     res.json(
       await listMiniprogramBuilds(service, req.user, String(req.params.id), {
         kind: String(req.query.kind) || "app_preview",
-        limit: Number(req.query.limit),
+        limit: optionalNumber(req.query.limit),
       }),
     ),
   );
@@ -308,7 +312,7 @@ export function registerMiniprogramRoutes(
   app.get("/api/projects/:id/miniprogram/deployments", async (req: Request, res: Response) =>
     res.json(
       await listMiniprogramDeployments(service, req.user, String(req.params.id), {
-        limit: Number(req.query.limit),
+        limit: optionalNumber(req.query.limit),
       }),
     ),
   );
@@ -333,7 +337,7 @@ export function registerMiniprogramRoutes(
   app.get("/api/projects/:id/miniprogram/release-requests", async (req: Request, res: Response) =>
     res.json(
       await listReleaseRequests(service, req.user, String(req.params.id), {
-        limit: Number(req.query.limit),
+        limit: optionalNumber(req.query.limit),
       }),
     ),
   );
@@ -408,7 +412,7 @@ export function registerMiniprogramRoutes(
     async (req: Request, res: Response) =>
       res.json(
         await listReleaseApplications(service, req.user, String(req.params.id), {
-          limit: Number(req.query.limit),
+          limit: optionalNumber(req.query.limit),
         }),
       ),
   );

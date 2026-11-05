@@ -9,7 +9,7 @@ type WriteHeader = { affectedRows?: number };
 
 /** 重试回复需要的 Service 视图。 */
 export type ReplyService = {
-  db: Pool;
+  db: Db;
   thread(user: ReplyUser, threadId: string, write?: boolean, db?: Db): Promise<unknown>;
 };
 
@@ -23,7 +23,7 @@ export async function retryReply(
   messageId: string,
 ): Promise<{ ok: true }> {
   if (user.kind !== "session") throw new HttpError(403, "需要人工登录");
-  const result = await transaction(service.db, async (db) => {
+  const result = await transaction(service.db as Pool, async (db) => {
     await service.thread(user, threadId, true, db);
     const updated = (await query(
       db,

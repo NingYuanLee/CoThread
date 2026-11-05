@@ -13,7 +13,7 @@ type ChildRuntime = {
 
 /** 排队压缩所需的 Service 视图。 */
 export type ChildContextService = {
-  db: Pool;
+  db: Db;
   thread(user: ChildContextUser, threadId: string, write?: boolean): Promise<unknown>;
 };
 
@@ -48,7 +48,7 @@ export async function queueChildContextCompression(
   if (user.kind !== "session") throw new HttpError(403, "需要登录后操作");
   if (!messageId) throw new HttpError(400, "请指定执行任务");
   await service.thread(user, threadId, true);
-  const result = await transaction(service.db, async (db) => {
+  const result = await transaction(service.db as Pool, async (db) => {
     const [reply] = await query<{ message_id: string; parent_message_id?: string | null }>(
       db,
       `SELECT r.message_id,r.parent_message_id FROM assistant_replies r JOIN messages m ON m.id=r.message_id

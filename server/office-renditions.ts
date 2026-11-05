@@ -14,7 +14,7 @@ import {
   RENDITION_MAX_ATTEMPTS,
 } from "./documents/index.js";
 import { convertToOoxml, planOfficeRendition } from "./office-convert.js";
-import type { RenditionRow } from "./documents/renditions.ts";
+import type { RenditionRow } from "./documents/index.js";
 import type { Db } from "./types.ts";
 
 /** 确保派生文件的结果；调用方按 `status` 决定响应码。 */

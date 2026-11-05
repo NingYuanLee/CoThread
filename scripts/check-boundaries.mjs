@@ -19,6 +19,11 @@
  *     业务代码走 cloud-backend.js；`@cloudbase/*` 只允许在 cloudbase.js 加载。
  *
  * 用法：node scripts/check-boundaries.mjs
+ *
+ * 迁移期约定：`server/` 下的文件正在分批从 `.js` 改为 `.ts`，两种后缀必须同等对待。
+ * 本文件里的路径比较统一用 `stem()` 去掉扩展名，import 说明符的正则统一写成
+ * `\.(?:js|ts)`，`walk()` 同时收集两种后缀。否则某个文件转成 `.ts` 后就会绕过
+ * 对应规则而不报错（静默失效），门禁形同虚设。
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -26,6 +31,11 @@ import { join, relative, resolve, sep } from "node:path";
 const root = resolve(".");
 const serverDir = join(root, "server");
 const kernelDir = join(serverDir, "documents");
+
+/** 去掉 `.js` / `.ts` 后缀，供路径比较使用。 */
+const stem = (p) => p.replace(/\.(?:js|ts)$/, "");
+/** import 说明符的扩展名部分，兼容迁移中的两种后缀。 */
+const EXT = String.raw`\.(?:js|ts)`;
 
 const TABLES = [
   "artifacts",
@@ -41,22 +51,25 @@ const WRITE_RE = new RegExp(
   `(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+(?:${TABLES.join("|")})\\b`,
   "i",
 );
-const KERNEL_FORBIDDEN_RE =
-  /from\s+["'][^"']*\/(service|agent|agent-tools|agent-session|coordinator|coordinator-events|dsh-[a-z-]*)\.js["']|from\s+["'][^"']*\/dsh-layer\//;
-const AGENT_IMPORT_RE = /from\s+["']\.\/agent\.js["']/;
-const DEEP_KERNEL_RE = /from\s+["'][^"']*\/?documents\/(?!index\.js)[a-z-]+\.js["']/;
+const KERNEL_FORBIDDEN_RE = new RegExp(
+  String.raw`from\s+["'][^"']*\/(service|agent|agent-tools|agent-session|coordinator|coordinator-events|dsh-[a-z-]*)${EXT}["']|from\s+["'][^"']*\/dsh-layer\//`,
+);
+const AGENT_IMPORT_RE = new RegExp(String.raw`from\s+["']\.\/agent${EXT}["']`);
+const DEEP_KERNEL_RE = new RegExp(
+  String.raw`from\s+["'][^"']*\/?documents\/(?!index${EXT})[a-z-]+${EXT}["']`,
+);
 /**
  * 规则 4 的例外：`documents/service.js` 是 `Service` 的父类，业务门面必须直接继承它。
  * 若改为经 index.js 转发，会形成 index → documents/service → project-memory → service → index 的循环。
  */
-const DEEP_KERNEL_ALLOWED = new Set(["server/service.js"]);
+const DEEP_KERNEL_ALLOWED = new Set(["server/service"]);
 
 function walk(dir) {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walk(full));
-    else if (entry.name.endsWith(".js")) out.push(full);
+    else if (/\.(?:js|ts)$/.test(entry.name)) out.push(full);
   }
   return out;
 }
@@ -70,12 +83,15 @@ for (const file of walk(serverDir)) {
   const source = readFileSync(file, "utf8");
   const lines = source.split(/\r?\n/);
   if (
-    /^server\/(?:service-(?:access|members|projects|monitor|iterations|messages|support|notification-operations)|task-(?:policy|access|documents|queries|dispatch|commands|assignments|resolution|child-execution))\.js$/.test(
+    /^server\/(?:service-(?:access|members|projects|monitor|iterations|messages|support|notification-operations)|task-(?:policy|access|documents|queries|dispatch|commands|assignments|resolution|child-execution))\.(?:js|ts)$/.test(
       rel(file),
     )
   ) {
-    domainSources.set(rel(file), source);
-    const forbidden = /(?:from\s*|import\s*\(\s*)["']\.\/(service|task-pool)\.js["']/g;
+    domainSources.set(stem(rel(file)), source);
+    const forbidden = new RegExp(
+      String.raw`(?:from\s*|import\s*\(\s*)["']\.\/(service|task-pool)${EXT}["']`,
+      "g",
+    );
     for (const match of source.matchAll(forbidden)) {
       violations.push([
         8,
@@ -85,11 +101,11 @@ for (const file of walk(serverDir)) {
     }
   }
 
-  if (rel(file) === "server/db.js") {
-    const allowed = new Set(["./database-policy.js", "./request-timing.js"]);
+  if (stem(rel(file)) === "server/db") {
+    const allowed = new Set(["./database-policy", "./request-timing"]);
     const imports = /\b(?:from\s*|import\s*\(\s*|import\s*)["'](\.[^"']+)["']/g;
     for (const match of source.matchAll(imports)) {
-      if (!allowed.has(match[1])) {
+      if (!allowed.has(stem(match[1]))) {
         const line = source.slice(0, match.index).split("\n").length;
         violations.push([
           7,
@@ -103,7 +119,7 @@ for (const file of walk(serverDir)) {
   lines.forEach((line, index) => {
     const at = `${rel(file)}:${index + 1}`;
     if (
-      rel(file) !== "server/named-lock.js" &&
+      stem(rel(file)) !== "server/named-lock" &&
       /\bSELECT\s+(?:GET_LOCK|RELEASE_LOCK|RELEASE_ALL_LOCKS)\s*\(/i.test(line)
     )
       violations.push([9, at, "命名锁必须经 named-lock.js 管理连接生命周期"]);
@@ -111,29 +127,31 @@ for (const file of walk(serverDir)) {
       violations.push([1, at, `内核之外直写文档表：${line.trim().slice(0, 100)}`]);
     if (isKernel && KERNEL_FORBIDDEN_RE.test(line))
       violations.push([2, at, `内核反向依赖业务模块：${line.trim().slice(0, 100)}`]);
-    if (AGENT_IMPORT_RE.test(line) && !/\/(app|coordinator)\.js$/.test(rel(file)))
+    if (AGENT_IMPORT_RE.test(line) && !/\/(app|coordinator)\.(?:js|ts)$/.test(rel(file)))
       violations.push([3, at, `仅 app.js / coordinator.js 可以 import agent.js`]);
-    if (!isKernel && DEEP_KERNEL_RE.test(line) && !DEEP_KERNEL_ALLOWED.has(rel(file)))
+    if (!isKernel && DEEP_KERNEL_RE.test(line) && !DEEP_KERNEL_ALLOWED.has(stem(rel(file))))
       violations.push([
         4,
         at,
         `深引用内核内部文件，应改为 documents/index.js：${line.trim().slice(0, 100)}`,
       ]);
     const cloudAdapterFiles = new Set([
-      "server/cloudbase.js",
-      "server/cloudbase-filter.js",
-      "server/cloudbase-functions.js",
-      "server/cloudbase-hosting.js",
-      "server/cloud-backend.js",
+      "server/cloudbase",
+      "server/cloudbase-filter",
+      "server/cloudbase-functions",
+      "server/cloudbase-hosting",
+      "server/cloud-backend",
     ]);
     if (
-      !cloudAdapterFiles.has(rel(file)) &&
-      /from\s+["'](?:\.\.\/|\.\/)cloudbase(?:-filter|-functions|-hosting)?\.js["']/.test(line)
+      !cloudAdapterFiles.has(stem(rel(file))) &&
+      new RegExp(
+        String.raw`from\s+["'](?:\.\.\/|\.\/)cloudbase(?:-filter|-functions|-hosting)?${EXT}["']`,
+      ).test(line)
     ) {
       violations.push([10, at, `云能力必须经 cloud-backend.js：${line.trim().slice(0, 100)}`]);
     }
     if (
-      rel(file) !== "server/cloudbase.js" &&
+      stem(rel(file)) !== "server/cloudbase" &&
       /@cloudbase\//.test(line) &&
       !/^\s*(\/\/|\*)/.test(line)
     ) {
@@ -149,8 +167,8 @@ for (const file of walk(serverDir)) {
 const domainEdges = new Map(
   [...domainSources].map(([file, source]) => [
     file,
-    [...source.matchAll(/from\s*["']\.\/([^"']+\.js)["']/g)]
-      .map((match) => `server/${match[1]}`)
+    [...source.matchAll(new RegExp(String.raw`from\s*["']\.\/([^"']+)${EXT}["']`, "g"))]
+      .map((match) => `server/${stem(match[1])}`)
       .filter((target) => domainSources.has(target)),
   ]),
 );

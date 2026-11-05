@@ -88,6 +88,40 @@ npm test            # 集成测试需要测试库
 
 ## 进度
 
+### 当前总览（2026-11-05，第 40 轮结束时）
+
+| 指标                 | 数值                                         |
+| -------------------- | -------------------------------------------- |
+| `server/` 已转 `.ts` | 147 个                                       |
+| `server/` 仍为 `.js` | 52 个（原 199 个）                           |
+| 类型检查             | 0 错（`npm run typecheck:server`）           |
+| 失效说明符           | 0（`node scripts/server-ts-specifiers.mjs`） |
+| 完整测试             | 1096/1096 通过                               |
+
+**已完成的阶段性目标：**
+
+- 类型检查基础设施：`tsconfig.server.json`、`server/types.ts`、`npm run typecheck:server` 接入 `npm run lint`
+- 迁移工具：`scripts/server-ts-migrate.mjs`（改名 + 改写四类引用）
+- 失效说明符检查：`scripts/server-ts-specifiers.mjs`（`--fix` 可自动修）
+- 入口 `server/index.ts` 及部署侧路径（`package.json`、`dev-runtime` 进程识别、现行运维文档）
+- `server/service.ts` 门面（152 处引用），方法签名从域操作推导
+- **200 行以内的文件全部转换完毕**
+
+**未完成的 52 个文件**按行数分档：
+
+| 行数     | 数量 | 代表文件                                                                                                                                                                                       |
+| -------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ≤300     | 4    | `task-memory`、`file-index-jobs`、`project-library`、`project-memory-scan`                                                                                                                     |
+| 301–500  | 13   | `memory-history`、`platform-model-settings`、`routes/project-runtime`                                                                                                                          |
+| 501–1000 | 25   | `agent.js`、`wiki-questions`、`cloudbase`、`service-monitor`(1056)                                                                                                                             |
+| >1000    | 10   | `project-memory`(3261)、`coordinator`(1643)、`agent-tools`(1449)、`routes/project-workspace`(1330)、`documents/service`(1275)、`conversation-memory-store`(1195)、`iteration-archive`(1079) 等 |
+
+其中 `service-monitor`、`project-memory`、`coordinator`、`documents/service` 是各自领域的中枢，转完之后能进一步降低其余文件的标注成本——**建议按「先中枢、后外围」继续**。
+
+接手的操作步骤见下文「未完成部分与后续做法」。
+
+### 批次明细
+
 已转换（2026-11-05，第一批，用于跑通工具链）：
 
 | 文件                               | 行数 | 说明                               |

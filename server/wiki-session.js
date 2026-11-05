@@ -301,7 +301,7 @@ export async function elderAgentLogs(db, user, scope, ids, { before = null, limi
   // 用量不返回：wiki_sessions.usage_json 是整间问答的累计值，归不到具体事件。
   let skillText = "";
   try {
-    const { loadAgentCapabilityProfile } = await import("./agent-capabilities.js");
+    const { loadAgentCapabilityProfile } = await import("./agent-capabilities.ts");
     skillText = (await loadAgentCapabilityProfile(db, "laoweng")).instructions || "";
   } catch {}
   const scopeContext = {

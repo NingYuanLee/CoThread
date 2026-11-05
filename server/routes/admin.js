@@ -13,7 +13,7 @@ import {
   requireAdminPermission,
   saveAdminRole,
 } from "../admin-rbac.ts";
-import { adminTaskDetail, listAdminWork, updateAdminWork } from "../admin-work.js";
+import { adminTaskDetail, listAdminWork, updateAdminWork } from "../admin-work.ts";
 import { listAccountChanges, listAccountLogins } from "../account-audit.ts";
 import {
   listMyProjects,
@@ -21,14 +21,14 @@ import {
   myProjectImage,
   myProjectMemberAvatar,
   myTaskDetail,
-} from "../my-work.js";
+} from "../my-work.ts";
 import { parseStoredImage } from "../project-image.ts";
 import {
   adminPluginManagement,
   archivePromptSkill,
   createPromptSkill,
   updatePromptSkill,
-} from "../agent-capabilities.js";
+} from "../agent-capabilities.ts";
 import {
   loadPlatformModelSettings,
   platformModelSettingsView,

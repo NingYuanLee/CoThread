@@ -121,7 +121,7 @@ export function elderSkillsBinding(instructions) {
 async function laowengSkillInstructions(db) {
   if (!db) return "";
   try {
-    const { loadAgentCapabilityProfile } = await import("./agent-capabilities.js");
+    const { loadAgentCapabilityProfile } = await import("./agent-capabilities.ts");
     const profile = await loadAgentCapabilityProfile(db, "laoweng");
     return profile.instructions || "";
   } catch (error) {

@@ -24,7 +24,7 @@ import {
   modelForLaunch,
   redactSecrets,
 } from "./model-config.js";
-import { loadAgentCapabilityProfile } from "./agent-capabilities.js";
+import { loadAgentCapabilityProfile } from "./agent-capabilities.ts";
 import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.ts";

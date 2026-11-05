@@ -5,6 +5,10 @@ import { adminAccess } from "./admin-rbac.ts";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
 import { projectImageUrlSql } from "./project-image.ts";
 import { taskStatusFilter } from "../shared/work-status.js";
+import type { Db } from "./types.ts";
+
+/** 操作人。 */
+type MyWorkUser = { id: string; kind?: string | null };
 
 const uuid = z.string().uuid();
 const filters = z.object({
@@ -15,7 +19,7 @@ const filters = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
 });
 
-const joinedProject = (projectColumn) =>
+const joinedProject = (projectColumn: string): string =>
   `EXISTS (SELECT 1 FROM members me WHERE me.project_id=${projectColumn} AND me.user_id=?)`;
 const relatedTask = `(
   (w.created_by_type='human_member' AND w.created_by_id=?)
@@ -24,14 +28,14 @@ const relatedTask = `(
   OR (w.claimed_by_type='human_member' AND w.claimed_by_id=?)
   OR (w.accepted_by_type='human_member' AND w.accepted_by_id=?)
 )`;
-const relatedParams = (userId) => [userId, userId, userId, userId, userId];
+const relatedParams = (userId: string): string[] => [userId, userId, userId, userId, userId];
 
-async function requireMemberSession(db, user) {
+async function requireMemberSession(db: Db, user: MyWorkUser | null | undefined): Promise<void> {
   if (!user?.id) throw new HttpError(401, "请先登录");
   await adminAccess(db, user);
 }
 
-export async function listMyProjects(db, user) {
+export async function listMyProjects(db: Db, user: MyWorkUser) {
   await requireMemberSession(db, user);
   const projects = await query(
     db,
@@ -76,7 +80,12 @@ export async function listMyProjects(db, user) {
   }));
 }
 
-export async function myProjectMemberAvatar(db, user, projectId, userId) {
+export async function myProjectMemberAvatar(
+  db: Db,
+  user: MyWorkUser,
+  projectId: string,
+  userId: string,
+) {
   await requireMemberSession(db, user);
   uuid.parse(projectId);
   uuid.parse(userId);
@@ -90,7 +99,7 @@ export async function myProjectMemberAvatar(db, user, projectId, userId) {
   return member?.avatar || null;
 }
 
-export async function myProjectImage(db, user, projectId) {
+export async function myProjectImage(db: Db, user: MyWorkUser, projectId: string) {
   await requireMemberSession(db, user);
   uuid.parse(projectId);
   const [project] = await query(
@@ -101,14 +110,14 @@ export async function myProjectImage(db, user, projectId) {
   return project?.image || null;
 }
 
-export async function listMyWork(db, user, kind, input) {
+export async function listMyWork(db: Db, user: MyWorkUser, kind: string, input: unknown) {
   await requireMemberSession(db, user);
   if (!["iterations", "tasks"].includes(kind)) throw new HttpError(404, "页面不存在");
   const data = filters.parse(input);
   const iterations = kind === "iterations";
   const table = iterations ? "threads" : "agent_tasks";
-  const where = [joinedProject("w.project_id")];
-  const params = [user.id];
+  const where: string[] = [joinedProject("w.project_id")];
+  const params: unknown[] = [user.id];
   if (!iterations) {
     where.push(relatedTask);
     params.push(...relatedParams(user.id));
@@ -155,7 +164,7 @@ export async function listMyWork(db, user, kind, input) {
   };
 }
 
-export async function myTaskDetail(db, user, taskId) {
+export async function myTaskDetail(db: Db, user: MyWorkUser, taskId: string) {
   await requireMemberSession(db, user);
   uuid.parse(taskId);
   const [task] = await query(

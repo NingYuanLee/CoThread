@@ -284,13 +284,17 @@ npm test            # 集成测试需要测试库
 
 `preview-screenshot` 一开始给 playwright 手写了一套 `PlaywrightBrowser` / `PlaywrightPage` 类型，结果 `chromium.launch()` 返回的是官方 `Browser`，对不上。改成直接 `import type { Browser } from "playwright"`——**有官方类型的库不要自己造**，手写会漂移且漏掉重载。
 
-剩余 75 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第二十四批：`agent-capabilities.ts`(288)、`my-work.ts`(183)、`admin-work.ts`(140)。本批 57 个错。
+
+再次踩到同一个坑：用 PowerShell 的 `.Replace()` 写多行替换时，`'\n'` 在单引号里不转义，会把字面 `\n` 写进源码（`TS1127: Invalid character`）。**多行改动一律走 `edit` / `write` 或临时 `.mjs` 脚本**，不要在 shell 里拼多行字符串。
+
+剩余 72 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                            | 文件数            |
 | ---- | ------------------------------------------------------------------------------- | ----------------- |
 | 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 11                |
-| 4    | 被 2–4 个文件引用                                                               | 21                |
-| 5    | 被 5–9 个文件引用                                                               | 22                |
+| 4    | 被 2–4 个文件引用                                                               | 19                |
+| 5    | 被 5–9 个文件引用                                                               | 21                |
 | 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 21                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）          | 1（已计入批次 3） |
 

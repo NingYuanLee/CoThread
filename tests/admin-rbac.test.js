@@ -15,7 +15,7 @@ import {
   listAdminRoles,
 } from "../server/admin-rbac.ts";
 import { IMPLICIT_ADMIN_PERMISSIONS } from "../shared/admin-permissions.js";
-import { listAdminWork, updateAdminWork, adminTaskDetail } from "../server/admin-work.js";
+import { listAdminWork, updateAdminWork, adminTaskDetail } from "../server/admin-work.ts";
 
 test("RBAC reuses members, unions roles, revokes live access and prevents escalation", async () => {
   const database = await testDatabase();

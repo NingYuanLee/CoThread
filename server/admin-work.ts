@@ -6,6 +6,14 @@ import { publishWork } from "./work-events.ts";
 import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
 import { projectImageUrlSql } from "./project-image.ts";
 import { taskStatusFilter } from "../shared/work-status.js";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 操作人。 */
+type AdminWorkUser = { id: string; kind?: string | null };
+
+/** 后台工作列表的入参（迭代与任务两种 schema 的并集）。 */
+type AdminWorkInput = { title: string; goal?: string };
 
 const uuid = z.string().uuid();
 const filters = z.object({
@@ -16,13 +24,13 @@ const filters = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
 });
 
-export async function listAdminWork(db, user, kind, input) {
+export async function listAdminWork(db: Db, user: AdminWorkUser, kind: string, input: unknown) {
   await requireAdminPermission(db, user, kind);
   const data = filters.parse(input);
   const iterations = kind === "iterations";
   const table = iterations ? "threads" : "agent_tasks";
-  const where = [],
-    params = [];
+  const where: string[] = [];
+  const params: unknown[] = [];
   if (data.projectId) {
     where.push("w.project_id=?");
     params.push(data.projectId);
@@ -63,7 +71,7 @@ export async function listAdminWork(db, user, kind, input) {
   };
 }
 
-export async function adminTaskDetail(db, user, taskId) {
+export async function adminTaskDetail(db: Db, user: AdminWorkUser, taskId: string) {
   await requireAdminPermission(db, user, "tasks");
   uuid.parse(taskId);
   const [task] = await query(
@@ -80,7 +88,13 @@ export async function adminTaskDetail(db, user, taskId) {
   return { ...task, events, updates };
 }
 
-export async function updateAdminWork(db, user, kind, targetId, input) {
+export async function updateAdminWork(
+  db: Db,
+  user: AdminWorkUser,
+  kind: string,
+  targetId: string,
+  input: unknown,
+) {
   uuid.parse(targetId);
   const iterations = kind === "iterations";
   const data = (
@@ -92,9 +106,9 @@ export async function updateAdminWork(db, user, kind, targetId, input) {
             goal: z.string().trim().min(1).max(20000),
           })
           .strict()
-  ).parse(input);
-  let threadId;
-  await transaction(db, async (conn) => {
+  ).parse(input) as AdminWorkInput;
+  let threadId: string | null | undefined;
+  await transaction(db as Pool, async (conn) => {
     await requireAdminPermission(conn, user, `${kind}.update`);
     const table = iterations ? "threads" : "agent_tasks";
     const [current] = await query(

@@ -10,7 +10,7 @@ import {
   createPromptSkill,
   loadAgentCapabilityProfile,
   updatePromptSkill,
-} from "../server/agent-capabilities.js";
+} from "../server/agent-capabilities.ts";
 
 test("DSH registry stays in code and the database stores only custom prompt Skills", async () => {
   const database = await testDatabase();

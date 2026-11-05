@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { adminPluginManagement, loadAgentCapabilityProfile } from "../server/agent-capabilities.js";
+import { adminPluginManagement, loadAgentCapabilityProfile } from "../server/agent-capabilities.ts";
 
 test("project Agent members have distinct names while discussion requests still address 小祥", async () => {
   const database = await testDatabase();

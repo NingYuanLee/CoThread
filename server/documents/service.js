@@ -48,7 +48,7 @@ import {
   replaceVersionContent,
   setArtifactOfficialLink,
   touchArtifact,
-} from "./versions.js";
+} from "./versions.ts";
 
 const fail = (status, message) => {
   throw new HttpError(status, message);

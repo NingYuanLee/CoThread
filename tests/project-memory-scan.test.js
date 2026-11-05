@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
-import { createVersion, replaceVersionContent } from "../server/documents/versions.js";
+import { createVersion, replaceVersionContent } from "../server/documents/versions.ts";
 
 async function setup() {
   const database = await testDatabase();

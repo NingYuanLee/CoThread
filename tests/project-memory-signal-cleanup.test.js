@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { createVersion, setArtifactFolder } from "../server/documents/versions.js";
+import { createVersion, setArtifactFolder } from "../server/documents/versions.ts";
 import { emptyLibraryRecycle, libraryChange } from "../server/documents/library.js";
 import {
   dropUnavailableDocumentVersionSignals,

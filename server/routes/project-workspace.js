@@ -5,7 +5,7 @@ import {
   requestFileIndexScan,
 } from "../file-index-jobs.js";
 import { queueLaowengContextCompression, readLaowengTaskSession } from "../laoweng-context.js";
-import { registerCloudbaseRoutes } from "./cloudbase-routes.js";
+import { registerCloudbaseRoutes } from "./cloudbase-routes.ts";
 import { registerMiniprogramRoutes } from "./miniprogram.js";
 import { readVisualArtifact } from "../visual-artifacts.ts";
 import { trackSse } from "../sse-streams.ts";

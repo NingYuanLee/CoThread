@@ -28,83 +28,93 @@ import {
   updateCloudbaseDocument,
   uploadCloudbaseFile,
 } from "../cloud-backend.js";
+import type { Express, Request, Response } from "express";
 
-export function registerCloudbaseRoutes(app, { service }) {
-  app.get("/api/projects/:id/cloudbase/auth-settings", async (req, res) =>
+/** 路由注册时注入的依赖。 */
+type CloudbaseRouteDeps = { service: unknown };
+
+export function registerCloudbaseRoutes(app: Express, { service }: CloudbaseRouteDeps) {
+  app.get("/api/projects/:id/cloudbase/auth-settings", async (req: Request, res: Response) =>
     res.json(
       await readCloudbaseAuthSettings(
         service,
         req.user,
         req.params.id,
-        req.query.environment || "development",
+        String(req.query.environment || "development"),
       ),
     ),
   );
-  app.put("/api/projects/:id/cloudbase/auth-settings", async (req, res) =>
+  app.put("/api/projects/:id/cloudbase/auth-settings", async (req: Request, res: Response) =>
     res.json(await updateCloudbaseAuthSettings(service, req.user, req.params.id, req.body || {})),
   );
-  app.get("/api/projects/:id/cloudbase/admin-account", async (req, res) =>
+  app.get("/api/projects/:id/cloudbase/admin-account", async (req: Request, res: Response) =>
     res.json(
       await readCloudbaseAdminAccount(
         service,
         req.user,
         req.params.id,
-        req.query.environment || "development",
+        String(req.query.environment || "development"),
       ),
     ),
   );
-  app.put("/api/projects/:id/cloudbase/admin-account", async (req, res) =>
+  app.put("/api/projects/:id/cloudbase/admin-account", async (req: Request, res: Response) =>
     res.json(await saveCloudbaseAdminAccount(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/functions/:functionName/invoke", async (req, res) =>
-    res.json(
-      await invokeCloudbaseFunction(service, req.user, req.params.id, {
-        ...(req.body || {}),
-        name: req.params.functionName,
-      }),
-    ),
+  app.post(
+    "/api/projects/:id/cloudbase/functions/:functionName/invoke",
+    async (req: Request, res: Response) =>
+      res.json(
+        await invokeCloudbaseFunction(service, req.user, req.params.id, {
+          ...(req.body || {}),
+          name: req.params.functionName,
+        }),
+      ),
   );
-  app.get("/api/projects/:id/cloudbase/functions/:functionName/logs", async (req, res) =>
-    res.json(
-      await searchCloudbaseFunctionLogs(service, req.user, req.params.id, {
-        ...req.query,
-        name: req.params.functionName,
-      }),
-    ),
+  app.get(
+    "/api/projects/:id/cloudbase/functions/:functionName/logs",
+    async (req: Request, res: Response) =>
+      res.json(
+        await searchCloudbaseFunctionLogs(service, req.user, req.params.id, {
+          ...req.query,
+          name: req.params.functionName,
+        }),
+      ),
   );
-  app.get("/api/projects/:id/cloudbase/environments", async (req, res) =>
+  app.get("/api/projects/:id/cloudbase/environments", async (req: Request, res: Response) =>
     res.json(await readCloudbaseEnvironments(service, req.user, req.params.id)),
   );
-  app.get("/api/projects/:id/cloudbase/account-environments", async (req, res) =>
+  app.get("/api/projects/:id/cloudbase/account-environments", async (req: Request, res: Response) =>
     res.json(await listCloudbaseAccountEnvironments(service, req.user, req.params.id)),
   );
-  const readAdminProductionAddress = async (req, res) =>
+  const readAdminProductionAddress = async (req: Request, res: Response) =>
     res.json(await readAdminProductionUrl(service, req.user, req.params.id));
   app.get("/api/projects/:id/cloudbase/admin-production-url", readAdminProductionAddress);
   app.get("/api/projects/:id/cloudbase/admin-experience-url", readAdminProductionAddress);
-  app.get("/api/projects/:id/cloudbase/functions", async (req, res) =>
+  app.get("/api/projects/:id/cloudbase/functions", async (req: Request, res: Response) =>
     res.json(
       await listCloudbaseFunctions(service, req.user, req.params.id, {
         environment: req.query.environment,
       }),
     ),
   );
-  app.post("/api/projects/:id/cloudbase/functions/:functionName/timers", async (req, res) =>
-    res
-      .status(201)
-      .json(
-        await createCloudbaseTimer(
-          service,
-          req.user,
-          req.params.id,
-          req.params.functionName,
-          req.body || {},
+  app.post(
+    "/api/projects/:id/cloudbase/functions/:functionName/timers",
+    async (req: Request, res: Response) =>
+      res
+        .status(201)
+        .json(
+          await createCloudbaseTimer(
+            service,
+            req.user,
+            req.params.id,
+            req.params.functionName,
+            req.body || {},
+          ),
         ),
-      ),
   );
   app.delete(
     "/api/projects/:id/cloudbase/functions/:functionName/timers/:triggerName",
-    async (req, res) =>
+    async (req: Request, res: Response) =>
       res.json(
         await deleteCloudbaseTimer(
           service,
@@ -116,14 +126,14 @@ export function registerCloudbaseRoutes(app, { service }) {
         ),
       ),
   );
-  app.get("/api/projects/:id/cloudbase/collections", async (req, res) =>
+  app.get("/api/projects/:id/cloudbase/collections", async (req: Request, res: Response) =>
     res.json(
       await listCloudbaseCollections(service, req.user, req.params.id, {
         environment: req.query.environment,
       }),
     ),
   );
-  app.get("/api/projects/:id/cloudbase/storage/files", async (req, res) =>
+  app.get("/api/projects/:id/cloudbase/storage/files", async (req: Request, res: Response) =>
     res.json(
       await listCloudbaseFiles(service, req.user, req.params.id, {
         environment: req.query.environment,
@@ -131,28 +141,28 @@ export function registerCloudbaseRoutes(app, { service }) {
       }),
     ),
   );
-  app.get("/api/projects/:id/cloudbase/storage/download", async (req, res) => {
+  app.get("/api/projects/:id/cloudbase/storage/download", async (req: Request, res: Response) => {
     const result = await getCloudbaseFileDownload(service, req.user, req.params.id, {
       environment: req.query.environment,
       cloudPath: req.query.path,
     });
     res.redirect(302, result.url);
   });
-  app.post("/api/projects/:id/cloudbase/databases/query", async (req, res) =>
+  app.post("/api/projects/:id/cloudbase/databases/query", async (req: Request, res: Response) =>
     res.json(await queryCloudbaseDocuments(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/databases/add", async (req, res) =>
+  app.post("/api/projects/:id/cloudbase/databases/add", async (req: Request, res: Response) =>
     res
       .status(201)
       .json(await addCloudbaseDocument(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/databases/update", async (req, res) =>
+  app.post("/api/projects/:id/cloudbase/databases/update", async (req: Request, res: Response) =>
     res.json(await updateCloudbaseDocument(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/databases/remove", async (req, res) =>
+  app.post("/api/projects/:id/cloudbase/databases/remove", async (req: Request, res: Response) =>
     res.json(await removeCloudbaseDocument(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/storage/upload", async (req, res) => {
+  app.post("/api/projects/:id/cloudbase/storage/upload", async (req: Request, res: Response) => {
     const body = req.body || {};
     const content = body.contentBase64
       ? Buffer.from(String(body.contentBase64), "base64")
@@ -165,18 +175,20 @@ export function registerCloudbaseRoutes(app, { service }) {
       }),
     );
   });
-  app.post("/api/projects/:id/cloudbase/storage/urls", async (req, res) =>
+  app.post("/api/projects/:id/cloudbase/storage/urls", async (req: Request, res: Response) =>
     res.json(await cloudbaseFileUrls(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/storage/delete", async (req, res) =>
+  app.post("/api/projects/:id/cloudbase/storage/delete", async (req: Request, res: Response) =>
     res.json(await deleteCloudbaseFiles(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/storage/directory", async (req, res) =>
+  app.post("/api/projects/:id/cloudbase/storage/directory", async (req: Request, res: Response) =>
     res
       .status(201)
       .json(await createCloudbaseDirectory(service, req.user, req.params.id, req.body || {})),
   );
-  app.post("/api/projects/:id/cloudbase/storage/delete-entry", async (req, res) =>
-    res.json(await deleteCloudbaseStorageEntry(service, req.user, req.params.id, req.body || {})),
+  app.post(
+    "/api/projects/:id/cloudbase/storage/delete-entry",
+    async (req: Request, res: Response) =>
+      res.json(await deleteCloudbaseStorageEntry(service, req.user, req.params.id, req.body || {})),
   );
 }

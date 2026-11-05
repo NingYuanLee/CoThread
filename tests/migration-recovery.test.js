@@ -8,7 +8,7 @@ import { migrate, migrationChecksum } from "../scripts/migrate.js";
 import { Service } from "../server/service.js";
 import { hashPassword } from "../server/auth.ts";
 import { createApp } from "../server/app.js";
-import { createArtifact } from "../server/documents/versions.js";
+import { createArtifact } from "../server/documents/versions.ts";
 
 test("正式文件关联迁移只修复唯一目标，多个目标保留审计缺口", async () => {
   const database = await testDatabase(),

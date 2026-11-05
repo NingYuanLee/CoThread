@@ -273,14 +273,21 @@ npm test            # 集成测试需要测试库
 
 `parseJson(value, fallback)` 这类「泛型 + 兜底值」的辅助函数必须显式写 `<T>(value: unknown, fallback: T): T`，否则兜底值 `{}` 会把整个返回值推成 `{}`，后续所有索引访问都报错。
 
-剩余 81 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第二十二批：`documents/versions.ts`(326)、`routes/cloudbase-routes.ts`(194)、`context-sync.ts`(128)。本批 124 个错（含 `versions` 之前回退的 62 个），全部解决。
+
+两个值得记的点：
+
+- 路由文件批量标注 `Express` 的 `req` / `res` 后，`req.query.environment` 的类型是 `string | ParsedQs | (string | ParsedQs)[]`，不能直接当 `string` 传给下游。用 `String(...)` 收口，比逐个断言干净。
+- `dropDocumentVersionSignals(db, { artifactIds: [...] })` 在 `project-memory.js` 里是 JS，`artifactIds` 的默认值 `[]` 让 TS 推成 `never[]`。用 `Parameters<typeof fn>[1]` 断言参数整体，而不是把数组元素硬转。
+
+剩余 78 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                            | 文件数            |
 | ---- | ------------------------------------------------------------------------------- | ----------------- |
-| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 12                |
-| 4    | 被 2–4 个文件引用                                                               | 24                |
+| 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 11                |
+| 4    | 被 2–4 个文件引用                                                               | 23                |
 | 5    | 被 5–9 个文件引用                                                               | 22                |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 23                |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 22                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）          | 1（已计入批次 3） |
 
 `service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。

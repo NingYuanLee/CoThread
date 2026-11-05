@@ -25,5 +25,5 @@ export * from "./file-upload.js";
 export * from "./file-bytes.ts";
 export * from "./service-preview.ts";
 export * from "./preview-mime.ts";
-export * from "./versions.js";
+export * from "./versions.ts";
 export * from "./renditions.ts";

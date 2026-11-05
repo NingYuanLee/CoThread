@@ -12,9 +12,60 @@
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "../db.ts";
 import { recordDocumentChange } from "./document-audit.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "../types.ts";
+
+/** 新建 artifact 的入参。 */
+export type CreateArtifactInput = {
+  id?: string;
+  projectId: string;
+  title: unknown;
+  createdBy: string | null;
+  folderId?: string | null;
+  sourceType?: string | null;
+  sourceArtifactId?: string | null;
+  savedOfficialArtifactId?: string | null;
+};
+
+/** 新建 version 的入参。 */
+export type CreateVersionInput = {
+  id?: string;
+  artifactId: string;
+  version: unknown;
+  threadId?: string | null;
+  filename: unknown;
+  mime: unknown;
+  content: unknown;
+  sha256: unknown;
+  byteSize: unknown;
+  note?: string | null;
+  createdBy: string | null;
+};
+
+/** 替换版本内容的入参。 */
+export type ReplaceVersionInput = {
+  id: string;
+  content: unknown;
+  mime: unknown;
+  sha256: unknown;
+  byteSize: unknown;
+  note?: string | null;
+  createdBy: string | null;
+};
+
+/** 新建文件夹的入参。 */
+export type CreateFolderInput = {
+  id?: string;
+  projectId: string;
+  threadId?: string | null;
+  parentId?: string | null;
+  name: unknown;
+  systemKey?: string | null;
+  folderKind?: string | null;
+};
 
 export async function createArtifact(
-  db,
+  db: Db,
   {
     id = randomUUID(),
     projectId,
@@ -24,8 +75,8 @@ export async function createArtifact(
     sourceType = null,
     sourceArtifactId = null,
     savedOfficialArtifactId = null,
-  },
-) {
+  }: CreateArtifactInput,
+): Promise<string> {
   await query(
     db,
     `INSERT INTO artifacts(id,project_id,title,created_by,folder_id,source_type,source_artifact_id,saved_official_artifact_id)
@@ -44,9 +95,8 @@ export async function createArtifact(
   return id;
 }
 
-export async function createVersion(
-  db,
-  {
+export async function createVersion(db: Db, input: CreateVersionInput): Promise<string> {
+  const {
     id = randomUUID(),
     artifactId,
     version,
@@ -58,10 +108,9 @@ export async function createVersion(
     byteSize,
     note = null,
     createdBy,
-  },
-) {
-  if (typeof db.getConnection === "function") {
-    return transaction(db, (conn) =>
+  } = input;
+  if (typeof (db as Pool).getConnection === "function") {
+    return transaction(db as Pool, (conn) =>
       createVersion(conn, {
         id,
         artifactId,
@@ -85,7 +134,10 @@ export async function createVersion(
   );
   {
     // 正式文件的根目录和子目录都可能产生项目进程候选。
-    const [signalArtifact] = await query(
+    const [signalArtifact] = await query<{
+      project_id?: string | null;
+      folder_id?: string | null;
+    }>(
       db,
       `SELECT a.project_id,a.folder_id,f.folder_kind FROM artifacts a
        LEFT JOIN document_folders f ON f.id=a.folder_id WHERE a.id=?`,
@@ -110,8 +162,12 @@ export async function createVersion(
 }
 
 /** 下一个版本号：`COALESCE(MAX(version),0)`。调用方自行 +1。 */
-export async function nextVersionNumber(db, artifactId, { forUpdate = false } = {}) {
-  const [row] = await query(
+export async function nextVersionNumber(
+  db: Db,
+  artifactId: string,
+  { forUpdate = false }: { forUpdate?: boolean } = {},
+): Promise<number> {
+  const [row] = await query<{ version?: unknown }>(
     db,
     `SELECT COALESCE(MAX(version),0) version FROM versions WHERE artifact_id=?${forUpdate ? " FOR UPDATE" : ""}`,
     [artifactId],
@@ -119,11 +175,11 @@ export async function nextVersionNumber(db, artifactId, { forUpdate = false } = 
   return Number(row?.version || 0);
 }
 
-export async function touchArtifact(db, artifactId) {
+export async function touchArtifact(db: Db, artifactId: string): Promise<void> {
   await query(db, "UPDATE artifacts SET updated_at=UTC_TIMESTAMP(3) WHERE id=?", [artifactId]);
 }
 
-export async function renameArtifact(db, artifactId, title) {
+export async function renameArtifact(db: Db, artifactId: string, title: unknown): Promise<void> {
   await query(db, "UPDATE artifacts SET title=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [
     title,
     artifactId,
@@ -131,7 +187,11 @@ export async function renameArtifact(db, artifactId, title) {
 }
 
 /** 同时改标题与所在文件夹（文档整理用）。 */
-export async function placeArtifact(db, artifactId, { title, folderId }) {
+export async function placeArtifact(
+  db: Db,
+  artifactId: string,
+  { title, folderId }: { title: unknown; folderId?: string | null },
+): Promise<void> {
   await query(
     db,
     "UPDATE artifacts SET title=?,folder_id=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?",
@@ -139,16 +199,19 @@ export async function placeArtifact(db, artifactId, { title, folderId }) {
   );
 }
 
-export async function replaceVersionContent(
-  db,
-  { id, content, mime, sha256, byteSize, note, createdBy },
-) {
-  if (typeof db.getConnection === "function") {
-    return transaction(db, (conn) =>
+export async function replaceVersionContent(db: Db, input: ReplaceVersionInput): Promise<void> {
+  const { id, content, mime, sha256, byteSize, note, createdBy } = input;
+  if (typeof (db as Pool).getConnection === "function") {
+    return transaction(db as Pool, (conn) =>
       replaceVersionContent(conn, { id, content, mime, sha256, byteSize, note, createdBy }),
     );
   }
-  const [previous] = await query(
+  const [previous] = await query<{
+    sha256?: unknown;
+    mime?: unknown;
+    artifactId: string;
+    projectId: string;
+  }>(
     db,
     `SELECT v.sha256,v.mime,v.artifact_id artifactId,a.project_id projectId
     FROM versions v JOIN artifacts a ON a.id=v.artifact_id WHERE v.id=? FOR UPDATE`,
@@ -172,23 +235,27 @@ export async function replaceVersionContent(
   // 内容替换已记录在 document_change_logs；项目进程信号由扫描器按游标生成。
 }
 
-export async function setArtifactOfficialLink(db, artifactId, officialArtifactId) {
+export async function setArtifactOfficialLink(
+  db: Db,
+  artifactId: string,
+  officialArtifactId: string | null,
+): Promise<void> {
   await query(db, "UPDATE artifacts SET saved_official_artifact_id=? WHERE id=?", [
     officialArtifactId,
     artifactId,
   ]);
 }
 
-export async function clearArtifactOfficialLink(db, artifactId) {
+export async function clearArtifactOfficialLink(db: Db, artifactId: string): Promise<void> {
   await query(db, "UPDATE artifacts SET saved_official_artifact_id=NULL WHERE id=?", [artifactId]);
 }
 
-export async function clearArtifactSourceLink(db, artifactId) {
+export async function clearArtifactSourceLink(db: Db, artifactId: string): Promise<void> {
   await query(db, "UPDATE artifacts SET source_artifact_id=NULL WHERE id=?", [artifactId]);
 }
 
 export async function createFolder(
-  db,
+  db: Db,
   {
     id = randomUUID(),
     projectId,
@@ -197,8 +264,8 @@ export async function createFolder(
     name,
     systemKey = null,
     folderKind = null,
-  },
-) {
+  }: CreateFolderInput,
+): Promise<string> {
   await query(
     db,
     `INSERT INTO document_folders(id,project_id,thread_id,parent_id,name,system_key,folder_kind)
@@ -208,12 +275,17 @@ export async function createFolder(
   return id;
 }
 
-export async function renameFolder(db, folderId, name) {
+export async function renameFolder(db: Db, folderId: string, name: unknown): Promise<void> {
   await query(db, "UPDATE document_folders SET name=? WHERE id=?", [name, folderId]);
 }
 
 /** 仅当文件夹仍叫 `fromName` 时改名，用于一次性数据迁移。 */
-export async function renameFolderIfNamed(db, folderId, fromName, toName) {
+export async function renameFolderIfNamed(
+  db: Db,
+  folderId: string,
+  fromName: unknown,
+  toName: unknown,
+): Promise<void> {
   await query(db, "UPDATE document_folders SET name=? WHERE id=? AND name=?", [
     toName,
     folderId,
@@ -221,11 +293,11 @@ export async function renameFolderIfNamed(db, folderId, fromName, toName) {
   ]);
 }
 
-export async function moveFolder(db, folderId, parentId) {
+export async function moveFolder(db: Db, folderId: string, parentId: string | null): Promise<void> {
   await query(db, "UPDATE document_folders SET parent_id=? WHERE id=?", [parentId, folderId]);
 }
 
-export async function deleteFolder(db, folderId) {
+export async function deleteFolder(db: Db, folderId: string): Promise<void> {
   await query(db, "DELETE FROM document_folders WHERE id=?", [folderId]);
 }
 
@@ -234,11 +306,11 @@ export async function deleteFolder(db, folderId) {
  * 版本历史仍可从回收站恢复。
  */
 export async function setArtifactFolder(
-  db,
-  artifactId,
-  folderId,
-  { softDeleteOnConflict = false } = {},
-) {
+  db: Db,
+  artifactId: string,
+  folderId: string | null,
+  { softDeleteOnConflict = false }: { softDeleteOnConflict?: boolean } = {},
+): Promise<void> {
   await query(
     db,
     `UPDATE artifacts SET folder_id=?${softDeleteOnConflict ? ",deleted_at=COALESCE(deleted_at,UTC_TIMESTAMP(3))" : ""} WHERE id=?`,
@@ -247,6 +319,8 @@ export async function setArtifactFolder(
   if (softDeleteOnConflict) {
     // 同名合并会把冲突副本软删除；它的文档信号同样不可核验，一并清掉。
     const { dropDocumentVersionSignals } = await import("../project-memory.js");
-    await dropDocumentVersionSignals(db, { artifactIds: [artifactId] });
+    await dropDocumentVersionSignals(db, {
+      artifactIds: [artifactId],
+    } as unknown as Parameters<typeof dropDocumentVersionSignals>[1]);
   }
 }

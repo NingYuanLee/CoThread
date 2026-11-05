@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { synchronizeDiscussionContext } from "../server/context-sync.js";
+import { synchronizeDiscussionContext } from "../server/context-sync.ts";
 import { drainReplies } from "../server/reply-dispatch.ts";
 
 test("slow context maintenance does not occupy the coordinator lane", async () => {

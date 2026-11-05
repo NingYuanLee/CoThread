@@ -12,7 +12,7 @@ import {
 } from "../server/project-memory.js";
 import { upsertMemoryPage } from "../server/memory-pages.ts";
 import { refreshProjectGuideCache } from "../server/memory-cache.ts";
-import { createVersion } from "../server/documents/versions.js";
+import { createVersion } from "../server/documents/versions.ts";
 
 async function setup() {
   const database = await testDatabase();

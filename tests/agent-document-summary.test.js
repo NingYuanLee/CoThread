@@ -9,7 +9,7 @@ import { Service } from "../server/service.js";
 import { createAgentTools } from "../server/agent-tools.js";
 import { dispatchContext } from "../server/coordinator.js";
 import { processNextProjectMemory, queueDocumentMemory } from "../server/project-memory.js";
-import { replaceVersionContent } from "../server/documents/versions.js";
+import { replaceVersionContent } from "../server/documents/versions.ts";
 
 async function discoverDocumentChanges(db) {
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =

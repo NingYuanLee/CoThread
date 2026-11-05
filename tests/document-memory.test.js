@@ -7,7 +7,7 @@ import { Service } from "../server/service.js";
 import {
   createVersion as createVersionRaw,
   replaceVersionContent as replaceVersionContentRaw,
-} from "../server/documents/versions.js";
+} from "../server/documents/versions.ts";
 import { searchProjectMemory } from "../server/memory-search.js";
 import { getWikiPage, listWikiPages } from "../server/wiki-pages.js";
 import { readProjectMemory } from "../server/memory-timeline.js";

@@ -21,12 +21,12 @@ import {
 import { upsertMemoryPage } from "../server/memory-pages.ts";
 import { readProjectFacts } from "../server/project-facts.ts";
 import { syncDocumentMemory } from "../server/document-memory.js";
-import { createVersion, replaceVersionContent } from "../server/documents/versions.js";
+import { createVersion, replaceVersionContent } from "../server/documents/versions.ts";
 import { loadTaskMemoryStats } from "../server/task-memory.js";
 import { callMcpTool } from "../server/mcp.js";
 import { createTask } from "../server/task-commands.js";
 import { readTaskDecisionEvidence } from "../server/memory-decisions.ts";
-import { createArtifact } from "../server/documents/versions.js";
+import { createArtifact } from "../server/documents/versions.ts";
 import { transaction } from "../server/db.ts";
 import { askWikiQuestion } from "../server/wiki-questions.js";
 

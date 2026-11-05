@@ -416,7 +416,7 @@ export async function queueLaowengMemoryRun(service, user, { projectId, task, th
   // Manual / MCP retries run a bounded number of 老翁 batches inline instead of
   // waiting for the wake worker; failures stay on the run row.
   try {
-    const { runMemoryMaintenance } = await import("./memory-maintenance.js");
+    const { runMemoryMaintenance } = await import("./memory-maintenance.ts");
     await runMemoryMaintenance(service.db, {
       maxBatches: 5,
       projectId,
@@ -3204,7 +3204,7 @@ export async function queueProjectMemoryRun(service, user, projectId) {
     );
   publishWork(service.db);
   try {
-    const { runMemoryMaintenance } = await import("./memory-maintenance.js");
+    const { runMemoryMaintenance } = await import("./memory-maintenance.ts");
     await runMemoryMaintenance(service.db, {
       maxBatches: 3,
       projectId,

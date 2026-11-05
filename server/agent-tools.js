@@ -42,7 +42,7 @@ import {
   recoverAbnormalTask,
   reopenRejectedTask,
   updateTask,
-} from "./task-pool.js";
+} from "./task-pool.ts";
 import {
   agentListCodeRefs,
   agentListCodeSources,
@@ -79,7 +79,7 @@ import {
   deployDevelopmentCloudbaseFunction,
   listCloudbaseAccountEnvironments,
   listCloudbaseFunctions,
-} from "./cloud-backend.js";
+} from "./cloud-backend.ts";
 import { previewMiniprogram, uploadMiniprogram } from "./wechat-ci.js";
 import { listReleaseRequests, submitReleaseRequest } from "./release-requests.js";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";

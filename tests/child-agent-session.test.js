@@ -13,7 +13,7 @@ import {
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { createTask } from "../server/task-pool.js";
+import { createTask } from "../server/task-pool.ts";
 
 test("子 Agent task chat projects native DSH history from the checkpoint", () => {
   const messages = [

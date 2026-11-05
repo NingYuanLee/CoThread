@@ -11,7 +11,7 @@ import {
 } from "../server/agent-live-output.ts";
 import { documentTool } from "../server/documents/document-tools.ts";
 import { createAgentTools } from "../server/agent-tools.js";
-import { bindChildAgentExecution, createTask } from "../server/task-pool.js";
+import { bindChildAgentExecution, createTask } from "../server/task-pool.ts";
 let database, service, user, project, thread, message, job;
 before(async () => {
   database = await testDatabase();

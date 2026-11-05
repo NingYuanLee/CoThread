@@ -37,7 +37,7 @@ import {
   touchChildInferenceHeartbeat,
   touchChildRunHeartbeat,
   updateTask,
-} from "../server/task-pool.js";
+} from "../server/task-pool.ts";
 import { testDatabase } from "./database.js";
 import { childBindingFromToolResult } from "../server/child-agent-binding.ts";
 

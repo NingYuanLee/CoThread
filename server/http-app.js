@@ -1,4 +1,4 @@
-import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.js";
+import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.ts";
 import express from "express";
 import { createAccountSurface } from "./routes/account.js";
 import { registerAdminRoutes } from "./routes/admin.js";

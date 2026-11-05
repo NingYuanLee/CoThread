@@ -3,7 +3,7 @@ import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { adminAudit, requireAdminPermission } from "./admin-rbac.ts";
 import { publishWork } from "./work-events.ts";
-import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
+import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.ts";
 import { projectImageUrlSql } from "./project-image.ts";
 import { taskStatusFilter } from "../shared/work-status.js";
 import type { Pool } from "mysql2/promise";

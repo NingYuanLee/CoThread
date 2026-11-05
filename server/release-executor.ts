@@ -1,6 +1,6 @@
 import { HttpError } from "./service.js";
 import { uploadMiniprogram } from "./wechat-ci.js";
-import { deployAdminHosting, promoteCloudbaseFunction } from "./cloud-backend.js";
+import { deployAdminHosting, promoteCloudbaseFunction } from "./cloud-backend.ts";
 
 /**
  * 发布审批流的执行入口。
@@ -12,7 +12,20 @@ import { deployAdminHosting, promoteCloudbaseFunction } from "./cloud-backend.js
  *
  * 约定：成功返回 deploymentId；失败抛出错误，由状态机记为 failed（不自动重试）。
  */
-export async function executeRelease(service, actor, projectId, request) {
+/** 发布申请。 */
+type ReleaseRequest = {
+  target?: string | null;
+  version?: unknown;
+  releaseNote?: string | null;
+  [field: string]: unknown;
+};
+
+export async function executeRelease(
+  service: unknown,
+  actor: unknown,
+  projectId: string,
+  request: ReleaseRequest | null | undefined,
+): Promise<unknown> {
   if (!request || !request.target) throw new HttpError(400, "发布申请缺少目标");
   if (request.target === "wechat_upload") {
     // Compatibility for requests created before experience uploads became direct.

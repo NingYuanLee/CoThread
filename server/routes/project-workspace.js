@@ -90,7 +90,7 @@ import {
   restoreIgnoredTask,
   taskRejectionReview,
   updateTask,
-} from "../task-pool.js";
+} from "../task-pool.ts";
 import { threadTaskStats } from "../task-stats.ts";
 import { draftBriefSchema, generateTaskDraftBrief } from "../task-draft-brief.js";
 import {
@@ -156,7 +156,7 @@ import {
   submitReleaseApplication,
   submitReleaseRequest,
 } from "../release-requests.js";
-import { executeRelease } from "../release-executor.js";
+import { executeRelease } from "../release-executor.ts";
 
 /**
  * 项目工作区路由：项目、任务、文件上传、小程序与 CloudBase、代码来源、老翁 上下文。

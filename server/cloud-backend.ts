@@ -54,7 +54,7 @@ export { deployAdminHosting, readAdminProductionUrl } from "./cloudbase-hosting.
 export const CLOUD_BROWSER_SDK_ASSET = "sdk/cloudbase.esm.js";
 
 const browserSdkPath = resolve(import.meta.dirname, "../public/sdk/cloudbase.esm.js");
-let browserSdk;
+let browserSdk: Buffer | undefined;
 
 /** Platform copy of the browser SDK. Callers serve it; they do not know the file path. */
 export function readCloudBrowserSdk() {

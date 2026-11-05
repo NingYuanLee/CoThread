@@ -23,7 +23,7 @@ import {
   settleChildAgentExecution,
   tasksAwaitingChildLaunch,
   touchChildInferenceHeartbeat,
-} from "./task-pool.js";
+} from "./task-pool.ts";
 import { trackThinking } from "./agent-thinking.ts";
 import { childBindingFromToolResult } from "./child-agent-binding.ts";
 import { insertUniqueAssistantMessage } from "./assistant-post.ts";

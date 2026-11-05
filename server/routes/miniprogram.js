@@ -41,7 +41,7 @@ import {
   stopMiniprogramDevServer,
   updateMiniprogramDevServer,
 } from "../miniprogram-dev-server.js";
-import { ensureCloudbasePublishableKey, resetCloudbaseClients } from "../cloud-backend.js";
+import { ensureCloudbasePublishableKey, resetCloudbaseClients } from "../cloud-backend.ts";
 import {
   listMiniprogramDeployments,
   previewMiniprogram,
@@ -61,7 +61,7 @@ import {
   submitReleaseApplication,
   submitReleaseRequest,
 } from "../release-requests.js";
-import { executeRelease } from "../release-executor.js";
+import { executeRelease } from "../release-executor.ts";
 
 export function registerMiniprogramRoutes(app, { db, service }) {
   app.get("/api/projects/:id/code-connectors", async (req, res) =>

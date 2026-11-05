@@ -29,7 +29,7 @@ import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { agentRuntimePatch } from "./dsh-runtime-config.ts";
 import { persistChildContextStats } from "./child-agent-session.js";
-import { touchChildInferenceHeartbeat } from "./task-pool.js";
+import { touchChildInferenceHeartbeat } from "./task-pool.ts";
 import { acquireSessionLock } from "./session-lock.ts";
 import { logAgentTiming } from "./agent-timing-log.ts";
 import { insertUniqueAssistantMessage } from "./assistant-post.ts";

@@ -31,7 +31,7 @@ import { logAgentTiming } from "./agent-timing-log.ts";
 import {
   recoverInterruptedChildAgentExecutions,
   recoverStaleChildAgentExecutions,
-} from "./task-pool.js";
+} from "./task-pool.ts";
 
 // decide 已废弃。pending 参与判断只由 processNextCoordinator 处理，这里不领取。
 export async function processNextReply(db, generate, _decide = undefined, threadId) {

@@ -30,7 +30,7 @@ import {
   setWechatCiRunner,
   uploadMiniprogram,
 } from "../server/wechat-ci.js";
-import { executeRelease } from "../server/release-executor.js";
+import { executeRelease } from "../server/release-executor.ts";
 import { approveReleaseRequest, submitReleaseRequest } from "../server/release-requests.js";
 
 const VALID_APP_ID = "wx1234567890abcdef";

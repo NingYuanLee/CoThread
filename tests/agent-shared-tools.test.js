@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
 import { createAgentTools } from "../server/agent-tools.js";
-import { createTask, bindChildAgentExecution } from "../server/task-pool.js";
+import { createTask, bindChildAgentExecution } from "../server/task-pool.ts";
 
 test("小祥 can execute shared sandbox tools while member and Chat permissions remain enforced", async () => {
   const database = await testDatabase();

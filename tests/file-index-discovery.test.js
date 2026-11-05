@@ -340,7 +340,7 @@ test("文件立即运行不执行发现任务", async () => {
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
   const { Service } = await import("../server/service.js");
-  const { runMemoryMaintenance } = await import("../server/memory-maintenance.js");
+  const { runMemoryMaintenance } = await import("../server/memory-maintenance.ts");
   const database = await testDatabase();
   try {
     const db = database.db;
@@ -487,7 +487,7 @@ test("定时维护驱动日志发现而无需常驻后台", async () => {
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
   const { Service } = await import("../server/service.js");
-  const { runMemoryMaintenance } = await import("../server/memory-maintenance.js");
+  const { runMemoryMaintenance } = await import("../server/memory-maintenance.ts");
   const database = await testDatabase();
   try {
     const db = database.db;

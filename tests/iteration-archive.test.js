@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.js";
-import { createTask, acceptTask, updateTask, cancelTask } from "../server/task-pool.js";
+import { createTask, acceptTask, updateTask, cancelTask } from "../server/task-pool.ts";
 import { processNextProjectMemory } from "../server/project-memory.js";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
 import { claimReply } from "../server/reply-dispatch.ts";

@@ -288,14 +288,29 @@ npm test            # 集成测试需要测试库
 
 再次踩到同一个坑：用 PowerShell 的 `.Replace()` 写多行替换时，`'\n'` 在单引号里不转义，会把字面 `\n` 写进源码（`TS1127: Invalid character`）。**多行改动一律走 `edit` / `write` 或临时 `.mjs` 脚本**，不要在 shell 里拼多行字符串。
 
-剩余 72 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
+第二十五批：`memory-maintenance.ts`(111)、`task-pool.ts`(110)、`cloud-backend.ts`(66)、`release-executor.ts`(47)。本批 12 个错，是迄今最省的一批——纯转发与薄封装的模块几乎不需要标注。
+
+**本轮踩到「批内重命名」的坑，值得记下来。** `release-executor.js` 与 `cloud-backend.js` 在同一批里转换：迁移工具按**扫描时的磁盘状态**改写说明符，扫 `release-executor` 时 `cloud-backend` 还是 `.js`，所以改写后的 `release-executor.ts` 仍写着 `./cloud-backend.js`。
+
+后果很隐蔽：
+
+- `tsc` **通过**——TS 会把 `.js` 说明符映射到同名 `.ts`；
+- Node 运行期**失败**——`ERR_MODULE_NOT_FOUND`，全量测试 30 个文件挂掉。
+
+修完之后补了一次全仓库扫描（`.js` 说明符指向的目标不存在、但同名 `.ts` 存在），确认零残留。以后每批提交前都跑这个检查，不能只依赖 `tsc` 和 `grep .ts`。
+
+`laoweng-context` 与 `memory-backfill` 本轮改名后**回退**：它们依赖 `child-agent-session` 的原生 history 结构（`HistoryMessage[]` 与聚合结果互相赋值），需要整段读完才能标对，留待单独一轮。回退后引用已改回 `.js`、typecheck 归零。
+
+全量测试复跑一次 1096/1096 通过；上一轮出现 1 个 `agent-member-understanding` 的失败，单独跑该文件 5/5 通过、复跑全量也通过，判定为并发下的偶发（与本次改动无关），未作为通过依据。
+
+剩余 68 个 `.js` 文件（被引用次数实测于 2026-11-05；入口 `server/index.js` 已计入批次 3，批次 7 单列只为提醒它还要改 `package.json` / systemd 里的路径，不重复计数）：
 
 | 批次 | 范围                                                                            | 文件数            |
 | ---- | ------------------------------------------------------------------------------- | ----------------- |
 | 3    | 叶模块剩余（被 0–1 个文件引用，含入口 `server/index.js`）                       | 11                |
-| 4    | 被 2–4 个文件引用                                                               | 19                |
-| 5    | 被 5–9 个文件引用                                                               | 21                |
-| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 21                |
+| 4    | 被 2–4 个文件引用                                                               | 18                |
+| 5    | 被 5–9 个文件引用                                                               | 19                |
+| 6    | 被 10+ 个文件引用（含 `service.js`、`project-memory.js`、`service-monitor.js`） | 20                |
 | 7    | 入口 `server/index.js` 的部署侧路径（`package.json` / systemd / 脚本）          | 1（已计入批次 3） |
 
 `service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。

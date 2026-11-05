@@ -2,7 +2,7 @@ import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { adminAccess } from "./admin-rbac.ts";
-import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.js";
+import { listTaskStatusEvents, listTaskUpdates } from "./task-pool.ts";
 import { projectImageUrlSql } from "./project-image.ts";
 import { taskStatusFilter } from "../shared/work-status.js";
 import type { Db } from "./types.ts";

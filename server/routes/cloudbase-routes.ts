@@ -27,7 +27,7 @@ import {
   updateCloudbaseAuthSettings,
   updateCloudbaseDocument,
   uploadCloudbaseFile,
-} from "../cloud-backend.js";
+} from "../cloud-backend.ts";
 import type { Express, Request, Response } from "express";
 
 /** 路由注册时注入的依赖。 */

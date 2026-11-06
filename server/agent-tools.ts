@@ -209,6 +209,14 @@ const titles: Record<string, string> = {
   cloudbase_function_manage: "管理 CloudBase 云函数",
   cloudbase_storage_upload: "上传 CloudBase 存储",
   cloudbase_storage_manage: "管理 CloudBase 存储",
+  // 下面五个在 DSH 插件层（dsh-layer/cothread-tools.mjs）注册并写进了插件提示词，
+  // 服务端实现也齐全，但这里漏登记过：模型按提示词调用 cloudbase_auth_config 会被
+  // 「未知工具」挡掉。titles 是插件层工具清单的服务端镜像，漏一个就少一个能力。
+  cloudbase_list_environments: "列出 CloudBase 环境",
+  cloudbase_auth_config: "读取 CloudBase 鉴权配置",
+  cloudbase_auth_config_update: "修改 CloudBase 鉴权配置",
+  cloudbase_function_call: "调用 CloudBase 云函数",
+  cloudbase_function_logs: "查看 CloudBase 云函数日志",
   wechat_preview: "生成微信预览",
   miniprogram_upload_experience: "上传微信体验版",
   web_search: "搜索网页",

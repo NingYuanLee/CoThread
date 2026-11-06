@@ -30,6 +30,24 @@ Admin 与服务端的生产发布属于生产动作，实现为**申请 → 批�
 **不能自我批准**：申请人与批准人不能是同一个账号——**子 Agent 发起的申请只能由 owner 批准**。
 owner 自己发起的申请允许自我批准（见下方已确认决定 ②）。
 
+## 子 Agent 可用的 CloudBase 工具
+
+子 Agent 通过 DSH 插件层拿到 CloudBase 工具，服务端 `server/agent-tools.ts` 的 `titles` 是这份工具清单的服务端镜像——**镜像里漏登记的名字，模型按插件提示词调用时会收到「未知工具」**。
+
+下列工具在 `default` 对话模式下可用：
+
+| 工具                           | 作用                                                                | 可变性       |
+| ------------------------------ | ------------------------------------------------------------------- | ------------ |
+| `cloudbase_list_environments`  | 列出可用环境                                                        | 只读         |
+| `cloudbase_auth_config`        | 读开发环境的 envId、Publishable Key、登录方式                       | 只读         |
+| `cloudbase_function_logs`      | 读云函数执行轨迹                                                    | 只读         |
+| `cloudbase_auth_config_update` | 存 Publishable Key、开关手机号/匿名登录                             | 写项目配置   |
+| `cloudbase_function_call`      | 通过管理面调用 development 云函数（无终端身份，调用方是 anonymous） | 调用远端函数 |
+
+`chat` 对话模式只放行其中三个只读工具，`miniprogram` 模式禁用全部 CloudBase 工具——判定在 `server/agent-tools.ts` 的 `CHAT_DIALOGUE_BLOCKED_TOOLS` 与 `dialogueToolDenyReason`。SecretId / SecretKey 任何工具都不返回。
+
+> 2026-11-06 修正：`cloudbase_list_environments`、`cloudbase_auth_config`、`cloudbase_auth_config_update`、`cloudbase_function_call`、`cloudbase_function_logs` 这五个工具自 CloudBase 工作区功能落地起就没有登记进 `titles`，服务端实现却一直齐全——插件提示词明确让模型「写认证代码前先调用 cloudbase_auth_config」，而每次调用都会得到「未知工具」。本次补齐镜像登记，并修掉 `cloudbase_auth_config` 分支里读取作用域外 `runtime` 的缺陷（旧代码必然 `ReferenceError`）。
+
 ## 状态机
 
 ```

@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { modelResponseStream, modelUsage, redactSecrets, responseText } from "./model-config.ts";
+import {
+  modelResponse,
+  modelResponseStream,
+  modelUsage,
+  redactSecrets,
+  responseText,
+} from "./model-config.ts";
 import { getWikiPage, listWikiPages } from "./wiki-pages.ts";
 import { companyQuestionMaterials, orgQuestionMaterials } from "./org-shelf.ts";
 import { deepseekFetch, deepseekSearch } from "./deepseek-web.ts";
@@ -219,16 +225,10 @@ type RoomTurn = {
  *  门面给的是 `Db`；运行期是同一个对象，只在跨模块调用处收口。 */
 const asDomainService = <T>(service: Service): T => service as unknown as T;
 
-/** 跨模块边界把检索结果收敛成材料（页面视图把正文字段声明成 `unknown`）。 */
-const toMaterials = (value: unknown): Material[] => value as Material[];
-
 /**
- * 原有缺口：本文件调用 `modelResponse`，但没有从 `./model-config.ts` 引入它
- * （`modelResponseStream` 引入了，`modelResponse` 没有）。运行期抛 `ReferenceError`，
- * 被 `webAnswer` 的 `catch` 兜住，所以一直没暴露。这里只补类型声明——擦除后不存在，
- * 运行期行为与迁移前完全一致；是否补 import 由 Lead 决定。
+ * 跨模块边界把检索结果收敛成材料（页面视图把正文字段声明成 `unknown`）。
  */
-declare const modelResponse: typeof import("./model-config.ts").modelResponse;
+const toMaterials = (value: unknown): Material[] => value as Material[];
 
 function responseReasoning(response: ReasoningResponse | null | undefined) {
   const parts: string[] = [];

@@ -90,14 +90,14 @@ npm test            # 集成测试需要测试库
 
 ### 最终状态（2026-11-06，第四十一批之后）
 
-| 指标                 | 数值                                         |
-| -------------------- | -------------------------------------------- |
-| `server/` 已转 `.ts` | 199 个（全部）                               |
-| `server/` 仍为 `.js` | 0 个                                         |
-| 类型检查             | 0 错（`npm run typecheck:server`）           |
-| 失效说明符           | 0（`node scripts/server-ts-specifiers.mjs`） |
-| 调用数审计           | 最后 10 个文件全部 ✓                         |
-| 完整测试             | 1096/1096 通过（`duration_ms` 381607）       |
+| 指标                 | 数值                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `server/` 已转 `.ts` | 199 个（全部）                                                                               |
+| `server/` 仍为 `.js` | 0 个                                                                                         |
+| 类型检查             | 0 错（`npm run typecheck:server`）                                                           |
+| 失效说明符           | 0（`node scripts/server-ts-specifiers.mjs`）                                                 |
+| 调用数审计           | 最后 10 个文件全部 ✓                                                                         |
+| 完整测试             | 1096/1096 通过（`duration_ms` 381607，迁移收尾时的快照；此后其他工作新增了用例，总数已增长） |
 
 **已完成的阶段性目标：**
 
@@ -525,14 +525,31 @@ export type AccessService = {
 
 **每批的行数与错误数要匹配可复核的注意力。** 实践下来的经验值：一批 3 个文件、合计 60–120 个错是可完成的；超过 150 个错时，修改之间开始互相干扰，正确率明显下降。宁可少转几个。
 
+## 迁移后处理的两处遗留
+
+迁移过程中发现、但不属于迁移本身的两个缺陷，已在迁移之后单独处理并记录。
+
+**一、`server/wiki-questions.ts` 漏 import `modelResponse`（已修）**
+
+`webAnswer` 调用 `modelResponse(...)`，但文件从未从 `./model-config.ts` 引入它（同一处的 `modelResponseStream` 引了）。运行期抛 `ReferenceError`，又被同一个 `try` 的 `catch` 兜住，所以「全网检索」档在模型可用时也总走兜底文案且**不报错**。
+
+迁移期间只用一条纯类型声明 `declare const modelResponse` 顶住类型检查（擦除后不存在，运行期与迁移前完全一致）。迁移后补上真正的 import。
+
+补 import 对当前生产行为**零影响**：`webAnswer` 只有在「注入了 `search` 但没注入 `answer`」时才走到，而生产路由 `server/routes/project-workspace.ts` 只传 `onProgress`，走的是 `answerWithKernel` 那条 DSH 内核路径。补上之后，这条遗留路径恢复成它本来的样子——模型可用时用模型作答，不可用时仍是兜底文案。
+
+**二、`server/agent-tools.ts` 的 CloudBase 分支读作用域外的 `runtime`（已修）**
+
+`cloudbase_auth_config` 分支原来丢弃了 `requireMiniprogramWorkspace(...)` 的返回值却继续用 `runtime`。那个 `const runtime` 只在兄弟分支（`MINIPROGRAM`）的块作用域里声明过，`const` 是块级作用域，CloudBase 分支读不到 → 运行期必然 `ReferenceError: runtime is not defined`（已用等价的最小复现验证）。
+
+迁移时把返回值绑定成 `const runtime`——但**当时这并没有改变任何可观察行为**：服务端 `titles` 是插件层工具清单的镜像，而 `cloudbase_auth_config` 等五个 CloudBase 工具从没登记进 `titles`，派发前就被「未知工具」挡掉了（400），分支根本到不了。
+
+2026-11-06 补齐镜像登记后（见 `docs/engineering/04-miniprogram-release-approval.md`），这处绑定才真正起作用。核对方式：把 DSH 层注册的工具名与 `titles` 逐一对比，除去由其它层处理的 8 个（5 个 DSH 内建 + 3 个 MCP 工具），**剩下的差异正好就是这五个被漏登记的 CloudBase 工具**——服务端实现齐全、插件层已注册、插件提示词还明确让模型先调 `cloudbase_auth_config`，唯独服务端镜像漏了。
+
+顺带一提，这也纠正了「整轮迁移唯一的行为变化」的说法：整轮迁移本身**没有任何可观察的行为变化**（这处绑定在白名单补齐前是无效的）；真正改变行为的是随后的白名单补齐。
+
 ## 迁移完成后的遗留事项
 
-迁移本身已经结束（199/199 个 `.ts`、0 错、全量测试通过）。下面这些是迁移过程中发现、但**不属于迁移范围**的问题，按「会崩 / 会错 / 只是难看」排列；改之前先读对应工程说明。
-
-**会崩（迁移按原行为保留，未修）**
-
-- `server/wiki-questions.ts` 的 `webAnswer` 调用 `modelResponse(...)`，但文件从未 import 它——运行期 `ReferenceError` 被同一个 `try` 的 `catch` 兜住，所以「全网检索」档在模型可用时也总走兜底文案且**不报错**。迁移只加了一条纯类型声明 `declare const modelResponse`（擦除后不存在，运行期与迁移前一致）；补 import 会真的调用模型，属行为变更，需单独决定。
-- `server/agent-tools.ts` 的 cloudbase 分支原来丢弃了 `requireMiniprogramWorkspace(...)` 的返回值却继续用 `runtime`，该分支必然 `ReferenceError`。迁移把返回值绑定成 `const runtime`——**这是整轮迁移唯一的行为变化**：该分支从抛错变成按原意返回。
+迁移本身已经结束（199/199 个 `.ts`、0 错、全量测试通过）。上面两处已处理；下面这些是迁移过程中发现、但**不属于迁移范围**的问题，按「会错 / 只是难看」排列；改之前先读对应工程说明。
 
 **会错（语义可疑，需业务确认）**
 

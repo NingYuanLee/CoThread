@@ -26,7 +26,7 @@ import {
 import { processNextContextCompression, refreshNextContextStats } from "./context-compression.ts";
 import { processNextLaowengContextCompression } from "./laoweng-context.ts";
 import { processNextChildContextCompression } from "./child-agent-context.ts";
-import { redactSecrets } from "./model-config.js";
+import { redactSecrets } from "./model-config.ts";
 import { logAgentTiming } from "./agent-timing-log.ts";
 import {
   recoverInterruptedChildAgentExecutions,
@@ -112,10 +112,10 @@ export async function processNextReply(
         BigInt(job.sequence as string | number | bigint | boolean),
     );
     if (!generate) {
-      runtime = await (await import("./agent.js")).openAgentRuntime(context, { db, job, user });
+      runtime = await (await import("./agent.ts")).openAgentRuntime(context, { db, job, user });
       context.modelMessages = await runtime.request("history");
     }
-    const invoke = generate || (await import("./agent.js")).generateAgentReply;
+    const invoke = generate || (await import("./agent.ts")).generateAgentReply;
     while (true) {
       // Injected generators receive the same member updates in their context;
       // the DSH path delivers them live through its native steering inbox.

@@ -1,6 +1,6 @@
 import { assertMemoryMaintenanceAuth, runMemoryMaintenance } from "./memory-maintenance.ts";
 import express from "express";
-import { createAccountSurface } from "./routes/account.js";
+import { createAccountSurface } from "./routes/account.ts";
 import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerCredentialRoutes } from "./routes/credentials.ts";
 import { registerProjectRuntimeRoutes } from "./routes/project-runtime.ts";
@@ -16,7 +16,7 @@ import { createHumanChallenge as generateHumanChallenge } from "./human-challeng
 import {
   registerLocalExecutorBrowserRoutes,
   registerLocalExecutorPublicRoutes,
-} from "./local-executors.js";
+} from "./local-executors.ts";
 import { jsonBodyLimit } from "./json-body-limit.ts";
 import { appOrigins } from "./runtime-config.ts";
 import { EXECUTOR_LOCK_NAME, executorStatus } from "./replies.ts";

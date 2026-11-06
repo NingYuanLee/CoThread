@@ -10,6 +10,8 @@ import { hydrateFileIndexGroups } from "./file-index-groups.ts";
 import { hydrateFileIndexPaths } from "./file-index-path.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
 import { MEMORY_SUBTYPES, MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";
+import type { AccessUser } from "./service-access.ts";
+import type { Db } from "./types.ts";
 
 /**
  * 项目记忆读侧、独立反馈、群消息记忆人工停用与归档统计。
@@ -18,14 +20,162 @@ import { MEMORY_SUBTYPES, MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonom
  * 时间线卡复用 threads.archive_snapshot，反馈与人工停用记 project_change_logs。
  */
 
+/** 记忆条目的对外读出形状。 */
+type MemoryEntry = {
+  id: string;
+  subject: unknown;
+  subtype: unknown;
+  aboutUserId: unknown;
+  title: unknown;
+  body: unknown;
+  status: unknown;
+  sourceFamily: unknown;
+  updatedAt: unknown;
+  createdBy: unknown;
+  disputed: boolean;
+  sourceNeedsReview: boolean;
+  fileArtifactId: unknown;
+  fileGroup: {
+    id: unknown;
+    evidence: unknown;
+    origin: unknown;
+    members: unknown[];
+  } | null;
+  relations: MemoryRelation[];
+  sources: { sourceKind: unknown; sourceId: string; label: unknown }[];
+};
+
+/** 记忆条目之间的一条关系边。 */
+type MemoryRelation = {
+  id: unknown;
+  relation: unknown;
+  direction: "in" | "out";
+  otherPageId: string;
+  otherTitle: unknown;
+  note: string;
+};
+
+/** 映射条目用的行：只按列名取值，其余列不参与。 */
+type EntryRow = {
+  id: string;
+  title?: unknown;
+  body?: unknown;
+  status?: unknown;
+  [column: string]: unknown;
+};
+
+/** 查询出的页面行：水合要按 fileGroupId 建组，正文与水合函数一致地收成 string。 */
+type PageRow = EntryRow & {
+  body?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  fileGroupId?: string | null;
+};
+
+/** wiki_page_sources 的一行。 */
+type PageSourceRow = {
+  pageId: string;
+  sourceKind: string;
+  sourceId: string;
+  label?: unknown;
+};
+
+/** file_index_group_members 的一行。 */
+type GroupMemberRow = { groupId: string; artifactId: unknown; description: unknown };
+
+/** 归档快照里的一份关键版本。 */
+type ArchiveVersionSnapshot = {
+  id?: string | null;
+  artifact_id?: string | null;
+  filename?: unknown;
+  version?: unknown;
+};
+
+/** 归档快照里的一条任务决策。 */
+type ArchiveTaskDecisionSnapshot = {
+  taskId?: unknown;
+  title?: unknown;
+  disposition?: unknown;
+  suggestion?: unknown;
+  reason?: unknown;
+};
+
+/** threads.archive_snapshot 的读出形状。 */
+type ArchiveSnapshot = {
+  workflowId?: string | null;
+  archivedAt?: unknown;
+  conclusion?: unknown;
+  versions?: (ArchiveVersionSnapshot | null | undefined)[];
+  taskDecisions?: (ArchiveTaskDecisionSnapshot | null | undefined)[];
+};
+
+/** 迭代行（快照已解析）。 */
+type TimelineThread = {
+  id: string;
+  title?: unknown;
+  createdAt?: unknown;
+  archivedAt?: unknown;
+  snapshot: ArchiveSnapshot;
+  [column: string]: unknown;
+};
+
+/** 时间线卡片。 */
+type TimelineCard = {
+  iterationId: string;
+  title: unknown;
+  archivedAt: unknown;
+  conclusion: unknown;
+  memoryChanges: { added: number; updated: number; superseded: number };
+  taskDecisions: { taskId: unknown; title: unknown; disposition: unknown; reason: unknown }[];
+  keyVersions: { versionId: string; artifactId: string; title: unknown; version: number }[];
+  pageIds: string[];
+};
+
+/** 条目列表查询条件。 */
+type MemoryEntryListOptions = {
+  subject?: unknown;
+  subtypes?: unknown;
+  statuses?: unknown;
+  q?: unknown;
+  page?: unknown;
+  pageSize?: unknown;
+};
+
+/** 时间线聚合用的轻量条目索引行。 */
+type EntryIndexRow = {
+  id: string;
+  subject?: unknown;
+  subtype?: unknown;
+  title?: unknown;
+  status?: unknown;
+  fileArtifactId?: unknown;
+};
+
+/** 记忆读写侧用到的 Service 视图；只声明 `db` 与访问判定。 */
+type MemoryService = {
+  db: Db;
+  member(user: AccessUser, projectId: string, write?: boolean): Promise<{ role?: string | null }>;
+};
+
+/** 作废结果。 */
+type SupersedeResult = { id: string; status: string; reason?: string };
+
+/** 归档结算的计数。 */
+type SettleCounts = { current: number; superseded: number; disputed: number };
+
 const entryId = z.string().uuid();
 const END_OF_TIME = "9999-12-31 23:59:59.999999";
 
-function jsonValue(value) {
+function jsonValue(value: unknown): unknown {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
 
-function mapEntry(row, sources, disputed, relations = []) {
+function mapEntry(
+  row: EntryRow,
+  sources: readonly PageSourceRow[] | null | undefined,
+  disputed: unknown,
+  relations: MemoryRelation[] = [],
+): MemoryEntry {
   return {
     id: row.id,
     subject: row.subject || null,
@@ -45,7 +195,7 @@ function mapEntry(row, sources, disputed, relations = []) {
           id: row.fileGroupId,
           evidence: row.fileGroupEvidence,
           origin: row.fileGroupOrigin,
-          members: row.fileGroupMembers || [],
+          members: (row.fileGroupMembers || []) as unknown[],
         }
       : null,
     relations,
@@ -57,7 +207,7 @@ function mapEntry(row, sources, disputed, relations = []) {
   };
 }
 
-function parseCsv(value, limit = 50) {
+function parseCsv(value: unknown, limit: number = 50): string[] {
   const raw = Array.isArray(value) ? value.join(",") : value;
   return [
     ...new Set(
@@ -70,25 +220,34 @@ function parseCsv(value, limit = 50) {
 }
 
 /** 非法/缺省值回落到默认值，分页参数一律收敛成正整数。 */
-function positiveInteger(value, fallback, max = Number.MAX_SAFE_INTEGER) {
+function positiveInteger(
+  value: unknown,
+  fallback: number,
+  max: number = Number.MAX_SAFE_INTEGER,
+): number {
   const number = Math.trunc(Number(value));
   if (!Number.isFinite(number) || number < 1) return fallback;
   return Math.min(number, max);
 }
 
 /** LIKE 里 % _ \ 需要转义，否则关键词会被当成通配符。 */
-function escapeLike(value) {
+function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
-const MEMORY_SUBTYPE_INDEX = Object.freeze(
-  Object.entries(MEMORY_SUBTYPES).flatMap(([subject, keys]) =>
-    keys.map((key) => ({ subject, key, label: MEMORY_SUBTYPE_LABELS[key] || "" })),
-  ),
-);
+const MEMORY_SUBTYPE_INDEX: readonly { subject: string; key: string; label: string }[] =
+  Object.freeze(
+    Object.entries(MEMORY_SUBTYPES).flatMap(([subject, keys]) =>
+      keys.map((key: string) => ({
+        subject,
+        key,
+        label: MEMORY_SUBTYPE_LABELS[key as keyof typeof MEMORY_SUBTYPE_LABELS] || "",
+      })),
+    ),
+  );
 
 /** 关键词命中二级类型：key 或中文标签包含关键词（大小写不敏感）。 */
-function matchedSubtypeKeys(keyword) {
+function matchedSubtypeKeys(keyword: string): string[] {
   const needle = keyword.toLowerCase();
   return MEMORY_SUBTYPE_INDEX.filter(
     (item) => item.key.toLowerCase().includes(needle) || item.label.toLowerCase().includes(needle),
@@ -101,10 +260,14 @@ function matchedSubtypeKeys(keyword) {
  * 这是独立反馈的展示兼容字段，不是记忆正确性或生命周期。
  * pageIds 省略时统计全项目；传数组时只统计这些条目，供分页读只查当前页。
  */
-export async function disputedEntryIds(db, projectId, pageIds = null) {
+export async function disputedEntryIds(
+  db: Db,
+  projectId: string,
+  pageIds: readonly string[] | null = null,
+): Promise<Set<string>> {
   if (Array.isArray(pageIds) && !pageIds.length) return new Set();
   const scope = Array.isArray(pageIds) ? ` AND p.id IN (${pageIds.map(() => "?").join(",")})` : "";
-  const rows = await query(
+  const rows = await query<{ pageId: string; flaggedAt: unknown; confirmedAt: unknown }>(
     db,
     `SELECT p.id pageId,
       MAX(CASE WHEN l.action='memory_entry_flagged' THEN l.created_at END) flaggedAt,
@@ -116,7 +279,7 @@ export async function disputedEntryIds(db, projectId, pageIds = null) {
     GROUP BY p.id`,
     Array.isArray(pageIds) ? [projectId, ...pageIds] : [projectId],
   );
-  const ids = new Set();
+  const ids = new Set<string>();
   for (const row of rows) {
     if (row.flaggedAt && (!row.confirmedAt || String(row.flaggedAt) > String(row.confirmedAt)))
       ids.add(row.pageId);
@@ -125,8 +288,12 @@ export async function disputedEntryIds(db, projectId, pageIds = null) {
 }
 
 /** 项目归档即关账：记忆只读，不再接受停用、反馈或手写写入。 */
-export async function projectArchived(db, projectId) {
-  const [row] = await query(db, "SELECT archived_at FROM projects WHERE id=?", [projectId]);
+export async function projectArchived(db: Db, projectId: string): Promise<boolean> {
+  const [row] = await query<{ archived_at?: unknown }>(
+    db,
+    "SELECT archived_at FROM projects WHERE id=?",
+    [projectId],
+  );
   return !!row?.archived_at;
 }
 
@@ -136,11 +303,23 @@ export async function listIterationMemoryDrafts() {
   return [];
 }
 
-async function loadRelations(db, projectId, pageIds) {
-  const map = new Map();
+async function loadRelations(
+  db: Db,
+  projectId: string,
+  pageIds: readonly string[],
+): Promise<Map<string, MemoryRelation[]>> {
+  const map = new Map<string, MemoryRelation[]>();
   if (!pageIds.length) return map;
   const marks = pageIds.map(() => "?").join(",");
-  const rows = await query(
+  const rows = await query<{
+    id: unknown;
+    fromPageId: string;
+    toPageId: string;
+    relation: unknown;
+    note: string | null;
+    fromTitle: unknown;
+    toTitle: unknown;
+  }>(
     db,
     `SELECT r.id,r.from_page_id fromPageId,r.to_page_id toPageId,r.relation,r.note,
        fp.title fromTitle,tp.title toTitle
@@ -152,7 +331,12 @@ async function loadRelations(db, projectId, pageIds) {
     [projectId, ...pageIds, ...pageIds],
   );
   for (const row of rows) {
-    const sides = [
+    const sides: {
+      pageId: string;
+      otherPageId: string;
+      otherTitle: unknown;
+      direction: "in" | "out";
+    }[] = [
       {
         pageId: row.fromPageId,
         otherPageId: row.toPageId,
@@ -182,10 +366,14 @@ async function loadRelations(db, projectId, pageIds) {
   return map;
 }
 
-async function loadGroupMembers(db, projectId, pageRows) {
+async function loadGroupMembers(
+  db: Db,
+  projectId: string,
+  pageRows: readonly PageRow[],
+): Promise<GroupMemberRow[]> {
   const groupIds = [...new Set(pageRows.map((row) => row.fileGroupId).filter(Boolean))];
   if (!groupIds.length) return [];
-  return query(
+  return query<GroupMemberRow>(
     db,
     `SELECT fm.group_id groupId,fm.artifact_id artifactId,fm.description
     FROM file_index_group_members fm JOIN file_index_groups fg ON fg.id=fm.group_id
@@ -194,9 +382,13 @@ async function loadGroupMembers(db, projectId, pageRows) {
   );
 }
 
-async function loadPageSources(db, projectId, pageIds) {
+async function loadPageSources(
+  db: Db,
+  projectId: string,
+  pageIds: readonly string[],
+): Promise<PageSourceRow[]> {
   if (!pageIds.length) return [];
-  return query(
+  return query<PageSourceRow>(
     db,
     `SELECT s.page_id pageId,s.source_kind sourceKind,s.source_id sourceId,s.label
     FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id
@@ -210,7 +402,15 @@ async function loadPageSources(db, projectId, pageIds) {
  * 补全一页（或全项目）条目所需的出处、关系、文件索引与纠错标注。
  * 多表查询都按 pageRows 的 id 收窄，分页读因此只补当前页，不扫全项目条目。
  */
-async function hydrateEntries(db, projectId, pageRows) {
+async function hydrateEntries(
+  db: Db,
+  projectId: string,
+  pageRows: readonly PageRow[],
+): Promise<{
+  entries: MemoryEntry[];
+  sourcesByPage: Map<string, PageSourceRow[]>;
+  disputed: Set<string>;
+}> {
   const pageIds = pageRows.map((row) => row.id);
   if (!pageIds.length) return { entries: [], sourcesByPage: new Map(), disputed: new Set() };
   const [groupMembers, sourceRows, disputed, relationsByPage] = await Promise.all([
@@ -219,7 +419,7 @@ async function hydrateEntries(db, projectId, pageRows) {
     disputedEntryIds(db, projectId, pageIds),
     loadRelations(db, projectId, pageIds),
   ]);
-  const membersByGroup = new Map();
+  const membersByGroup = new Map<string, GroupMemberRow[]>();
   for (const member of groupMembers) {
     const list = membersByGroup.get(member.groupId) || [];
     list.push(member);
@@ -237,7 +437,7 @@ async function hydrateEntries(db, projectId, pageRows) {
       await hydrateFileIndexRoots(db, projectId, withMembers),
     ),
   );
-  const sourcesByPage = new Map();
+  const sourcesByPage = new Map<string, PageSourceRow[]>();
   for (const source of sourceRows) {
     const list = sourcesByPage.get(source.pageId) || [];
     list.push(source);
@@ -254,8 +454,8 @@ async function hydrateEntries(db, projectId, pageRows) {
   return { entries, sourcesByPage, disputed };
 }
 
-async function readMemoryEntry(db, projectId, id) {
-  const [row] = await query(
+async function readMemoryEntry(db: Db, projectId: string, id: string): Promise<MemoryEntry | null> {
+  const [row] = await query<PageRow>(
     db,
     `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,
        fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
@@ -267,13 +467,13 @@ async function readMemoryEntry(db, projectId, id) {
   );
   if (!row) return null;
   if (row.fileGroupId)
-    row.fileGroupMembers = await query(
+    row.fileGroupMembers = await query<GroupMemberRow>(
       db,
       "SELECT artifact_id artifactId,description FROM file_index_group_members WHERE group_id=? ORDER BY artifact_id",
       [row.fileGroupId],
     );
   const [sources, disputed, relations] = await Promise.all([
-    query(
+    query<PageSourceRow>(
       db,
       `SELECT s.source_kind sourceKind,s.source_id sourceId,s.label FROM wiki_page_sources s
        WHERE s.page_id=? AND ${visibleFileSourceSql("s")} ORDER BY s.created_at,s.id`,
@@ -288,8 +488,12 @@ async function readMemoryEntry(db, projectId, id) {
   return mapEntry(hydrated, sources, disputed.has(id), relations.get(id) || []);
 }
 
-async function memberTabOpenedAt(db, projectId, userId) {
-  const [member] = await query(
+async function memberTabOpenedAt(
+  db: Db,
+  projectId: string,
+  userId: string,
+): Promise<string | null> {
+  const [member] = await query<{ tabOpenedAt?: string | null }>(
     db,
     "SELECT tab_opened_at tabOpenedAt FROM members WHERE project_id=? AND user_id=?",
     [projectId, userId],
@@ -297,15 +501,22 @@ async function memberTabOpenedAt(db, projectId, userId) {
   return member?.tabOpenedAt || null;
 }
 
-function timelineCard(thread, pages, artifacts, archivePagesByWorkflow) {
+function timelineCard(
+  thread: TimelineThread,
+  pages: readonly PageRow[],
+  artifacts: Map<string, unknown>,
+  archivePagesByWorkflow: Map<string, string[]>,
+): TimelineCard {
   const snapshot = thread.snapshot || {};
   const workflowId = snapshot.workflowId || "";
-  const settledPages = new Set(workflowId ? archivePagesByWorkflow.get(workflowId) || [] : []);
+  const settledPages = new Set<string>(
+    workflowId ? archivePagesByWorkflow.get(workflowId) || [] : [],
+  );
   const windowStart = String(thread.createdAt || "");
   const windowEnd = String(thread.archivedAt || snapshot.archivedAt || END_OF_TIME);
   // 条目没有迭代外键，按「本轮时间窗 + 本轮归档生成的页」估算记忆变化：结算生成的
   // 复盘/决策页创建时间略晚于 archived_at，靠 settledPages 补齐；其余按窗内时间判断。
-  const changedPageIds = new Set(settledPages);
+  const changedPageIds = new Set<string>(settledPages);
   let added = 0,
     updated = 0,
     superseded = 0;
@@ -324,15 +535,15 @@ function timelineCard(thread, pages, artifacts, archivePagesByWorkflow) {
       changedPageIds.add(page.id);
     }
   }
-  const seen = new Set();
-  const keyVersions = [];
+  const seen = new Set<string>();
+  const keyVersions: TimelineCard["keyVersions"] = [];
   for (const version of snapshot.versions || []) {
     if (!version?.id || seen.has(version.id)) continue;
     seen.add(version.id);
     keyVersions.push({
       versionId: version.id,
       artifactId: version.artifact_id || "",
-      title: artifacts.get(version.artifact_id) || version.filename || "",
+      title: artifacts.get(version.artifact_id as string) || version.filename || "",
       version: Number(version.version || 0),
     });
   }
@@ -357,11 +568,15 @@ function timelineCard(thread, pages, artifacts, archivePagesByWorkflow) {
  * 先按 id 收窄、再套可见性谓词：整表直接用它要 3 秒（优化器会把全部文件索引与
  * 关联组物化后再跑依赖子查询），按 id 查是毫秒级。分块避开 IN 参数上限。
  */
-async function visiblePageIds(db, projectId, pageIds) {
-  const visible = new Set();
+async function visiblePageIds(
+  db: Db,
+  projectId: string,
+  pageIds: readonly string[],
+): Promise<Set<string>> {
+  const visible = new Set<string>();
   for (let index = 0; index < pageIds.length; index += 400) {
     const chunk = pageIds.slice(index, index + 400);
-    const rows = await query(
+    const rows = await query<{ id: string }>(
       db,
       `SELECT p.id FROM wiki_pages p
        WHERE p.id IN (${chunk.map(() => "?").join(",")}) AND p.project_id=?
@@ -374,8 +589,8 @@ async function visiblePageIds(db, projectId, pageIds) {
 }
 
 /** 时间线聚合只需要页骨架：不水合正文、出处与文件索引。 */
-function loadPageSkeleton(db, projectId) {
-  return query(
+function loadPageSkeleton(db: Db, projectId: string): Promise<PageRow[]> {
+  return query<PageRow>(
     db,
     `SELECT id,status,created_at createdAt,updated_at updatedAt
      FROM wiki_pages WHERE project_id=? ORDER BY updated_at DESC,id DESC`,
@@ -384,15 +599,18 @@ function loadPageSkeleton(db, projectId) {
 }
 
 /** 迭代归档所生成的记忆页：时间线卡片按它补齐窗口外的新增页。 */
-async function loadArchivePagesByWorkflow(db, projectId) {
-  const rows = await query(
+async function loadArchivePagesByWorkflow(
+  db: Db,
+  projectId: string,
+): Promise<Map<string, string[]>> {
+  const rows = await query<{ workflowId: string; pageId: string }>(
     db,
     `SELECT s.source_id workflowId,s.page_id pageId
      FROM wiki_page_sources s JOIN wiki_pages p ON p.id=s.page_id
      WHERE p.project_id=? AND s.source_kind='archive' ORDER BY s.created_at,s.id`,
     [projectId],
   );
-  const map = new Map();
+  const map = new Map<string, string[]>();
   for (const row of rows) {
     const pages = map.get(row.workflowId) || [];
     if (!pages.includes(row.pageId)) pages.push(row.pageId);
@@ -402,7 +620,12 @@ async function loadArchivePagesByWorkflow(db, projectId) {
 }
 
 /** 弹窗默认只要导读、计数、时间线与轻量条目索引；传 includeEntries:false 跳过全量水合。 */
-export async function readProjectMemory(service, user, projectId, options = {}) {
+export async function readProjectMemory(
+  service: MemoryService,
+  user: AccessUser,
+  projectId: string,
+  options: { includeEntries?: boolean } = {},
+) {
   const includeEntries = options.includeEntries !== false;
   const member = await service.member(user, projectId, false);
   const db = service.db;
@@ -413,7 +636,13 @@ export async function readProjectMemory(service, user, projectId, options = {}) 
         const summary = await loadProjectSummary(db, projectId);
         return summary ? [{ ...summary, lastTitle: summary.lastThreadTitle }] : [];
       })(),
-      query(
+      query<{
+        id: string;
+        title?: unknown;
+        createdAt?: unknown;
+        archivedAt?: unknown;
+        archiveSnapshot?: unknown;
+      }>(
         db,
         `SELECT id,title,created_at createdAt,archived_at archivedAt,archive_snapshot archiveSnapshot
       FROM threads WHERE project_id=? AND status='archived' ORDER BY archived_at,id`,
@@ -421,8 +650,10 @@ export async function readProjectMemory(service, user, projectId, options = {}) 
       ),
       loadPageSkeleton(db, projectId),
       memberTabOpenedAt(db, projectId, user.id),
-      query(db, "SELECT COUNT(*) total FROM wiki_pages WHERE project_id=?", [projectId]),
-      query(
+      query<{ total: unknown }>(db, "SELECT COUNT(*) total FROM wiki_pages WHERE project_id=?", [
+        projectId,
+      ]),
+      query<EntryIndexRow>(
         db,
         `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.title,p.status,
         fi.artifact_id fileArtifactId
@@ -434,7 +665,7 @@ export async function readProjectMemory(service, user, projectId, options = {}) 
   );
   const threads = threadRows.map((row) => ({
     ...row,
-    snapshot: jsonValue(row.archiveSnapshot) || {},
+    snapshot: (jsonValue(row.archiveSnapshot) || {}) as ArchiveSnapshot,
   }));
   const artifactIds = [
     ...new Set(
@@ -443,23 +674,23 @@ export async function readProjectMemory(service, user, projectId, options = {}) 
       ),
     ),
   ];
-  const artifacts = new Map(
-    (artifactIds.length
-      ? await query(
-          db,
-          `SELECT id,title FROM artifacts WHERE id IN (${artifactIds.map(() => "?").join(",")})`,
-          artifactIds,
-        )
-      : []
-    ).map((row) => [row.id, row.title]),
+  const artifactRows: { id: string; title: unknown }[] = artifactIds.length
+    ? await query<{ id: string; title: unknown }>(
+        db,
+        `SELECT id,title FROM artifacts WHERE id IN (${artifactIds.map(() => "?").join(",")})`,
+        artifactIds,
+      )
+    : [];
+  const artifacts = new Map<string, unknown>(
+    artifactRows.map((row): [string, unknown] => [row.id, row.title]),
   );
 
-  let entries = [];
-  let pageRows = skeleton;
-  let archivePages = new Map();
+  let entries: MemoryEntry[] = [];
+  let pageRows: PageRow[] = skeleton;
+  let archivePages: Map<string, string[]> = new Map();
   if (includeEntries) {
     // 兼容旧调用（测试与需要整表的读法）：完整行 + 可见性 + 水合。弹窗已不走这条。
-    const fullRows = await query(
+    const fullRows = await query<PageRow>(
       db,
       `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
         fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
@@ -496,7 +727,7 @@ export async function readProjectMemory(service, user, projectId, options = {}) 
     archivePages = await loadArchivePagesByWorkflow(db, projectId);
   }
   const disputed = await disputedEntryIds(db, projectId);
-  const members = await query(
+  const members = await query<{ id: string; name: unknown }>(
     db,
     `SELECT u.id,u.name FROM members m JOIN users u ON u.id=m.user_id
      WHERE m.project_id=? ORDER BY u.name,u.id`,
@@ -539,12 +770,22 @@ export async function readProjectMemory(service, user, projectId, options = {}) 
 }
 
 /** 单条详情：点开/聚焦时按需读取，避免打开弹窗就水合全部条目。 */
-export async function readProjectMemoryEntry(service, user, projectId, entryId) {
+export async function readProjectMemoryEntry(
+  service: MemoryService,
+  user: AccessUser,
+  projectId: string,
+  entryId: string,
+): Promise<MemoryEntry | null> {
   await service.member(user, projectId, false);
   return readMemoryEntry(service.db, projectId, entryId);
 }
 
-export async function listProjectMemoryEntries(service, user, projectId, options = {}) {
+export async function listProjectMemoryEntries(
+  service: MemoryService,
+  user: AccessUser,
+  projectId: string,
+  options: MemoryEntryListOptions = {},
+) {
   await service.member(user, projectId, false);
   const db = service.db;
   // subject 三态：省略或 all 不筛；空串对应前端「其它记忆」（subject_type 为空）；
@@ -564,8 +805,8 @@ export async function listProjectMemoryEntries(service, user, projectId, options
   const page = positiveInteger(options.page, 1);
   const pageSize = positiveInteger(options.pageSize, 20, 100);
 
-  const where = ["p.project_id=?"];
-  const params = [projectId];
+  const where: string[] = ["p.project_id=?"];
+  const params: unknown[] = [projectId];
   if (subject === "") where.push("(p.subject_type IS NULL OR p.subject_type='')");
   else if (subject !== "all") {
     where.push("p.subject_type=?");
@@ -597,7 +838,7 @@ export async function listProjectMemoryEntries(service, user, projectId, options
   /* 可见性谓词在整表上要 3 秒，按 id 收窄是毫秒级：先按普通条件批量扫出候选页骨架，
      再分批套可见性过滤，凑够当前页（含多取一条判断 hasMore）。total 用普通计数，
      极少数不可见的文件页可能让它略微偏大，列表本身是准确的。 */
-  const [countRows] = await query(
+  const [countRows] = await query<{ total: unknown }>(
     db,
     `SELECT COUNT(*) total FROM wiki_pages p WHERE ${whereSql}`,
     params,
@@ -606,10 +847,10 @@ export async function listProjectMemoryEntries(service, user, projectId, options
   const skeletonSql = `SELECT p.id,p.status,p.created_at createdAt,p.updated_at updatedAt
     FROM wiki_pages p WHERE ${whereSql} ORDER BY p.updated_at DESC,p.id DESC LIMIT ? OFFSET ?`;
   const batchSize = Math.max(100, pageSize * 3);
-  const picked = [];
+  const picked: PageRow[] = [];
   let rawOffset = 0;
   while (picked.length <= offset + pageSize && rawOffset < total) {
-    const chunk = await query(db, skeletonSql, [...params, batchSize, rawOffset]);
+    const chunk = await query<PageRow>(db, skeletonSql, [...params, batchSize, rawOffset]);
     if (!chunk.length) break;
     rawOffset += chunk.length;
     const visible = await visiblePageIds(
@@ -622,8 +863,8 @@ export async function listProjectMemoryEntries(service, user, projectId, options
   }
   const pageSkeleton = picked.slice(offset, offset + pageSize);
   const hasMore = picked.length > offset + pageSize;
-  const rows = pageSkeleton.length
-    ? await query(
+  const rows: PageRow[] = pageSkeleton.length
+    ? await query<PageRow>(
         db,
         `SELECT p.id,p.subject_type subject,p.memory_subtype subtype,p.about_user_id aboutUserId,p.title,p.body,p.status,p.source_family sourceFamily,p.created_by createdBy,
         fi.artifact_id fileArtifactId,fg.id fileGroupId,fg.evidence fileGroupEvidence,fg.origin fileGroupOrigin,
@@ -634,8 +875,10 @@ export async function listProjectMemoryEntries(service, user, projectId, options
         pageSkeleton.map((row) => row.id),
       )
     : [];
-  const rowById = new Map(rows.map((row) => [row.id, row]));
-  const pageRows = pageSkeleton.map((row) => rowById.get(row.id)).filter(Boolean);
+  const rowById = new Map<string, PageRow>(rows.map((row): [string, PageRow] => [row.id, row]));
+  const pageRows = pageSkeleton
+    .map((row) => rowById.get(row.id))
+    .filter((row): row is PageRow => Boolean(row));
   const { entries } = await hydrateEntries(db, projectId, pageRows);
   return {
     items: entries,
@@ -646,7 +889,11 @@ export async function listProjectMemoryEntries(service, user, projectId, options
   };
 }
 
-export async function readProjectMemoryCounts(service, user, projectId) {
+export async function readProjectMemoryCounts(
+  service: MemoryService,
+  user: AccessUser,
+  projectId: string,
+) {
   await service.member(user, projectId, false);
   const db = service.db;
   const [disputed, tabOpenedAt] = await Promise.all([
@@ -655,7 +902,7 @@ export async function readProjectMemoryCounts(service, user, projectId) {
   ]);
   let updatedSinceEntry = 0;
   if (tabOpenedAt) {
-    const [row] = await query(
+    const [row] = await query<{ total: unknown }>(
       db,
       `SELECT COUNT(*) total FROM wiki_pages
       WHERE project_id=? AND status='current' AND updated_at>?`,
@@ -663,7 +910,7 @@ export async function readProjectMemoryCounts(service, user, projectId) {
     );
     updatedSinceEntry = Number(row?.total || 0);
   } else {
-    const [row] = await query(
+    const [row] = await query<{ total: unknown }>(
       db,
       "SELECT COUNT(*) total FROM wiki_pages WHERE project_id=? AND status='current'",
       [projectId],
@@ -676,53 +923,72 @@ export async function readProjectMemoryCounts(service, user, projectId) {
   };
 }
 
-export async function confirmMemoryEntry(service, user, projectId) {
+export async function confirmMemoryEntry(
+  service: MemoryService,
+  user: AccessUser,
+  projectId: string,
+): Promise<never> {
   if (service) await service.member(user, projectId, true);
   throw new HttpError(410, "记忆无需确认转正，现行不代表内容真实");
 }
 
-export async function supersedeMemoryEntry(service, user, projectId, id, input) {
+export async function supersedeMemoryEntry(
+  service: MemoryService,
+  user: AccessUser,
+  projectId: string,
+  id: string,
+  input: unknown,
+): Promise<SupersedeResult> {
   await service.member(user, projectId, true);
   if (user.kind !== "session") throw new HttpError(403, "群消息记忆只能由人类登录后明确作废");
   if (await projectArchived(service.db, projectId))
     throw new HttpError(409, "项目已归档，只能查看");
   entryId.parse(id);
   const { reason } = z.object({ reason: z.string().trim().min(1).max(1000) }).parse(input);
-  return transaction(service.db, async (conn) => {
-    const [page] = await query(
-      conn,
-      "SELECT id,title,status FROM wiki_pages WHERE project_id=? AND id=? FOR UPDATE",
-      [projectId, id],
-    );
-    if (!page) throw new HttpError(404, "记忆条目不存在");
-    const sourceFamily = await resolveMemorySourceFamily(conn, projectId, id);
-    assertCanSupersedeMemory({ sourceFamily, actorType: "human" });
-    if (page.status === "superseded") return { id, status: page.status };
-    await query(conn, "UPDATE wiki_pages SET status='superseded',updated_by=? WHERE id=?", [
-      user.id,
-      id,
-    ]);
-    await query(
-      conn,
-      "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,'memory_entry_superseded',?)",
-      [
-        randomUUID(),
-        projectId,
+  return transaction<SupersedeResult>(
+    service.db as Parameters<typeof transaction>[0],
+    async (conn) => {
+      const [page] = await query<{ id: string; title: unknown; status: string }>(
+        conn,
+        "SELECT id,title,status FROM wiki_pages WHERE project_id=? AND id=? FOR UPDATE",
+        [projectId, id],
+      );
+      if (!page) throw new HttpError(404, "记忆条目不存在");
+      const sourceFamily = await resolveMemorySourceFamily(conn, projectId, id);
+      assertCanSupersedeMemory({ sourceFamily, actorType: "human" });
+      if (page.status === "superseded") return { id, status: page.status };
+      await query(conn, "UPDATE wiki_pages SET status='superseded',updated_by=? WHERE id=?", [
         user.id,
-        JSON.stringify({ pageId: id, title: page.title, reason, sourceFamily }),
-      ],
-    );
-    return { id, status: "superseded", reason };
-  });
+        id,
+      ]);
+      await query(
+        conn,
+        "INSERT INTO project_change_logs(id,project_id,actor_user_id,action,details) VALUES(?,?,?,'memory_entry_superseded',?)",
+        [
+          randomUUID(),
+          projectId,
+          user.id,
+          JSON.stringify({ pageId: id, title: page.title, reason, sourceFamily }),
+        ],
+      );
+      return { id, status: "superseded", reason };
+    },
+  );
 }
 
-export async function flagMemoryEntry(service, user, projectId, id, input) {
+export async function flagMemoryEntry(
+  service: MemoryService,
+  user: AccessUser,
+  projectId: string,
+  id: string,
+  input: unknown,
+) {
   await service.member(user, projectId, true);
   if (await projectArchived(service.db, projectId))
     throw new HttpError(409, "项目已归档，项目记忆已封存，只能查看");
   entryId.parse(id);
   const data = z.object({ note: z.string().trim().min(1).max(500) }).parse(input);
-  const [row] = await query(
+  const [row] = await query<{ id: string; status: unknown; title: unknown }>(
     service.db,
     "SELECT id,status,title FROM wiki_pages WHERE id=? AND project_id=?",
     [id, projectId],
@@ -753,19 +1019,24 @@ export async function flagMemoryEntry(service, user, projectId, id, input) {
       JSON.stringify({ pageId: id, note: data.note, title: row.title }),
     ],
   );
-  const [log] = await query(
+  const [log] = await query<{ createdAt?: unknown }>(
     service.db,
     "SELECT created_at createdAt FROM project_change_logs WHERE id=?",
     [logId],
   );
   const entry = await readMemoryEntry(service.db, projectId, id);
   // 不改正文和生命周期，只回带独立反馈。
-  return { ...entry, disputedAt: log?.createdAt || null, flagNote: data.note };
+  return { ...(entry || {}), disputedAt: log?.createdAt || null, flagNote: data.note };
 }
 
 /** 本轮迭代直接关联到的记忆条目：出处指向本轮消息、文档版本、任务或归档。 */
-async function iterationEntryRows(conn, projectId, threadId, workflowId) {
-  return query(
+async function iterationEntryRows(
+  conn: Db,
+  projectId: string,
+  threadId: string,
+  workflowId: string,
+): Promise<{ id: string; status: unknown }[]> {
+  return query<{ id: string; status: unknown }>(
     conn,
     `SELECT DISTINCT p.id,p.status
     FROM wiki_pages p JOIN wiki_page_sources s ON s.page_id=p.id
@@ -780,7 +1051,21 @@ async function iterationEntryRows(conn, projectId, threadId, workflowId) {
 }
 
 /** Archive reports lifecycle counts without promoting or discarding memory. */
-export async function settleIterationMemory(conn, { projectId, threadId, workflowId }) {
+export async function settleIterationMemory(
+  conn: Db,
+  {
+    projectId,
+    threadId,
+    workflowId,
+  }: {
+    projectId: string;
+    threadId: string;
+    workflowId: string;
+    /** 归档调用点会带上这两个字段；结算本身不消费它们。 */
+    userId?: string;
+    apply?: boolean;
+  },
+): Promise<SettleCounts> {
   const rows = await iterationEntryRows(conn, projectId, threadId, workflowId);
   const disputed = await disputedEntryIds(conn, projectId);
   return {

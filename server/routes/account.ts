@@ -4,6 +4,13 @@
  * 公开路由与需登录路由分两次注册，鉴权中间件仍由 http-app 在两者之间挂载。
  */
 import { z } from "zod/v3";
+import type { Express, Request, Response } from "express";
+import type { Pool } from "mysql2/promise";
+import type { Service } from "../service.ts";
+import type { Db } from "../types.ts";
+import type { WindowRecord } from "../rate-window.ts";
+import type { sendVerificationEmail as deliverVerificationEmail } from "../email-delivery.ts";
+import type { createHumanChallenge as generateHumanChallenge } from "../human-challenge.ts";
 import { verifyPassword, issueCredential, hashPassword } from "../auth.ts";
 import { query, transaction } from "../db.ts";
 import { HttpError } from "../service.ts";
@@ -28,24 +35,75 @@ import { digest } from "../auth.ts";
 import { sweepExpired, touchWindow } from "../rate-window.ts";
 import { isProductionProcess, requestIsHttps } from "../runtime-config.ts";
 
-export function createAccountSurface({ db, service, sendVerificationEmail, createHumanChallenge }) {
-  const attempts = new Map();
-  const emailAttempts = new Map();
-  const humanChallengeAttempts = new Map();
-  const sessionCookie = (token, req) =>
+/** 账号域用到的 Service 门面：只依赖真实调到的成员，避免手抄整份签名。 */
+type AccountService = Pick<
+  Service,
+  | "accountChange"
+  | "projects"
+  | "project"
+  | "context"
+  | "notifications"
+  | "readNotification"
+  | "openNotification"
+  | "removeMember"
+  | "updateMemberRole"
+  | "transferProjectLeader"
+  | "addProjectAdmin"
+  | "removeProjectAdmin"
+  | "users"
+  | "createUser"
+>;
+
+/** 人类验证的可选字段；`optionalHumanProofInput` 会把空串归一成 `undefined`。 */
+type HumanProof = {
+  humanChallengeId?: string | null;
+  humanAnswer?: string | null;
+};
+
+/** 验证码投递与签发所需参数。 */
+type IssueChallengeInput = {
+  purpose: string;
+  address: string;
+  targetUserId?: string | null;
+  payload?: Record<string, unknown>;
+};
+
+/** 工厂入参：共享的数据库连接与 Service 门面，外加可替换的验证码/人机验证实现。 */
+type AccountSurfaceOptions = {
+  db: Db;
+  service: AccountService;
+  sendVerificationEmail: typeof deliverVerificationEmail;
+  createHumanChallenge: typeof generateHumanChallenge;
+};
+
+export function createAccountSurface({
+  db,
+  service,
+  sendVerificationEmail,
+  createHumanChallenge,
+}: AccountSurfaceOptions) {
+  /** `transaction()` 只接受池；这个表面拿到的 `db` 一定是池，入口处收窄一次。 */
+  const pool: Pool = db as Pool;
+  /** 重复键错误：`catch` 参是 `unknown`，这里只取代码读到的 `code`。 */
+  const isDuplicateEntry = (error: unknown): boolean =>
+    (error as { code?: string } | null | undefined)?.code === "ER_DUP_ENTRY";
+  const attempts = new Map<string, WindowRecord>();
+  const emailAttempts = new Map<string, WindowRecord>();
+  const humanChallengeAttempts = new Map<string, WindowRecord>();
+  const sessionCookie = (token: string, req: Request): string =>
     `cothread_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${token ? 604800 : 0}${requestIsHttps(req) ? "; Secure" : ""}`;
-  const appendCookie = (res, value, first = false) => {
+  const appendCookie = (res: Response, value: string, first = false): void => {
     const current = res.getHeader("Set-Cookie");
-    const values = current ? (Array.isArray(current) ? current : [current]) : [];
+    const values = (current ? (Array.isArray(current) ? current : [current]) : []).map(String);
     res.setHeader("Set-Cookie", first ? [value, ...values] : [...values, value]);
   };
-  const cookieValue = (req, name) =>
+  const cookieValue = (req: Request, name: string): string | undefined =>
     req.headers.cookie
       ?.split(";")
       .map((part) => part.trim())
       .find((part) => part.startsWith(`${name}=`))
       ?.slice(name.length + 1);
-  const browserIdentity = (req, res) => {
+  const browserIdentity = (req: Request, res: Response): string => {
     let id = cookieValue(req, "cothread_browser");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id || "")) {
       id = randomUUID();
@@ -54,7 +112,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         `cothread_browser=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${requestIsHttps(req) ? "; Secure" : ""}`,
       );
     }
-    return digest(id);
+    return digest(String(id));
   };
   const email = z
     .string()
@@ -79,11 +137,16 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
       z.string().trim().min(1).max(12).optional(),
     ),
   });
-  const throttleEmail = (req, purpose) => {
+  const throttleEmail = (req: Request, purpose: string): void => {
     const record = touchWindow(emailAttempts, `${req.ip}:${purpose}`, Date.now(), 600_000);
     if (record.count > 5) throw new HttpError(429, "验证码发送过于频繁，请稍后重试");
   };
-  const issueChallenge = async ({ purpose, address, targetUserId = null, payload = {} }) => {
+  const issueChallenge = async ({
+    purpose,
+    address,
+    targetUserId = null,
+    payload = {},
+  }: IssueChallengeInput) => {
     const [recent] = await query(
       db,
       `SELECT GREATEST(1,60-TIMESTAMPDIFF(SECOND,created_at,UTC_TIMESTAMP(3))) retry_after
@@ -128,7 +191,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
       ...(localDev && process.env.COTHREAD_DEV_ECHO_CODE === "1" ? { devCode: code } : {}),
     };
   };
-  const recentActivityCount = async (browserHash, kind) => {
+  const recentActivityCount = async (browserHash: string, kind: string): Promise<number> => {
     const [row] = await query(
       db,
       `SELECT COUNT(*) count FROM human_verification_activity
@@ -137,26 +200,31 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
     );
     return Number(row.count);
   };
-  const verificationRequired = async (browserHash, scope) =>
+  const verificationRequired = async (browserHash: string, scope: string): Promise<boolean> =>
     scope === "auth"
       ? (await recentActivityCount(browserHash, "auth_email_send")) >= 3 ||
         (await recentActivityCount(browserHash, "auth_login_failure")) >= 3
       : (await recentActivityCount(browserHash, "bind_email_send")) >= 3;
-  const recordActivity = (browserHash, kind) =>
+  const recordActivity = (browserHash: string, kind: string) =>
     query(db, "INSERT INTO human_verification_activity(id,browser_hash,kind) VALUES(?,?,?)", [
       randomUUID(),
       browserHash,
       kind,
     ]);
-  const clearActivity = (browserHash, kind) =>
+  const clearActivity = (browserHash: string, kind: string) =>
     query(db, "DELETE FROM human_verification_activity WHERE browser_hash=? AND kind=?", [
       browserHash,
       kind,
     ]);
-  const verifyHuman = async (req, res, input, purpose) => {
+  const verifyHuman = async (
+    req: Request,
+    res: Response,
+    input: HumanProof,
+    purpose: string,
+  ): Promise<void> => {
     const proof = humanProofInput.parse(input);
     const browserHash = browserIdentity(req, res);
-    const accepted = await transaction(db, async (conn) => {
+    const accepted = await transaction(pool, async (conn) => {
       const [challenge] = await query(
         conn,
         "SELECT * FROM human_verification_challenges WHERE id=? FOR UPDATE",
@@ -188,7 +256,12 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
     });
     if (!accepted) throw new HttpError(400, "人类验证码无效或已过期，请刷新后重试");
   };
-  const requireHumanWhenNeeded = async (req, res, input, scope) => {
+  const requireHumanWhenNeeded = async (
+    req: Request,
+    res: Response,
+    input: HumanProof,
+    scope: string,
+  ): Promise<string> => {
     const browserHash = browserIdentity(req, res);
     if (await verificationRequired(browserHash, scope)) {
       if (!input.humanChallengeId || !input.humanAnswer)
@@ -197,9 +270,13 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
     }
     return browserHash;
   };
-  const verifiedChallenge = async (input, purpose, targetUserId) => {
+  const verifiedChallenge = async (
+    input: unknown,
+    purpose: string,
+    targetUserId?: string | null,
+  ) => {
     const data = challengeInput.parse(input);
-    const result = await transaction(db, async (conn) => {
+    const result = await transaction(pool, async (conn) => {
       const [challenge] = await query(
         conn,
         "SELECT * FROM email_challenges WHERE id=? FOR UPDATE",
@@ -229,15 +306,15 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
     return result;
   };
   return {
-    registerPublicRoutes(app) {
-      app.get("/api/human-verification/status", async (req, res) => {
+    registerPublicRoutes(app: Express): void {
+      app.get("/api/human-verification/status", async (req: Request, res: Response) => {
         const scope = z.enum(["auth", "bind"]).parse(req.query.scope);
         res.json({ required: await verificationRequired(browserIdentity(req, res), scope) });
       });
-      app.get("/api/human-verification", async (req, res) => {
+      app.get("/api/human-verification", async (req: Request, res: Response) => {
         const purpose = z.enum(["auth", "bind"]).parse(req.query.purpose);
         const browserHash = browserIdentity(req, res);
-        const record = touchWindow(humanChallengeAttempts, req.ip, Date.now(), 600_000);
+        const record = touchWindow(humanChallengeAttempts, req.ip ?? "", Date.now(), 600_000);
         if (record.count > 30) throw new HttpError(429, "人类验证请求过于频繁，请稍后重试");
         const challengeId = randomUUID();
         const challenge = createHumanChallenge();
@@ -262,7 +339,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
           expiresIn: 300,
         });
       });
-      app.post("/api/email/register/request", async (req, res) => {
+      app.post("/api/email/register/request", async (req: Request, res: Response) => {
         const data = z
           .object({ email, password: z.string().min(8).max(200) })
           .merge(optionalHumanProofInput)
@@ -286,14 +363,14 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         await recordActivity(browserHash, "auth_email_send");
         res.json(result);
       });
-      app.post("/api/email/register/confirm", async (req, res) => {
+      app.post("/api/email/register/confirm", async (req: Request, res: Response) => {
         const challenge = await verifiedChallenge(req.body, "register");
         const payload =
           typeof challenge.payload === "string" ? JSON.parse(challenge.payload) : challenge.payload;
         const userId = randomUUID();
         let result;
         try {
-          result = await transaction(db, async (conn) => {
+          result = await transaction(pool, async (conn) => {
             await query(
               conn,
               "INSERT INTO users(id,username,email,name,password_hash,email_verified_at) VALUES(?,?,?,'用户',?,UTC_TIMESTAMP(3))",
@@ -315,7 +392,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
             return { user, session: await issueCredential(conn, userId, "session", "邮箱注册") };
           });
         } catch (error) {
-          if (error.code === "ER_DUP_ENTRY") throw new HttpError(409, "该邮箱已绑定账号");
+          if (isDuplicateEntry(error)) throw new HttpError(409, "该邮箱已绑定账号");
           throw error;
         }
         appendCookie(res, sessionCookie(result.session.token, req), true);
@@ -323,7 +400,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
           .status(201)
           .json({ ...personalProfile(result.user), sessionToken: result.session.token });
       });
-      app.post("/api/email/recover/request", async (req, res) => {
+      app.post("/api/email/recover/request", async (req: Request, res: Response) => {
         const data = z
           .object({ email, password: z.string().min(8).max(200) })
           .merge(optionalHumanProofInput)
@@ -354,12 +431,12 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         await recordActivity(browserHash, "auth_email_send");
         res.json(result);
       });
-      app.post("/api/email/recover/confirm", async (req, res) => {
+      app.post("/api/email/recover/confirm", async (req: Request, res: Response) => {
         const data = challengeInput.parse(req.body);
         const challenge = await verifiedChallenge(data, "recover");
         const payload =
           typeof challenge.payload === "string" ? JSON.parse(challenge.payload) : challenge.payload;
-        const result = await transaction(db, async (conn) => {
+        const result = await transaction(pool, async (conn) => {
           await query(conn, "UPDATE users SET password_hash=? WHERE id=?", [
             payload.passwordHash,
             challenge.target_user_id,
@@ -379,7 +456,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         appendCookie(res, sessionCookie(result.session.token, req), true);
         res.json({ ...personalProfile(result.user), sessionToken: result.session.token });
       });
-      app.post("/api/login", async (req, res) => {
+      app.post("/api/login", async (req: Request, res: Response) => {
         const data = z
           .object({
             identifier: z.string().trim().min(1).max(191).optional(),
@@ -398,7 +475,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         const browserHash = await requireHumanWhenNeeded(req, res, data, "auth");
         const now = Date.now();
         sweepExpired(attempts, now);
-        const key = req.ip;
+        const key = req.ip ?? "";
         const record = attempts.get(key) || { count: 0, reset: now + 600000 };
         const rateLimited = ++record.count > 20;
         attempts.set(key, record);
@@ -459,7 +536,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         appendCookie(res, sessionCookie(session.token, req), true);
         res.json({ ...personalProfile(user), sessionToken: session.token });
       });
-      app.post("/api/session/switch", async (req, res) => {
+      app.post("/api/session/switch", async (req: Request, res: Response) => {
         const data = z.object({ token: z.string().trim().min(20).max(200) }).parse(req.body);
         const [row] = await query(
           db,
@@ -471,7 +548,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         appendCookie(res, sessionCookie(data.token, req), true);
         res.json(personalProfile(row));
       });
-      app.get("/api/session/known-accounts", async (req, res) => {
+      app.get("/api/session/known-accounts", async (req: Request, res: Response) => {
         const browserHash = browserIdentity(req, res);
         const rows = await query(
           db,
@@ -480,11 +557,11 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json(rows.map((row) => personalProfile(row)));
       });
-      app.post("/api/session/detach", async (req, res) => {
+      app.post("/api/session/detach", async (req: Request, res: Response) => {
         appendCookie(res, sessionCookie("", req));
         res.json({ ok: true });
       });
-      app.post("/api/session/forget", async (req, res) => {
+      app.post("/api/session/forget", async (req: Request, res: Response) => {
         const browserHash = browserIdentity(req, res);
         const data = z.object({ userId: z.string().uuid() }).parse(req.body);
         await query(db, "DELETE FROM browser_accounts WHERE browser_hash=? AND user_id=?", [
@@ -494,8 +571,8 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         res.json({ ok: true });
       });
     },
-    registerRoutes(app) {
-      app.get("/api/workspace", async (req, res) => {
+    registerRoutes(app: Express): void {
+      app.get("/api/workspace", async (req: Request, res: Response) => {
         const [[profile], projects] = await Promise.all([
           query(
             db,
@@ -546,7 +623,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
           },
         });
       });
-      app.get("/api/me", async (req, res) => {
+      app.get("/api/me", async (req: Request, res: Response) => {
         const [profile] = await query(
           db,
           "SELECT id,user_number,username,name,email,avatar,motto,identity_tags,is_super_admin,ui_theme FROM users WHERE id=?",
@@ -554,15 +631,15 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json(personalProfile(profile));
       });
-      app.get("/api/me/environment-variables", async (req, res) => {
+      app.get("/api/me/environment-variables", async (req: Request, res: Response) => {
         res.json({
           variables: await listEnvironmentVariables(db, "personal", req.user.id),
         });
       });
-      app.get("/api/me/environment-variables/:key/remark", async (req, res) => {
+      app.get("/api/me/environment-variables/:key/remark", async (req: Request, res: Response) => {
         res.json({ markdown: await readEnvironmentRemark("personal", req.params.key) });
       });
-      app.put("/api/me/environment-variables/:key", async (req, res) => {
+      app.put("/api/me/environment-variables/:key", async (req: Request, res: Response) => {
         const data = z.object({ value: z.string().max(4000) }).parse(req.body);
         await setEnvironmentVariable(
           db,
@@ -574,26 +651,26 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json({ configured: true });
       });
-      app.delete("/api/me/environment-variables/:key", async (req, res) => {
+      app.delete("/api/me/environment-variables/:key", async (req: Request, res: Response) => {
         await clearEnvironmentVariable(db, "personal", req.user.id, req.params.key);
         res.json({ configured: false });
       });
-      app.get("/api/me/skills", async (req, res) => {
+      app.get("/api/me/skills", async (req: Request, res: Response) => {
         res.json({ skills: await listUserSkills(db, req.user.id) });
       });
-      app.put("/api/me/skills/:skillKey", async (req, res) => {
+      app.put("/api/me/skills/:skillKey", async (req: Request, res: Response) => {
         const data = z.object({ token: z.string().max(200) }).parse(req.body);
-        await saveUserSkillSecret(db, req.user.id, req.params.skillKey, data.token);
+        await saveUserSkillSecret(db, req.user.id, String(req.params.skillKey), data.token);
         res.json({ configured: true });
       });
-      app.delete("/api/me/skills/:skillKey", async (req, res) => {
-        await clearUserSkillSecret(db, req.user.id, req.params.skillKey);
+      app.delete("/api/me/skills/:skillKey", async (req: Request, res: Response) => {
+        await clearUserSkillSecret(db, req.user.id, String(req.params.skillKey));
         res.json({ configured: false });
       });
-      app.get("/api/me/landing", async (req, res) => {
+      app.get("/api/me/landing", async (req: Request, res: Response) => {
         res.json(await loginLanding(db, req.user));
       });
-      app.post("/api/email/bind/request", async (req, res) => {
+      app.post("/api/email/bind/request", async (req: Request, res: Response) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中绑定邮箱");
         const data = z.object({ email }).merge(optionalHumanProofInput).parse(req.body);
         const browserHash = await requireHumanWhenNeeded(req, res, data, "bind");
@@ -613,13 +690,13 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         await recordActivity(browserHash, "bind_email_send");
         res.json(result);
       });
-      app.post("/api/email/bind/confirm", async (req, res) => {
+      app.post("/api/email/bind/confirm", async (req: Request, res: Response) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中绑定邮箱");
         const challenge = await verifiedChallenge(req.body, "bind", req.user.id);
         const payload =
           typeof challenge.payload === "string" ? JSON.parse(challenge.payload) : challenge.payload;
         try {
-          await transaction(db, async (conn) => {
+          await transaction(pool, async (conn) => {
             await query(
               conn,
               "UPDATE users SET email=?,email_verified_at=UTC_TIMESTAMP(3) WHERE id=?",
@@ -631,7 +708,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
             });
           });
         } catch (error) {
-          if (error.code === "ER_DUP_ENTRY") throw new HttpError(409, "该邮箱已绑定其他账号");
+          if (isDuplicateEntry(error)) throw new HttpError(409, "该邮箱已绑定其他账号");
           throw error;
         }
         const [profile] = await query(
@@ -641,36 +718,57 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json(personalProfile(profile));
       });
-      app.get("/api/notifications", async (req, res) =>
-        res.json(await service.notifications(req.user, req.query.before, req.query)),
-      );
-      app.post("/api/notifications/read-all", async (req, res) =>
-        res.json(await service.readNotification(req.user)),
-      );
-      app.post("/api/notifications/:id/read", async (req, res) =>
-        res.json(await service.readNotification(req.user, req.params.id)),
-      );
-      app.post("/api/notifications/:id/open", async (req, res) =>
-        res.json(await service.openNotification(req.user, req.params.id)),
-      );
-      app.delete("/api/projects/:id/members/:userId", async (req, res) =>
-        res.json(await service.removeMember(req.user, req.params.id, req.params.userId)),
-      );
-      app.patch("/api/projects/:id/members/:userId/role", async (req, res) =>
+      app.get("/api/notifications", async (req: Request, res: Response) =>
         res.json(
-          await service.updateMemberRole(req.user, req.params.id, req.params.userId, req.body),
+          await service.notifications(
+            req.user,
+            typeof req.query.before === "string" ? req.query.before : null,
+            req.query,
+          ),
         ),
       );
-      app.post("/api/projects/:id/leader", async (req, res) =>
-        res.json(await service.transferProjectLeader(req.user, req.params.id, req.body)),
+      app.post("/api/notifications/read-all", async (req: Request, res: Response) =>
+        res.json(await service.readNotification(req.user, undefined)),
       );
-      app.post("/api/projects/:id/admins", async (req, res) =>
-        res.status(201).json(await service.addProjectAdmin(req.user, req.params.id, req.body)),
+      app.post("/api/notifications/:id/read", async (req: Request, res: Response) =>
+        res.json(await service.readNotification(req.user, String(req.params.id))),
       );
-      app.delete("/api/projects/:id/admins/:userId", async (req, res) =>
-        res.json(await service.removeProjectAdmin(req.user, req.params.id, req.params.userId)),
+      app.post("/api/notifications/:id/open", async (req: Request, res: Response) =>
+        res.json(await service.openNotification(req.user, String(req.params.id))),
       );
-      app.patch("/api/me", async (req, res) => {
+      app.delete("/api/projects/:id/members/:userId", async (req: Request, res: Response) =>
+        res.json(
+          await service.removeMember(req.user, String(req.params.id), String(req.params.userId)),
+        ),
+      );
+      app.patch("/api/projects/:id/members/:userId/role", async (req: Request, res: Response) =>
+        res.json(
+          await service.updateMemberRole(
+            req.user,
+            String(req.params.id),
+            String(req.params.userId),
+            req.body,
+          ),
+        ),
+      );
+      app.post("/api/projects/:id/leader", async (req: Request, res: Response) =>
+        res.json(await service.transferProjectLeader(req.user, String(req.params.id), req.body)),
+      );
+      app.post("/api/projects/:id/admins", async (req: Request, res: Response) =>
+        res
+          .status(201)
+          .json(await service.addProjectAdmin(req.user, String(req.params.id), req.body)),
+      );
+      app.delete("/api/projects/:id/admins/:userId", async (req: Request, res: Response) =>
+        res.json(
+          await service.removeProjectAdmin(
+            req.user,
+            String(req.params.id),
+            String(req.params.userId),
+          ),
+        ),
+      );
+      app.patch("/api/me", async (req: Request, res: Response) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改个人资料");
         const data = profileSchema.parse(req.body);
         await query(db, "UPDATE users SET name=?,avatar=?,motto=?,identity_tags=? WHERE id=?", [
@@ -695,9 +793,16 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
             }),
           ],
         );
-        res.json(personalProfile({ ...req.user, ...data }));
+        res.json(
+          personalProfile({
+            ...req.user,
+            ...data,
+            // 鉴权中间件挂上的是整行用户；`RequestUser` 只声明了索引签名，这里按真实来源取值。
+            user_number: req.user.user_number as string | number,
+          }),
+        );
       });
-      app.patch("/api/me/username", async (req, res) => {
+      app.patch("/api/me/username", async (req: Request, res: Response) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改用户名");
         const data = z
           .object({
@@ -720,7 +825,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
           try {
             await query(db, "UPDATE users SET username=? WHERE id=?", [data.username, req.user.id]);
           } catch (error) {
-            if (error.code === "ER_DUP_ENTRY") throw new HttpError(409, "该用户名已被使用");
+            if (isDuplicateEntry(error)) throw new HttpError(409, "该用户名已被使用");
             throw error;
           }
           await service.accountChange(db, req.user.id, req.user.id, "username_updated", {
@@ -734,7 +839,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json(personalProfile(profile));
       });
-      app.patch("/api/me/theme", async (req, res) => {
+      app.patch("/api/me/theme", async (req: Request, res: Response) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改主题");
         const theme = normalizeUiTheme(
           z
@@ -753,12 +858,12 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json(personalProfile(profile));
       });
-      app.post("/api/logout", async (req, res) => {
+      app.post("/api/logout", async (req: Request, res: Response) => {
         await query(db, "DELETE FROM credentials WHERE id=?", [req.user.credential_id]);
         appendCookie(res, sessionCookie("", req));
         res.json({ ok: true });
       });
-      app.post("/api/session/remember", async (req, res) => {
+      app.post("/api/session/remember", async (req: Request, res: Response) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中保存登录");
         const session = await issueCredential(db, req.user.id, "session", "账号切换");
         if (req.user.credential_id) {
@@ -775,7 +880,7 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json({ ...personalProfile(profile), sessionToken: session.token });
       });
-      app.post("/api/password", async (req, res) => {
+      app.post("/api/password", async (req: Request, res: Response) => {
         if (req.user.kind !== "session") throw new HttpError(403, "请在浏览器中修改密码");
         const data = z
           .object({
@@ -801,10 +906,15 @@ export function createAccountSurface({ db, service, sendVerificationEmail, creat
         );
         res.json({ ok: true });
       });
-      app.get("/api/users", async (req, res) =>
-        res.json(await service.users(req.user, req.query.projectId)),
+      app.get("/api/users", async (req: Request, res: Response) =>
+        res.json(
+          await service.users(
+            req.user,
+            typeof req.query.projectId === "string" ? req.query.projectId : null,
+          ),
+        ),
       );
-      app.post("/api/users", async (req, res) =>
+      app.post("/api/users", async (req: Request, res: Response) =>
         res.status(201).json(await service.createUser(req.user, req.body)),
       );
     },

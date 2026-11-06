@@ -1,5 +1,5 @@
 import { contextUsage } from "../shared/context.js";
-import { modelConfig } from "./model-config.js";
+import { modelConfig } from "./model-config.ts";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { taskExecutionSnapshot } from "./task-pool-activity.ts";

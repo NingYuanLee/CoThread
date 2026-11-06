@@ -134,7 +134,7 @@ export async function processNextChildContextCompression(
       const context = await service.context(user, job.thread_id);
       const open =
         options.openRuntime ||
-        ((await import("./agent.js")).openAgentRuntime as unknown as (
+        ((await import("./agent.ts")).openAgentRuntime as unknown as (
           context: unknown,
           options: unknown,
         ) => Promise<ChildRuntime>);

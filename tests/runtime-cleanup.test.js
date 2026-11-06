@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { claimReply } from "../server/reply-dispatch.ts";
-import { openAgentRuntime } from "../server/agent.js";
+import { openAgentRuntime } from "../server/agent.ts";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.ts";
 import { registerSandboxProvider } from "../server/sandbox-provider.ts";
 import { acquireSessionLock, sessionLockName } from "../server/session-lock.ts";

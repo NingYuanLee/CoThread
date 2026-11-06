@@ -8,7 +8,7 @@ import {
   composeOpportunisticParticipation,
   FULL_MODE_REMINDER,
   OPPORTUNISTIC_CONTEXT_CHAR_BUDGET,
-} from "../server/agent-participation.js";
+} from "../server/agent-participation.ts";
 
 let database;
 let db;

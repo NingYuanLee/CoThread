@@ -13,7 +13,7 @@ import {
   revealProjectCodeConnectorToken,
   syncPlatformScope,
   upsertProjectCodeConnector,
-} from "../project-code-sources.js";
+} from "../project-code-sources.ts";
 import {
   deleteProjectMiniProgramSecret,
   readProjectMiniProgramConfig,
@@ -21,7 +21,7 @@ import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
   verifyProjectMiniProgramConfig,
-} from "../miniprogram-config.js";
+} from "../miniprogram-config.ts";
 import {
   readMiniprogramAuthConfig,
   saveMiniprogramAuthConfig,
@@ -43,7 +43,7 @@ import {
   startMiniprogramDevServer,
   stopMiniprogramDevServer,
   updateMiniprogramDevServer,
-} from "../miniprogram-dev-server.js";
+} from "../miniprogram-dev-server.ts";
 import { ensureCloudbasePublishableKey, resetCloudbaseClients } from "../cloud-backend.ts";
 import {
   listMiniprogramDeployments,

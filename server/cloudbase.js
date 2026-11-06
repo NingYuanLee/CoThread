@@ -1,6 +1,6 @@
 import { HttpError } from "./service.ts";
 import { compileCloudbaseFilter } from "./cloudbase-filter.ts";
-import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
 
 /**
  * CloudBase adapter.

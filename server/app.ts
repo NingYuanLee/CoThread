@@ -1,6 +1,6 @@
 import { createApp as createHttpApp } from "./http-app.ts";
 import { executeRun } from "./sandbox-run.ts";
-import { stopAgent } from "./agent.js";
+import { stopAgent } from "./agent.ts";
 import { resolveSandboxProvider } from "./sandbox-provider.ts";
 import type { Db } from "./types.ts";
 

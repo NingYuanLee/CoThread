@@ -1,7 +1,7 @@
 import { query } from "./db.ts";
 import { Service } from "./service.ts";
 import { agentFailureCode } from "./agent-errors.ts";
-import { redactSecrets } from "./model-config.js";
+import { redactSecrets } from "./model-config.ts";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "./session-lock.ts";
 import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";
@@ -48,7 +48,7 @@ export async function synchronizeDiscussionContext(
     // Coordinator acknowledgements are not native DSH turns: observe them too.
     context.replies = [];
     const open =
-      openRuntime || ((await import("./agent.js")).openAgentRuntime as unknown as OpenRuntime);
+      openRuntime || ((await import("./agent.ts")).openAgentRuntime as unknown as OpenRuntime);
     runtime = await open(context, {
       db,
       user,

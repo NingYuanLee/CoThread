@@ -9,7 +9,7 @@ import {
   relocateSessionFiles,
   restoreSessionCheckpoint,
 } from "../server/agent-checkpoint.ts";
-import { isCorruptSessionLog } from "../server/agent.js";
+import { isCorruptSessionLog } from "../server/agent.ts";
 import { documentSummarySchema } from "../server/project-memory.js";
 
 test("document summaries are bounded without splitting surrogate pairs", () => {

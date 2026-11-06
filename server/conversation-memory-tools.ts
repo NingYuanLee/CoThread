@@ -487,8 +487,12 @@ export async function startConversationToolBridge(db: Db, context: ConversationC
       const [row] = await query(db, sql, [id, projectId]);
       if (!row) throw new Error("对象不存在或不在当前项目");
       const { Service } = await import("./service.ts");
-      const { callMcpTool } = await import("./mcp.js");
-      const user = { id: context.window.projectOwner, kind: "session" };
+      const { callMcpTool } = await import("./mcp.ts");
+      const owner = context.window.projectOwner;
+      // 只读桥接按项目归属做成员校验。原先 owner 缺失时会把 null 当用户 id 传下去、最终以
+      // 403 收场；这里改成显式报错，避免把 null 当身份传进 MCP 工具（错误路径更清楚）。
+      if (!owner) throw new Error("当前记忆窗口没有项目归属，无法读取项目资料");
+      const user = { id: owner, kind: "session" };
       return callMcpTool(
         new Service(db),
         user,

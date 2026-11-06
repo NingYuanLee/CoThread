@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "mysql2/promise";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { projectArchived } from "./memory-timeline.js";
+import { projectArchived } from "./memory-timeline.ts";
 import { closeStaleFileIndexScanBatches } from "./file-index-discovery.ts";
 import { acquireNamedLock } from "./named-lock.ts";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.ts";

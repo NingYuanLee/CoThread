@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createMcpServer } from "../server/mcp.js";
+import { createMcpServer } from "../server/mcp.ts";
 import { createAgentTools } from "../server/agent-tools.js";
 import { modelDiscussion } from "../server/model-context.ts";
 

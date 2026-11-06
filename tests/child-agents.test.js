@@ -7,7 +7,7 @@ import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { claimReply, drainReplies, MAX_THREAD_AGENTS } from "../server/reply-dispatch.ts";
 import { processNextReply } from "../server/replies.ts";
-import { openAgentRuntime, stopAgent } from "../server/agent.js";
+import { openAgentRuntime, stopAgent } from "../server/agent.ts";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.ts";
 import { agentSession } from "../server/agent-session.ts";
 import {

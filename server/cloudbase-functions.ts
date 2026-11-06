@@ -4,7 +4,7 @@ import { z } from "zod/v3";
 import { query } from "./db.ts";
 import type { Db } from "./types.ts";
 import { callProvider, getCloudbaseManager, resolveCloudbaseEnv } from "./cloudbase.js";
-import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
 import {
   computeMiniprogramSourceHash,
   miniprogramFilesUnderPath,

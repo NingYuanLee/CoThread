@@ -7,9 +7,71 @@ import { reopenLocalExecutorTask, syncLocalExecutorTaskById } from "./agent-task
 import { mentionTaskSourceNotice } from "./task-source-notice.ts";
 import { APP_ORIGIN } from "./runtime-config.ts";
 import { assertIterationWritable, lockTaskIteration } from "./iteration-state.ts";
+import type { Express, Request, Response } from "express";
+import type { Pool, PoolConnection } from "mysql2/promise";
+import type { Db } from "./types.ts";
+import type { Service } from "./service.ts";
+import type { AccountCredential } from "./auth.ts";
 
-async function lockLocalExecutorIteration(conn, taskId, connectorId) {
-  const [scope] = await query(
+/** `local_executors` 的一行：只声明本文件读到的列。 */
+type LocalExecutorRow = {
+  id: string;
+  user_id: string;
+  [column: string]: unknown;
+};
+
+/** `local_executor_tasks` 的一行：只声明本文件读到的列。 */
+type LocalExecutorTaskRow = {
+  id: string;
+  agent_task_id?: string | null;
+  thread_id?: string | null;
+  project_id?: string | null;
+  requested_by?: string | null;
+  assigned_to?: string | null;
+  status: string;
+  progress?: string | null;
+  output?: string | null;
+  error?: string | null;
+  policy?: string | null;
+  allow_git_push?: unknown;
+  response_message_id?: string | null;
+  agent_kind?: string | null;
+  [column: string]: unknown;
+};
+
+/** 任务池一侧的任务行（`agent_tasks`）：只声明本文件读到的列。 */
+type AgentTaskRow = {
+  id: string;
+  origin_thread_id?: string | null;
+  source_user_id?: string | null;
+  project_id?: string | null;
+  title?: unknown;
+  [column: string]: unknown;
+};
+
+/** 授权 / 配对请求里建连接器要用的字段。 */
+type ConnectorRegistration = {
+  deviceId?: string | null;
+  device_id?: string | null;
+  name: string;
+  platform: string;
+  version: string;
+};
+
+/** `mentionTaskSourceNotice` 收的结构化门面视图：Service 运行期满足它，
+ *  只是 `Service.insertMessage` 的元组入参与被调方声明的 `unknown[]` 不是同一形状。 */
+type NoticeInserter = Parameters<typeof mentionTaskSourceNotice>[0];
+
+async function lockLocalExecutorIteration(
+  conn: PoolConnection,
+  taskId: string,
+  connectorId: string,
+): Promise<void> {
+  const [scope] = await query<{
+    thread_id?: string | null;
+    project_id?: string | null;
+    agent_task_id?: string | null;
+  }>(
     conn,
     "SELECT thread_id,project_id,agent_task_id FROM local_executor_tasks WHERE id=? AND local_executor_id=?",
     [taskId, connectorId],
@@ -19,8 +81,12 @@ async function lockLocalExecutorIteration(conn, taskId, connectorId) {
   if (scope.agent_task_id) await lockTaskIteration(conn, scope.agent_task_id);
 }
 
-async function lockLocalExecutorScopes(conn, connectorId, projectId = null) {
-  const scopes = await query(
+async function lockLocalExecutorScopes(
+  conn: PoolConnection,
+  connectorId: string,
+  projectId: string | null = null,
+): Promise<void> {
+  const scopes = await query<{ thread_id: string }>(
     conn,
     `SELECT DISTINCT thread_id FROM local_executor_tasks
     WHERE local_executor_id=? AND (? IS NULL OR project_id=?) AND thread_id IS NOT NULL ORDER BY thread_id`,
@@ -35,18 +101,18 @@ const mutableAliasedLocalExecutorTask =
   "(t.thread_id IS NULL OR t.thread_id IN (SELECT id FROM threads WHERE status='active'))";
 
 const pairingCode = () => randomBytes(9).toString("base64url").toUpperCase();
-const bearer = (req) => req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+const bearer = (req: Request) => req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
 const connectorToken = () => `ctc_${randomBytes(32).toString("base64url")}`;
-const queryText = (value, max) => {
+const queryText = (value: unknown, max: number): string | null => {
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== "string") return null;
   const text = raw.trim();
   return text ? text.slice(0, max) : null;
 };
-async function device(db, req) {
+async function device(db: Db, req: Request): Promise<LocalExecutorRow> {
   const token = bearer(req);
   if (!token?.startsWith("ctc_")) throw new HttpError(401, "本地执行器凭证无效");
-  const [row] = await query(
+  const [row] = await query<LocalExecutorRow>(
     db,
     `SELECT c.*,u.disabled_at FROM local_executors c JOIN users u ON u.id=c.user_id
     WHERE c.token_hash=? AND c.revoked_at IS NULL`,
@@ -56,9 +122,12 @@ async function device(db, req) {
   return row;
 }
 
-async function localExecutorAgentTask(conn, localExecutorTask) {
+async function localExecutorAgentTask(
+  conn: Db,
+  localExecutorTask: LocalExecutorTaskRow,
+): Promise<AgentTaskRow> {
   if (localExecutorTask.agent_task_id) {
-    const [row] = await query(conn, "SELECT * FROM agent_tasks WHERE id=?", [
+    const [row] = await query<AgentTaskRow>(conn, "SELECT * FROM agent_tasks WHERE id=?", [
       localExecutorTask.agent_task_id,
     ]);
     if (row) return row;
@@ -72,31 +141,41 @@ async function localExecutorAgentTask(conn, localExecutorTask) {
   };
 }
 
-async function reportLocalExecutorToSource(service, conn, localExecutorTask, body) {
+async function reportLocalExecutorToSource(
+  service: Service,
+  conn: Db,
+  localExecutorTask: LocalExecutorTaskRow,
+  body: string,
+): Promise<{ id: string }> {
   const agentTask = await localExecutorAgentTask(conn, localExecutorTask);
-  return mentionTaskSourceNotice(
-    service,
+  return (await mentionTaskSourceNotice(
+    service as unknown as NoticeInserter,
     conn,
-    { id: localExecutorTask.assigned_to, kind: "api" },
+    { id: localExecutorTask.assigned_to as string, kind: "api" },
     agentTask,
     body,
     {
       source: "local_ai",
     },
-  );
+  )) as { id: string };
 }
 
-async function replaceAccountLocalExecutor(conn, userId, data, token) {
+async function replaceAccountLocalExecutor(
+  conn: PoolConnection,
+  userId: string,
+  data: ConnectorRegistration,
+  token: string,
+): Promise<string> {
   await query(conn, "SELECT id FROM users WHERE id=? FOR UPDATE", [userId]);
   const deviceId = data.deviceId || data.device_id || null;
-  const [existing] = await query(
+  const [existing] = await query<{ id: string; user_id: string }>(
     conn,
     `SELECT id,user_id FROM local_executors
     WHERE (? IS NOT NULL AND device_id=?) OR (? IS NULL AND user_id=?)
     ORDER BY CASE WHEN device_id=? THEN 0 ELSE 1 END,created_at LIMIT 1 FOR UPDATE`,
     [deviceId, deviceId, deviceId, userId, deviceId],
   );
-  const [memberConnector] = await query(
+  const [memberConnector] = await query<{ id: string }>(
     conn,
     "SELECT id FROM local_executors WHERE user_id=? AND revoked_at IS NULL FOR UPDATE",
     [userId],
@@ -165,7 +244,14 @@ async function replaceAccountLocalExecutor(conn, userId, data, token) {
   return id;
 }
 
-export async function localExecutorTool(service, user, name, input, job, thread) {
+export async function localExecutorTool(
+  service: Service,
+  user: unknown,
+  name: string,
+  input: unknown,
+  job: unknown,
+  thread: { project_id: string },
+) {
   if (name !== "list_local_executors") throw new HttpError(400, "未知本地执行器工具");
   return query(
     service.db,
@@ -180,10 +266,10 @@ export async function localExecutorTool(service, user, name, input, job, thread)
   );
 }
 
-export function registerLocalExecutorPublicRoutes(app, db, service) {
+export function registerLocalExecutorPublicRoutes(app: Express, db: Pool, service: Service): void {
   app.post(
     ["/api/local-executor/authorizations", "/api/local-executor/v2/authorizations"],
-    async (req, res) => {
+    async (req: Request, res: Response) => {
       const data = z
         .object({
           name: z.string().trim().min(1).max(100),
@@ -222,7 +308,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
       "/api/local-executor/authorizations/:id/poll",
       "/api/local-executor/v2/authorizations/:id/poll",
     ],
-    async (req, res) => {
+    async (req: Request, res: Response) => {
       const authorizationId = z.string().uuid().parse(req.params.id);
       const data = z.object({ pollToken: z.string().min(30).max(100) }).parse(req.body);
       const result = await transaction(db, async (conn) => {
@@ -258,7 +344,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     },
   );
 
-  app.post("/api/local-executor/pair", async (req, res) => {
+  app.post("/api/local-executor/pair", async (req: Request, res: Response) => {
     const data = z
       .object({
         code: z
@@ -294,7 +380,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     res.status(201).json(result);
   });
 
-  app.get("/api/local-executor/projects", async (req, res) => {
+  app.get("/api/local-executor/projects", async (req: Request, res: Response) => {
     const current = await device(db, req);
     await query(
       db,
@@ -325,7 +411,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     );
   });
 
-  app.put("/api/local-executor/projects/:id", async (req, res) => {
+  app.put("/api/local-executor/projects/:id", async (req: Request, res: Response) => {
     const current = await device(db, req);
     const projectId = z.string().uuid().parse(req.params.id);
     const data = z
@@ -349,7 +435,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     res.json({ ok: true, projectId, policy: "unrestricted", allowGitPush: data.allowGitPush });
   });
 
-  app.get("/api/local-executor/tasks", async (req, res) => {
+  app.get("/api/local-executor/tasks", async (req: Request, res: Response) => {
     const current = await device(db, req);
     await query(db, "UPDATE local_executors SET last_seen_at=UTC_TIMESTAMP(3) WHERE id=?", [
       current.id,
@@ -367,7 +453,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     );
   });
 
-  app.post("/api/local-executor/tasks/:id/claim", async (req, res) => {
+  app.post("/api/local-executor/tasks/:id/claim", async (req: Request, res: Response) => {
     const current = await device(db, req);
     const taskId = z.string().uuid().parse(req.params.id);
     const lease = randomBytes(32).toString("base64url");
@@ -440,24 +526,24 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     res.json({ task });
   });
 
-  const mcpCredentialResponse = (current, credential) => ({
+  const mcpCredentialResponse = (current: LocalExecutorRow, credential: AccountCredential) => ({
     token: credential.token,
     expiresAt: credential.expiresAt,
     version: credential.version,
     endpoint: "/mcp",
   });
-  app.post("/api/local-executor/mcp-credential", async (req, res) => {
+  app.post("/api/local-executor/mcp-credential", async (req: Request, res: Response) => {
     const current = await device(db, req);
     // 仅 ensure（不重置）当前设备所属账号的 MCP 令牌，供连接器自动写入本机 Agent 的 MCP 配置。
     res.json(mcpCredentialResponse(current, await accountCredential(db, current.user_id)));
   });
-  app.get("/api/local-executor/mcp-credential/version", async (req, res) => {
+  app.get("/api/local-executor/mcp-credential/version", async (req: Request, res: Response) => {
     const current = await device(db, req);
     // 轮询只返回版本元数据；只有版本变化时才下发秘密令牌。
     res.json(await accountCredentialVersion(db, current.user_id));
   });
 
-  app.post("/api/local-executor/tasks/:id/control", async (req, res) => {
+  app.post("/api/local-executor/tasks/:id/control", async (req: Request, res: Response) => {
     const current = await device(db, req);
     const taskId = z.string().uuid().parse(req.params.id);
     const { action } = z
@@ -573,7 +659,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     res.json(result);
   });
 
-  app.delete("/api/local-executor/projects/:id", async (req, res) => {
+  app.delete("/api/local-executor/projects/:id", async (req: Request, res: Response) => {
     const current = await device(db, req);
     const projectId = z.string().uuid().parse(req.params.id);
     await transaction(db, async (conn) => {
@@ -600,7 +686,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     res.json({ ok: true });
   });
 
-  app.post("/api/local-executor/poll", async (req, res) => {
+  app.post("/api/local-executor/poll", async (req: Request, res: Response) => {
     const current = await device(db, req);
     const data = z.object({ version: z.string().trim().min(1).max(40) }).parse(req.body);
     await transaction(db, async (conn) => {
@@ -642,7 +728,7 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
     res.json({ task: null });
   });
 
-  app.patch("/api/local-executor/tasks/:id", async (req, res) => {
+  app.patch("/api/local-executor/tasks/:id", async (req: Request, res: Response) => {
     const current = await device(db, req);
     const taskId = z.string().uuid().parse(req.params.id);
     const data = z
@@ -730,8 +816,8 @@ export function registerLocalExecutorPublicRoutes(app, db, service) {
   });
 }
 
-export function registerLocalExecutorBrowserRoutes(app, db, service) {
-  app.get("/api/local-executors", async (req, res) => {
+export function registerLocalExecutorBrowserRoutes(app: Express, db: Pool, service: Service): void {
+  app.get("/api/local-executors", async (req: Request, res: Response) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const rows = await query(
       db,
@@ -753,7 +839,7 @@ export function registerLocalExecutorBrowserRoutes(app, db, service) {
     );
   });
 
-  app.get("/api/local-executors/availability", async (req, res) => {
+  app.get("/api/local-executors/availability", async (req: Request, res: Response) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     res.json(
       await query(
@@ -772,7 +858,7 @@ export function registerLocalExecutorBrowserRoutes(app, db, service) {
 
   app.get(
     ["/api/local-executor-authorizations/:id", "/api/local-executor-authorizations-v2/:id"],
-    async (req, res) => {
+    async (req: Request, res: Response) => {
       if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
       const authorizationId = z.string().uuid().parse(req.params.id);
       const [authorization] = await query(
@@ -786,72 +872,78 @@ export function registerLocalExecutorBrowserRoutes(app, db, service) {
     },
   );
 
-  app.post("/api/local-executor-authorizations/:id/decision", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const authorizationId = z.string().uuid().parse(req.params.id);
-    const data = z.object({ approved: z.boolean() }).parse(req.body);
-    const result = await query(
-      db,
-      `UPDATE local_executor_authorizations SET user_id=?,approved_at=?,denied_at=?
+  app.post(
+    "/api/local-executor-authorizations/:id/decision",
+    async (req: Request, res: Response) => {
+      if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+      const authorizationId = z.string().uuid().parse(req.params.id);
+      const data = z.object({ approved: z.boolean() }).parse(req.body);
+      const result = (await query(
+        db,
+        `UPDATE local_executor_authorizations SET user_id=?,approved_at=?,denied_at=?
       WHERE id=? AND UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP()
       AND approved_at IS NULL AND denied_at IS NULL AND consumed_at IS NULL`,
-      [
-        data.approved ? req.user.id : null,
-        data.approved ? new Date() : null,
-        data.approved ? null : new Date(),
-        authorizationId,
-      ],
-    );
-    if (!result.affectedRows) throw new HttpError(409, "授权请求已处理或已过期");
-    res.json({ status: data.approved ? "approved" : "denied" });
-  });
+        [
+          data.approved ? req.user.id : null,
+          data.approved ? new Date() : null,
+          data.approved ? null : new Date(),
+          authorizationId,
+        ],
+      )) as unknown as { affectedRows?: number };
+      if (!result.affectedRows) throw new HttpError(409, "授权请求已处理或已过期");
+      res.json({ status: data.approved ? "approved" : "denied" });
+    },
+  );
 
-  app.post("/api/local-executor-authorizations-v2/:id/decision", async (req, res) => {
-    if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
-    const authorizationId = z.string().uuid().parse(req.params.id);
-    const data = z
-      .object({ approved: z.boolean(), callbackSecret: z.string().min(30).max(100) })
-      .parse(req.body);
-    const result = await transaction(db, async (conn) => {
-      const [authorization] = await query(
-        conn,
-        `SELECT *,UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP() valid
-        FROM local_executor_authorizations WHERE id=? FOR UPDATE`,
-        [authorizationId],
-      );
-      if (!authorization || Number(authorization.valid) !== 1)
-        throw new HttpError(404, "本地执行器授权请求不存在或已过期");
-      if (authorization.poll_token_hash !== digest(data.callbackSecret))
-        throw new HttpError(401, "授权回调凭证不匹配");
-      if (authorization.approved_at || authorization.denied_at || authorization.consumed_at)
-        throw new HttpError(409, "授权请求已处理或已过期");
-      if (!data.approved) {
-        await query(
+  app.post(
+    "/api/local-executor-authorizations-v2/:id/decision",
+    async (req: Request, res: Response) => {
+      if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
+      const authorizationId = z.string().uuid().parse(req.params.id);
+      const data = z
+        .object({ approved: z.boolean(), callbackSecret: z.string().min(30).max(100) })
+        .parse(req.body);
+      const result = await transaction(db, async (conn) => {
+        const [authorization] = await query(
           conn,
-          "UPDATE local_executor_authorizations SET denied_at=CURRENT_TIMESTAMP(3) WHERE id=?",
+          `SELECT *,UNIX_TIMESTAMP(expires_at)>UNIX_TIMESTAMP() valid
+        FROM local_executor_authorizations WHERE id=? FOR UPDATE`,
           [authorizationId],
         );
-        return { status: "denied" };
-      }
-      const token = connectorToken();
-      const connectorId = await replaceAccountLocalExecutor(
-        conn,
-        req.user.id,
-        authorization,
-        token,
-      );
-      await query(
-        conn,
-        `UPDATE local_executor_authorizations SET user_id=?,approved_at=CURRENT_TIMESTAMP(3),consumed_at=CURRENT_TIMESTAMP(3)
+        if (!authorization || Number(authorization.valid) !== 1)
+          throw new HttpError(404, "本地执行器授权请求不存在或已过期");
+        if (authorization.poll_token_hash !== digest(data.callbackSecret))
+          throw new HttpError(401, "授权回调凭证不匹配");
+        if (authorization.approved_at || authorization.denied_at || authorization.consumed_at)
+          throw new HttpError(409, "授权请求已处理或已过期");
+        if (!data.approved) {
+          await query(
+            conn,
+            "UPDATE local_executor_authorizations SET denied_at=CURRENT_TIMESTAMP(3) WHERE id=?",
+            [authorizationId],
+          );
+          return { status: "denied" };
+        }
+        const token = connectorToken();
+        const connectorId = await replaceAccountLocalExecutor(
+          conn,
+          req.user.id,
+          authorization,
+          token,
+        );
+        await query(
+          conn,
+          `UPDATE local_executor_authorizations SET user_id=?,approved_at=CURRENT_TIMESTAMP(3),consumed_at=CURRENT_TIMESTAMP(3)
         WHERE id=?`,
-        [req.user.id, authorizationId],
-      );
-      return { status: "approved", id: connectorId, token };
-    });
-    res.json(result);
-  });
+          [req.user.id, authorizationId],
+        );
+        return { status: "approved", id: connectorId, token };
+      });
+      res.json(result);
+    },
+  );
 
-  app.post("/api/local-executors/pairings", async (req, res) => {
+  app.post("/api/local-executors/pairings", async (req: Request, res: Response) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const code = pairingCode();
     await query(
@@ -868,15 +960,15 @@ export function registerLocalExecutorBrowserRoutes(app, db, service) {
     res.status(201).json({ code, expiresIn: 600 });
   });
 
-  app.delete("/api/local-executors/:id", async (req, res) => {
+  app.delete("/api/local-executors/:id", async (req: Request, res: Response) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const connectorId = z.string().uuid().parse(req.params.id);
-    const result = await query(
+    const result = (await query(
       db,
       `UPDATE local_executors SET revoked_at=UTC_TIMESTAMP(3),token_hash=SHA2(CONCAT(token_hash,UUID()),256)
       WHERE id=? AND user_id=? AND revoked_at IS NULL`,
       [connectorId, req.user.id],
-    );
+    )) as unknown as { affectedRows?: number };
     if (!result.affectedRows) throw new HttpError(404, "本地执行器不存在");
     await query(
       db,
@@ -893,15 +985,15 @@ export function registerLocalExecutorBrowserRoutes(app, db, service) {
     res.json({ ok: true });
   });
 
-  app.post("/api/local-executor-tasks/:id/cancel", async (req, res) => {
+  app.post("/api/local-executor-tasks/:id/cancel", async (req: Request, res: Response) => {
     if (req.user.kind !== "session") throw new HttpError(403, "需要浏览器登录");
     const taskId = z.string().uuid().parse(req.params.id);
-    const result = await query(
+    const result = (await query(
       db,
       `UPDATE local_executor_tasks SET status='cancelled',error='已停止',finished_at=UTC_TIMESTAMP(3)
       WHERE id=? AND assigned_to=? AND status IN ('queued','running','paused')`,
       [taskId, req.user.id],
-    );
+    )) as unknown as { affectedRows?: number };
     if (!result.affectedRows) throw new HttpError(409, "任务已结束或不存在");
     await syncLocalExecutorTaskById(db, taskId, { publish: true });
     res.json({ ok: true });

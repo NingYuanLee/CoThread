@@ -4,7 +4,7 @@ import {
   AGENT_XIAOXIANG_MEMBER,
   AGENT_MEMBER,
 } from "../shared/agent-member.js";
-import { modelConfig } from "./model-config.js";
+import { modelConfig } from "./model-config.ts";
 import { projectImageSchema, projectImageUrl, projectImageUrlSql } from "./project-image.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";

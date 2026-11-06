@@ -10,7 +10,7 @@ import { createApp } from "../server/app.ts";
 import { hashPassword } from "../server/auth.ts";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { saveProjectMiniProgramConfig } from "../server/miniprogram-config.js";
+import { saveProjectMiniProgramConfig } from "../server/miniprogram-config.ts";
 import { markMiniProgramWorkspaceVerified } from "./miniprogram-ready.js";
 import {
   ensureMiniprogramWorkspace,

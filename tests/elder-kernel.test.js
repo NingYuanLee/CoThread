@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
-import { callMcpTool, mcpReadToolSpecs } from "../server/mcp.js";
+import { callMcpTool, mcpReadToolSpecs } from "../server/mcp.ts";
 import { apply } from "../dsh-layer/cothread-skills.mjs";
 import {
   elderPrompt,

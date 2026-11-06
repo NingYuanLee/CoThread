@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { setImmediate as turn } from "node:timers/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { digest } from "../server/auth.ts";
-import { registerDevServerUpgrade } from "../server/miniprogram-dev-server.js";
+import { registerDevServerUpgrade } from "../server/miniprogram-dev-server.ts";
 import { createShutdown } from "../server/shutdown.ts";
 
 test("shutdown reclaims upgraded tunnels while waiting for an ordinary HTTP response", async () => {

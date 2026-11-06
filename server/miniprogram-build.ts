@@ -11,7 +11,7 @@ import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
 import { miniprogramSnapshot, miniprogramWorkspaceFolders } from "./miniprogram-workspace.ts";
 import type { MiniprogramFile } from "./miniprogram-workspace.ts";
-import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
 import {
   injectMiniprogramRuntimeSource,
   resolveMiniprogramRuntime,

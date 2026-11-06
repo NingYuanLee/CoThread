@@ -13,7 +13,7 @@ import {
 } from "../server/conversation-memory-runner.ts";
 import { processNextProjectMemory } from "../server/project-memory.js";
 import { searchProjectMemory } from "../server/memory-search.ts";
-import { readProjectMemory } from "../server/memory-timeline.js";
+import { readProjectMemory } from "../server/memory-timeline.ts";
 import { readMemberUnderstanding } from "../server/memory-cache.ts";
 import { startConversationToolBridge } from "../server/conversation-memory-tools.ts";
 import { runLaowengTask } from "../server/laoweng-agent.ts";

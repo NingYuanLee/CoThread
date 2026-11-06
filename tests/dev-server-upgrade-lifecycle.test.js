@@ -5,7 +5,7 @@ import net from "node:net";
 import { randomUUID } from "node:crypto";
 import { setImmediate as turn } from "node:timers/promises";
 import { digest } from "../server/auth.ts";
-import { registerDevServerUpgrade } from "../server/miniprogram-dev-server.js";
+import { registerDevServerUpgrade } from "../server/miniprogram-dev-server.ts";
 
 async function harness({ select, touch, credential, member } = {}) {
   const projectId = randomUUID(),

@@ -11,7 +11,7 @@ import { Service } from "../server/service.ts";
 import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
-} from "../server/miniprogram-config.js";
+} from "../server/miniprogram-config.ts";
 import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.ts";
 import {
   devServerProxyBase,
@@ -27,7 +27,7 @@ import {
   stopMiniprogramDevServer,
   updateMiniprogramDevServer,
   DEV_SERVER_PROXY_PATTERN,
-} from "../server/miniprogram-dev-server.js";
+} from "../server/miniprogram-dev-server.ts";
 
 const VALID_APP_ID = "wx1234567890abcdef";
 

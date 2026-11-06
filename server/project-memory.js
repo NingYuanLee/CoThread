@@ -3076,7 +3076,7 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
 /** 人工忽略一条待处理信号：删除队列行并留审计，之后不再自动重试。 */
 export async function ignoreProjectMemorySignal(service, user, projectId, queueId) {
   await service.member(user, projectId, true);
-  const { projectArchived } = await import("./memory-timeline.js");
+  const { projectArchived } = await import("./memory-timeline.ts");
   if (await projectArchived(service.db, projectId))
     throw new HttpError(409, "项目已归档，记忆只读");
   const [row] = await query(

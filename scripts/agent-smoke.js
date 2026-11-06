@@ -1,6 +1,6 @@
 import { createDatabase, query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { generateAgentReply } from "../server/agent.js";
+import { generateAgentReply } from "../server/agent.ts";
 import { assertProductionWriteAllowed } from "../server/database-policy.ts";
 assertProductionWriteAllowed();
 const db = await createDatabase();

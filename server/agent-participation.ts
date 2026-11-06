@@ -6,10 +6,176 @@ import {
   modelResponse,
   modelUsage,
   responseText,
-} from "./model-config.js";
+} from "./model-config.ts";
 import { saveReplyUsage } from "./agent-usage.ts";
 import { query } from "./db.ts";
+import type { Db } from "./types.ts";
 import { mentionsAgent } from "../shared/agent-member.js";
+
+/** 参与判断的用量计数；字段与 `modelUsage()` 的返回一致。 */
+type ParticipationUsage = {
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
+  reasoningTokens?: number | null;
+  totalTokens?: number | null;
+  calls?: number | null;
+};
+type UsageTokenKey = keyof ParticipationUsage;
+
+/** 参与判断用到的消息行：只取作者、来源与正文，其余列按列名保留。 */
+type ParticipationRow = {
+  body?: unknown;
+  author?: unknown;
+  source?: unknown;
+  [column: string]: unknown;
+};
+
+/** 机会性参与窗口里的一条人类消息行。 */
+type BurstRow = ParticipationRow & {
+  id: string;
+  author_id?: string | null;
+  sequence: number;
+};
+
+/** 交给参与判断模型的一条消息。 */
+type CompactMessage = { author: unknown; source: unknown; body: string };
+
+/** 模型路由快照（`modelConfig()` 的返回值）。 */
+type ModelCapture = ReturnType<typeof modelConfig>;
+
+/** 用量走查记录：判断只关心是否带 model。 */
+type ModelAccounting = { model?: unknown } | null;
+
+/** 判断结果里的用量 / 耗时元信息。 */
+type JudgeMeta = {
+  usage?: ParticipationUsage | null;
+  durationMs?: number | null;
+  modelAccounting?: ModelAccounting;
+};
+
+/** 回复提醒判断的结果。 */
+type JudgeVerdict = JudgeMeta & { remind?: boolean };
+
+/** `decide()` 的返回：判断本体 + 本次调用的用量 / 耗时。 */
+type ParticipationJudgeResult = JudgeMeta & {
+  respond?: boolean;
+  message?: string | null;
+  promise?: boolean;
+};
+
+/** 归一化后的判断。 */
+type NormalizedDecision = { respond: boolean; message?: string; promise: boolean };
+
+/** 未发出的回复草稿。 */
+type ReplyDraft = { respond: boolean; message?: string | null };
+
+/** 参与判断（含改稿）的入参。 */
+type ParticipationContext = {
+  modelCapture: ModelCapture | null;
+  modelMessages?: CompactMessage[];
+  title: unknown;
+  messages: CompactMessage[];
+  integrateBurst: CompactMessage[];
+  replyingToAssistant: boolean;
+  soloRunNeedsReply: boolean;
+  soloRunCount: number;
+  namedOrComplaining: boolean;
+  mustReply: boolean;
+  previousDraft?: { respond: boolean; message?: string | null };
+  revision: number;
+};
+
+/** 判断结果里与覆盖消息、改稿轮次相关的字段。 */
+type ParticipationDecisionView = {
+  respond?: boolean;
+  message?: string | null;
+  deferred?: string | null;
+  revisions?: number | null;
+  burstIds?: readonly string[] | null;
+};
+
+/** 最终参与结果：判断本体 + 用量、耗时与本次覆盖的消息。 */
+type ParticipationOutcome = ParticipationDecisionView & {
+  respond: boolean;
+  burstIds: string[];
+  revisions: number;
+  usage: ParticipationUsage | null;
+  executionDurationMs: number;
+  modelAccounting?: ModelAccounting;
+  reminded?: boolean;
+  throughSequence?: number;
+};
+
+/** `withUsage()` 的入参：判断本体加可选覆盖字段。 */
+type ParticipationOutcomeDraft = {
+  respond: boolean;
+  message?: string | null;
+  deferred?: string | null;
+  burstIds: string[];
+  revisions: number;
+  reminded?: boolean;
+  throughSequence?: number;
+  modelAccounting?: ModelAccounting;
+};
+
+/** `composeOpportunisticParticipation()` 的入参。 */
+type ComposeParticipationInput = {
+  title?: unknown;
+  threadId: string;
+  messageId: string;
+  decide?: (context: ParticipationContext) => Promise<ParticipationJudgeResult>;
+  judgeReminder?: (input: {
+    message: string;
+    modelCapture: ModelCapture | null;
+  }) => Promise<JudgeVerdict>;
+};
+
+/** 参与结果里与计量、轨迹相关的字段。 */
+type ParticipationArtifactsDecision = ParticipationDecisionView & {
+  usage?: ParticipationUsage | null;
+  modelAccounting?: ModelAccounting;
+  executionDurationMs: number;
+  reminded?: boolean;
+};
+
+/** `persistOpportunisticParticipationArtifacts()` 的入参。 */
+type ParticipationArtifactsInput = {
+  messageId?: string | null;
+  threadId?: string | null;
+  decision?: ParticipationArtifactsDecision | null;
+  wallDurationMs?: number | null;
+};
+
+/** `participationDecisionLogPayload()` 的入参。 */
+type ParticipationDecisionLogInput = {
+  messageId?: string | null;
+  threadId?: string | null;
+  decision?: ParticipationDecisionView | null;
+  durationMs?: number | null;
+};
+
+/** 结构化日志载荷；`durationMs` 与 `messagePreview` 按需补。 */
+type ParticipationDecisionPayload = {
+  messageId?: string | null;
+  threadId?: string | null;
+  action: "reply" | "silent";
+  reason: string | null;
+  deferred: unknown;
+  revisions: number;
+  burstCount: number;
+  durationMs?: number;
+  messagePreview?: string;
+};
+
+/** 尾部连续相同内容的统计。 */
+type RepeatedContentRun = {
+  authorId: string | null | undefined;
+  count: number;
+  body: string;
+  messages: BurstRow[];
+};
 
 const USAGE_TOKEN_KEYS = [
   "inputTokens",
@@ -19,9 +185,12 @@ const USAGE_TOKEN_KEYS = [
   "reasoningTokens",
   "totalTokens",
   "calls",
-];
+] as const satisfies readonly UsageTokenKey[];
 
-function mergeParticipationUsage(prior, next) {
+function mergeParticipationUsage(
+  prior: ParticipationUsage | null | undefined,
+  next: ParticipationUsage | null | undefined,
+): ParticipationUsage | null {
   if (!next) return prior || null;
   if (!prior) return { ...next };
   const merged = { ...prior };
@@ -52,18 +221,21 @@ export const OPPORTUNISTIC_CONTEXT_CHAR_BUDGET = 4000;
 /** One short Chinese sentence JSON; leave modest headroom. */
 export const OPPORTUNISTIC_MAX_TOKENS = 768;
 
-export function compactParticipationBody(body) {
+export function compactParticipationBody(body: unknown): string {
   return String(body || "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-export function lightContextChars(rows) {
+export function lightContextChars(rows: readonly ParticipationRow[] | null | undefined): number {
   return (rows || []).reduce((sum, row) => sum + compactParticipationBody(row.body).length, 0);
 }
 
 /** True when the recent window is too long to judge without cutting it. */
-export function lightContextTooLong(rows, budget = OPPORTUNISTIC_CONTEXT_CHAR_BUDGET) {
+export function lightContextTooLong(
+  rows: readonly ParticipationRow[] | null | undefined,
+  budget: number = OPPORTUNISTIC_CONTEXT_CHAR_BUDGET,
+): boolean {
   return lightContextChars(rows) > budget;
 }
 
@@ -71,10 +243,13 @@ export function lightContextTooLong(rows, budget = OPPORTUNISTIC_CONTEXT_CHAR_BU
  * Newest-first rows. Shrink from the history limit down to 1 until the newest slice fits.
  * Returns chronological messages, or null when even the latest one is over budget.
  */
-export function fitLightContextWindow(
-  rows,
-  { limit = OPPORTUNISTIC_HISTORY_LIMIT, budget = OPPORTUNISTIC_CONTEXT_CHAR_BUDGET } = {},
-) {
+export function fitLightContextWindow<T extends { body?: unknown }>(
+  rows: readonly T[] | null | undefined,
+  {
+    limit = OPPORTUNISTIC_HISTORY_LIMIT,
+    budget = OPPORTUNISTIC_CONTEXT_CHAR_BUDGET,
+  }: { limit?: number; budget?: number } = {},
+): T[] | null {
   const newestFirst = rows || [];
   const max = Math.min(limit, newestFirst.length);
   for (let count = max; count >= 1; count--) {
@@ -84,7 +259,9 @@ export function fitLightContextWindow(
   return newestFirst.length ? null : [];
 }
 
-export function compactParticipationMessages(rows) {
+export function compactParticipationMessages(
+  rows: readonly ParticipationRow[] | null | undefined,
+): CompactMessage[] {
   return (rows || []).map(({ author, source, body }) => ({
     author,
     source,
@@ -93,24 +270,29 @@ export function compactParticipationMessages(rows) {
 }
 
 /** Normalize decide() results from production or test doubles. */
-export function normalizeParticipationDecision(decision) {
+export function normalizeParticipationDecision(decision: unknown): NormalizedDecision {
   if (typeof decision === "boolean")
     return { respond: decision, message: undefined, promise: false };
-  if (!decision || typeof decision.respond !== "boolean") {
+  const candidate = decision as {
+    respond?: unknown;
+    message?: unknown;
+    promise?: unknown;
+  } | null;
+  if (!candidate || typeof candidate.respond !== "boolean") {
     throw new Error("Invalid participation decision");
   }
-  const message = typeof decision.message === "string" ? decision.message.trim() : "";
-  if (decision.respond && !message) {
+  const message = typeof candidate.message === "string" ? candidate.message.trim() : "";
+  if (candidate.respond && !message) {
     throw new Error("Invalid participation decision");
   }
   return {
-    respond: decision.respond,
-    message: decision.respond ? message.slice(0, 20000) : undefined,
-    promise: decision.promise === true,
+    respond: candidate.respond,
+    message: candidate.respond ? message.slice(0, 20000) : undefined,
+    promise: candidate.promise === true,
   };
 }
 
-export function deferSilenceProgress(reason) {
+export function deferSilenceProgress(reason: string | null | undefined): string {
   if (reason === "cooldown") return "近期已参与，本轮保持沉默";
   if (reason === "addressed_other") return "消息在叫别人，保持沉默";
   if (reason === "still_changing") return "讨论仍在变化，撤回未发出的回复";
@@ -126,9 +308,9 @@ export function participationDecisionLogPayload({
   threadId,
   decision,
   durationMs,
-} = {}) {
+}: ParticipationDecisionLogInput = {}): ParticipationDecisionPayload {
   const respond = !!decision?.respond;
-  const payload = {
+  const payload: ParticipationDecisionPayload = {
     messageId,
     threadId,
     action: respond ? "reply" : "silent",
@@ -144,11 +326,11 @@ export function participationDecisionLogPayload({
   return payload;
 }
 
-export function logParticipationDecision(args) {
+export function logParticipationDecision(args: ParticipationDecisionLogInput): void {
   console.log("Participation decision", participationDecisionLogPayload(args));
 }
 
-export async function isWithinOpportunisticQuietPeriod(db, threadId) {
+export async function isWithinOpportunisticQuietPeriod(db: Db, threadId: string): Promise<boolean> {
   const [recent] = await query(
     db,
     `SELECT r.message_id FROM assistant_replies r
@@ -168,13 +350,13 @@ export async function isWithinOpportunisticQuietPeriod(db, threadId) {
  * Prior soft silences stay in the streak (so "same content ×3" / 催促 can still fire);
  * only a human turn that already got a visible reply closes the streak.
  */
-export async function loadOpportunisticBurst(db, threadId) {
-  const [lastAssistant] = await query(
+export async function loadOpportunisticBurst(db: Db, threadId: string): Promise<BurstRow[]> {
+  const [lastAssistant] = await query<{ sequence: number }>(
     db,
     "SELECT COALESCE(MAX(sequence),0) sequence FROM messages WHERE thread_id=? AND source='assistant'",
     [threadId],
   );
-  const rows = await query(
+  const rows = await query<BurstRow>(
     db,
     `SELECT m.id,m.sequence,m.body,m.source,m.author_id,u.name author,
             r.participation,r.status,r.progress,r.reply_id
@@ -186,7 +368,7 @@ export async function loadOpportunisticBurst(db, threadId) {
      LIMIT 40`,
     [threadId, lastAssistant?.sequence || 0],
   );
-  const burst = [];
+  const burst: BurstRow[] = [];
   for (const row of rows) {
     // Visible reply already posted for this human turn — streak ends here.
     // (After an assistant speaks, lastAssistant advances and these rows drop out.)
@@ -204,8 +386,8 @@ export async function loadOpportunisticBurst(db, threadId) {
   return burst;
 }
 
-export async function latestHumanSequence(db, threadId) {
-  const [row] = await query(
+export async function latestHumanSequence(db: Db, threadId: string): Promise<number> {
+  const [row] = await query<{ sequence: number }>(
     db,
     "SELECT COALESCE(MAX(sequence),0) sequence FROM messages WHERE thread_id=? AND source='human'",
     [threadId],
@@ -214,9 +396,13 @@ export async function latestHumanSequence(db, threadId) {
 }
 
 /** True when this human burst sits directly on top of an assistant message. */
-export async function isReplyingToAssistant(db, threadId, burst) {
+export async function isReplyingToAssistant(
+  db: Db,
+  threadId: string,
+  burst: readonly BurstRow[] | null | undefined,
+): Promise<boolean> {
   if (!burst?.length) return false;
-  const [prior] = await query(
+  const [prior] = await query<{ source?: unknown }>(
     db,
     `SELECT source FROM messages
      WHERE thread_id=? AND sequence<? ORDER BY sequence DESC LIMIT 1`,
@@ -229,7 +415,9 @@ export async function isReplyingToAssistant(db, threadId, burst) {
  * Short human follow-ups right after 小祥 spoke are almost always directed at her
  * (praise, thanks, nudge, light complaint) — not member-to-member side chat.
  */
-export function isShortAssistantDirectedFollowUp(burst) {
+export function isShortAssistantDirectedFollowUp(
+  burst: readonly BurstRow[] | null | undefined,
+): boolean {
   if (!burst?.length || burst.length > 3) return false;
   const text = burst
     .map((row) => String(row.body || "").trim())
@@ -241,10 +429,12 @@ export function isShortAssistantDirectedFollowUp(burst) {
 }
 
 /** Pure ack / receipt — humans usually do not answer these. */
-export function isPureAcknowledgement(burstOrText) {
+export function isPureAcknowledgement(
+  burstOrText: readonly BurstRow[] | string | null | undefined,
+): boolean {
   const text = Array.isArray(burstOrText)
     ? burstOrText
-        .map((row) => String(row.body || "").trim())
+        .map((row: BurstRow) => String(row.body || "").trim())
         .filter(Boolean)
         .join("\n")
     : String(burstOrText || "").trim();
@@ -265,11 +455,11 @@ export function isPureAcknowledgement(burstOrText) {
 /**
  * @小祥 and a leading "小祥，" are the same address. Both open full mode at intake.
  */
-export function addressesAgent(text) {
-  return mentionsAgent(text);
+export function addressesAgent(text: unknown): boolean {
+  return mentionsAgent(String(text ?? ""));
 }
 
-export function burstAddressesAgent(burst) {
+export function burstAddressesAgent(burst: readonly BurstRow[] | null | undefined): boolean {
   return (burst || []).some((row) => addressesAgent(row.body));
 }
 
@@ -280,16 +470,16 @@ export function burstAddressesAgent(burst) {
 const ADDRESSES_SOMEONE_ELSE =
   /(?:^|[^\p{L}\p{N}_])@+(?!(?:小祥|Agent\s*助手)(?=$|[\s\p{P}\p{S}]))[\p{L}\p{N}_]/iu;
 
-export function addressesSomeoneElse(text) {
+export function addressesSomeoneElse(text: unknown): boolean {
   return ADDRESSES_SOMEONE_ELSE.test(String(text || ""));
 }
 
 /** @别人，且这条正文没有同时点名小祥。这种消息不能进入斟酌。 */
-export function messageAddressesOthersOnly(text) {
+export function messageAddressesOthersOnly(text: unknown): boolean {
   return addressesSomeoneElse(text) && !addressesAgent(text);
 }
 
-export function otherAddressedMessageIds(burst) {
+export function otherAddressedMessageIds(burst: readonly BurstRow[] | null | undefined): string[] {
   return (burst || []).filter((row) => messageAddressesOthersOnly(row.body)).map((row) => row.id);
 }
 
@@ -297,7 +487,11 @@ export function otherAddressedMessageIds(burst) {
  * 当前待判消息明确在叫别人。只收下这些消息，不要把同段里的 @小祥 一起沉默，也不要调用模型。
  * 段里另外有人点了小祥时，整段判断会退回斟酌并一直不返回，后面的完整调度就被堵住。
  */
-export function addressedOthersDecision(burst, messageId, revision = 0) {
+export function addressedOthersDecision(
+  burst: readonly BurstRow[] | null | undefined,
+  messageId: string | null | undefined,
+  revision: number = 0,
+): ParticipationOutcome | null {
   const ids = otherAddressedMessageIds(burst);
   if (!messageId || !ids.includes(messageId)) return null;
   return {
@@ -311,13 +505,13 @@ export function addressedOthersDecision(burst, messageId, revision = 0) {
 }
 
 /** Open burst is aimed at other people, and never at 小祥. Skip the model. */
-export function burstAddressesSomeoneElse(burst) {
+export function burstAddressesSomeoneElse(burst: readonly BurstRow[] | null | undefined): boolean {
   if (!burst?.length || burstAddressesAgent(burst)) return false;
   return burst.some((row) => addressesSomeoneElse(row.body));
 }
 
 /** Nudges/complaints clearly aimed at 小祥 staying quiet. */
-export function isAgentDirectedComplaint(burst) {
+export function isAgentDirectedComplaint(burst: readonly BurstRow[] | null | undefined): boolean {
   if (!burst?.length) return false;
   const text = burst
     .map((row) => String(row.body || "").trim())
@@ -331,7 +525,10 @@ export function isAgentDirectedComplaint(burst) {
 }
 
 /** Hard gate: must speak (overrides model silence and cooldown). */
-export function mustOpportunisticReply(burst, { replyingToAssistant = false } = {}) {
+export function mustOpportunisticReply(
+  burst: readonly BurstRow[] | null | undefined,
+  { replyingToAssistant = false }: { replyingToAssistant?: boolean } = {},
+): boolean {
   if (!burst?.length) return false;
   if (shouldInviteFullMode(burst)) return true;
   if (burstAddressesAgent(burst) || isAgentDirectedComplaint(burst) || needsSoloRunReply(burst)) {
@@ -352,7 +549,7 @@ export function mustOpportunisticReply(burst, { replyingToAssistant = false } = 
  * Work-shaped asks the light path must not pretend to start.
  * The short reply keeps a fixed reminder instead of opening full mode.
  */
-export function needsFullAgentWork(burst) {
+export function needsFullAgentWork(burst: readonly BurstRow[] | null | undefined): boolean {
   if (!burst?.length) return false;
   const text = burst
     .map((row) => String(row.body || "").trim())
@@ -396,7 +593,7 @@ export function needsFullAgentWork(burst) {
  * Speaker sounds frustrated / impatient with 小祥 or the stall.
  * The light path replaces its draft with the fixed @ reminder and does not open full mode.
  */
-export function isNegativeMood(burst) {
+export function isNegativeMood(burst: readonly BurstRow[] | null | undefined): boolean {
   if (!burst?.length) return false;
   const text = burst
     .map((row) => String(row.body || "").trim())
@@ -413,11 +610,11 @@ export function isNegativeMood(burst) {
   );
 }
 
-export function shouldInviteFullMode(burst) {
+export function shouldInviteFullMode(burst: readonly BurstRow[] | null | undefined): boolean {
   return needsFullAgentWork(burst) || isNegativeMood(burst);
 }
 
-export function briefAssistantFollowUpAck(burst) {
+export function briefAssistantFollowUpAck(burst: readonly BurstRow[]): string {
   const text = burst.map((row) => String(row.body || "")).join("");
   if (/挺快|好快|很快|速度/.test(text)) return "哈哈，这次赶上了。";
   if (/谢谢|感谢|辛苦/.test(text)) return "不客气，有需要再说。";
@@ -433,21 +630,23 @@ export const REPEATED_SAME_CONTENT_REPLY_AFTER = 3;
 
 const MENTIONS_ANYONE = /(?:^|[^\p{L}\p{N}_@])@[\p{L}\p{N}_]/u;
 
-export function normalizeBurstBody(body) {
+export function normalizeBurstBody(body: unknown): string {
   return String(body || "")
     .trim()
     .replace(/\s+/g, " ");
 }
 
 /** Trailing run of identical messages from one author without @ or interrupters. */
-export function repeatedSameContentRun(burst) {
+export function repeatedSameContentRun(
+  burst: readonly BurstRow[] | null | undefined,
+): RepeatedContentRun {
   if (!burst?.length) return { authorId: null, count: 0, body: "", messages: [] };
   const last = burst[burst.length - 1];
   const body = normalizeBurstBody(last.body);
   if (!body || MENTIONS_ANYONE.test(String(last.body || ""))) {
     return { authorId: null, count: 0, body: "", messages: [] };
   }
-  const messages = [];
+  const messages: BurstRow[] = [];
   for (let i = burst.length - 1; i >= 0; i--) {
     const row = burst[i];
     if (row.author_id !== last.author_id) break;
@@ -459,16 +658,21 @@ export function repeatedSameContentRun(burst) {
 }
 
 /** 同一人连续发送相同内容达到 3 次（无人打断、未 @ 任何人）时不应再沉默. */
-export function needsSoloRunReply(burst) {
+export function needsSoloRunReply(burst: readonly BurstRow[] | null | undefined): boolean {
   return repeatedSameContentRun(burst).count >= REPEATED_SAME_CONTENT_REPLY_AFTER;
 }
 
-export function briefSoloRunAck(burst) {
+export function briefSoloRunAck(burst: readonly BurstRow[] | null | undefined): string {
   const { count } = repeatedSameContentRun(burst);
   return `你连发了 ${count} 遍一样的话，我在的——需要我帮你什么吗？`;
 }
 
-export async function absorbOpportunisticBurst(conn, burstIds, replyId, anchorMessageId) {
+export async function absorbOpportunisticBurst(
+  conn: Db,
+  burstIds: readonly string[],
+  replyId: string,
+  anchorMessageId: string,
+): Promise<void> {
   for (const messageId of burstIds) {
     const progress = messageId === anchorMessageId ? "已参与讨论" : "已并入本次参与";
     await query(
@@ -489,7 +693,11 @@ export async function absorbOpportunisticBurst(conn, burstIds, replyId, anchorMe
   }
 }
 
-export async function silenceOpportunisticBurst(conn, burstIds, reason) {
+export async function silenceOpportunisticBurst(
+  conn: Db,
+  burstIds: readonly string[],
+  reason: string | null | undefined,
+): Promise<void> {
   const progress = deferSilenceProgress(reason);
   for (const messageId of burstIds) {
     await query(
@@ -513,15 +721,15 @@ export async function silenceOpportunisticBurst(conn, burstIds, reason) {
  * Model blips become silence, never a hard "暂未响应" failure for unmentioned turns.
  */
 export async function composeOpportunisticParticipation(
-  db,
+  db: Db,
   {
     title,
     threadId,
     messageId,
     decide = decideParticipation,
     judgeReminder = judgeLightReplyReminder,
-  },
-) {
+  }: ComposeParticipationInput,
+): Promise<ParticipationOutcome> {
   const openingBurst = await loadOpportunisticBurst(db, threadId);
   const addressedOthers = addressedOthersDecision(openingBurst, messageId);
   if (addressedOthers) return addressedOthers;
@@ -542,31 +750,34 @@ export async function composeOpportunisticParticipation(
     }
   }
 
-  let previousDraft;
+  let previousDraft: ReplyDraft | undefined;
   let throughSequence = 0;
-  let usageTotals = null;
+  let usageTotals: ParticipationUsage | null = null;
   let modelDurationMs = 0;
-  let modelAccounting = null;
-  let modelCapture = null;
-  const recordDecideMeta = (raw) => {
+  let modelAccounting: ModelAccounting = null;
+  let modelCapture: ModelCapture | null = null;
+  const recordDecideMeta = (raw: JudgeMeta): void => {
     if (raw?.usage) usageTotals = mergeParticipationUsage(usageTotals, raw.usage);
-    if (Number.isFinite(raw?.durationMs)) modelDurationMs += Math.max(0, raw.durationMs);
+    if (Number.isFinite(raw?.durationMs)) modelDurationMs += Math.max(0, raw.durationMs as number);
     if (!modelAccounting && raw?.modelAccounting?.model) modelAccounting = raw.modelAccounting;
   };
-  const withUsage = (decision) => ({
+  const withUsage = (decision: ParticipationOutcomeDraft): ParticipationOutcome => ({
     ...decision,
     usage: usageTotals,
     executionDurationMs: Math.round(modelDurationMs),
     modelAccounting: modelAccounting || decision.modelAccounting || null,
   });
-  const forceBriefAck = (burst) => ({
+  const forceBriefAck = (burst: readonly BurstRow[]): ReplyDraft => ({
     respond: true,
     message:
       needsSoloRunReply(burst) && !burstAddressesAgent(burst) && !isAgentDirectedComplaint(burst)
         ? briefSoloRunAck(burst)
         : briefAssistantFollowUpAck(burst),
   });
-  const finishReply = async (decision, burst) => {
+  const finishReply = async (
+    decision: ReplyDraft,
+    burst: readonly BurstRow[],
+  ): Promise<ReplyDraft & { reminded?: boolean }> => {
     if (!decision?.respond || !decision.message) return decision;
     if (reminderNeededByRule(burst)) {
       return {
@@ -576,16 +787,17 @@ export async function composeOpportunisticParticipation(
       };
     }
     if (decision.message.includes(FULL_MODE_REMINDER)) return decision;
-    let verdict;
+    let verdict: JudgeVerdict;
     try {
       verdict = await judgeReminder({ message: decision.message, modelCapture });
       recordDecideMeta(verdict);
     } catch (error) {
+      const failure = error as { name?: unknown; message?: unknown } | null;
       console.error("Light reply reminder judgment failed", {
         threadId,
         messageId,
-        type: error?.name || "Error",
-        diagnostic: String(error?.message || error).slice(-1000),
+        type: failure?.name || "Error",
+        diagnostic: String(failure?.message || error).slice(-1000),
       });
       return decision;
     }
@@ -629,7 +841,7 @@ export async function composeOpportunisticParticipation(
       });
     }
     // Always let the model phrase the reply; hard rules only force respond / fallback copy.
-    const historyDesc = await query(
+    const historyDesc = await query<ParticipationRow>(
       db,
       `SELECT m.body,m.source,u.name author FROM messages m
        JOIN users u ON u.id=m.author_id
@@ -661,7 +873,7 @@ export async function composeOpportunisticParticipation(
         throughSequence,
       });
     }
-    let decision;
+    let decision: ReplyDraft;
     try {
       if (decide === decideParticipation) modelCapture ||= modelConfig("coordinator");
       const raw = await decide({
@@ -686,12 +898,13 @@ export async function composeOpportunisticParticipation(
       recordDecideMeta(raw);
       decision = normalizeParticipationDecision(raw);
     } catch (error) {
+      const failure = error as { name?: unknown; message?: unknown } | null;
       console.error("Participation judgment failed", {
         threadId,
         messageId,
         revision,
-        type: error?.name || "Error",
-        diagnostic: String(error?.message || error).slice(-1000),
+        type: failure?.name || "Error",
+        diagnostic: String(failure?.message || error).slice(-1000),
       });
       if (previousDraft?.respond && previousDraft.message) {
         decision = previousDraft;
@@ -741,9 +954,9 @@ export async function composeOpportunisticParticipation(
  * so events still appear under「小祥轨迹」without opening a DSH harness.
  */
 export async function persistOpportunisticParticipationArtifacts(
-  db,
-  { messageId, threadId, decision, wallDurationMs } = {},
-) {
+  db: Db,
+  { messageId, threadId, decision, wallDurationMs }: ParticipationArtifactsInput = {},
+): Promise<void> {
   if (!messageId || !threadId || !decision) return;
   // Pure cooldown / no model work: nothing useful to meter or show in the ledger.
   if (
@@ -760,7 +973,7 @@ export async function persistOpportunisticParticipationArtifacts(
         : wallDurationMs || 0,
     );
     if (decision.usage || modelMs > 0) {
-      await saveReplyUsage(db, messageId, {
+      await saveReplyUsage(db as Parameters<typeof saveReplyUsage>[0], messageId, {
         ...(decision.usage || {}),
         ...(decision.modelAccounting || {}),
         executionDurationMs: Math.max(0, modelMs),
@@ -776,9 +989,11 @@ export async function persistOpportunisticParticipationArtifacts(
     await query(db, "INSERT IGNORE INTO agent_sessions(thread_id,session_id) VALUES(?,UUID())", [
       threadId,
     ]);
-    const [session] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [
-      threadId,
-    ]);
+    const [session] = await query<{ session_id: string }>(
+      db,
+      "SELECT session_id FROM agent_sessions WHERE thread_id=?",
+      [threadId],
+    );
     if (!session?.session_id) return;
 
     const durationUs = Math.max(0, modelMs) * 1000;
@@ -817,11 +1032,12 @@ export async function persistOpportunisticParticipationArtifacts(
       });
     }
   } catch (error) {
+    const failure = error as { name?: unknown; message?: unknown } | null;
     console.error("Opportunistic participation artifacts failed", {
       messageId,
       threadId,
-      type: error?.name || "Error",
-      diagnostic: String(error?.message || error).slice(-1000),
+      type: failure?.name || "Error",
+      diagnostic: String(failure?.message || error).slice(-1000),
     });
   }
 }
@@ -837,7 +1053,10 @@ const REMINDER_JUDGE_SYSTEM =
 
 export const FULL_MODE_REMINDER = "需要麻烦你再@小祥，我才会真的开始。";
 
-export function appendFullModeReminder(message, { replace = false } = {}) {
+export function appendFullModeReminder(
+  message: unknown,
+  { replace = false }: { replace?: boolean } = {},
+): string {
   const text = String(message || "").trim();
   if (!text || replace) return FULL_MODE_REMINDER;
   if (text.includes(FULL_MODE_REMINDER) || text.includes("我才会真的开始")) return text;
@@ -845,12 +1064,15 @@ export function appendFullModeReminder(message, { replace = false } = {}) {
   return text + end + FULL_MODE_REMINDER;
 }
 
-export function reminderNeededByRule(burst) {
+export function reminderNeededByRule(burst: readonly BurstRow[] | null | undefined): boolean {
   return shouldInviteFullMode(burst);
 }
 
 /** Second call: the draft already exists. Judge the reply text, not the user's words. */
-export async function judgeLightReplyReminder({ message, modelCapture } = {}, request = fetch) {
+export async function judgeLightReplyReminder(
+  { message, modelCapture }: { message?: unknown; modelCapture?: ModelCapture | null } = {},
+  request: typeof fetch = fetch,
+): Promise<JudgeVerdict> {
   const text = String(message || "").trim();
   if (!text || text.includes(FULL_MODE_REMINDER)) return { remind: false };
   const started = performance.now();
@@ -883,7 +1105,10 @@ export async function judgeLightReplyReminder({ message, modelCapture } = {}, re
   };
 }
 
-export async function decideParticipation(context, request = fetch) {
+export async function decideParticipation(
+  context: ParticipationContext,
+  request: typeof fetch = fetch,
+): Promise<ParticipationJudgeResult> {
   const messages = context.modelMessages || compactParticipationMessages(context.messages || []);
   const integrateBurst = compactParticipationMessages(
     (context.integrateBurst || []).map(({ author, body }) => ({
@@ -926,7 +1151,7 @@ export async function decideParticipation(context, request = fetch) {
     },
     request,
   );
-  let decision;
+  let decision: unknown;
   try {
     decision = JSON.parse(responseText(data) || "null");
   } catch {

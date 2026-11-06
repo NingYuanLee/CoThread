@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { composeEntries, loadOverlayPatches, loadProfile } from "@deepseek-ai/dsh-app-boot";
 import { load as loadYaml } from "js-yaml";
 import { assetPath } from "./assets.ts";
-import { dshModelPatch } from "./model-config.js";
+import { dshModelPatch } from "./model-config.ts";
 
 /** 组装结果里每条插件对外的形状。 */
 type ComposedEntry = { id: string; packageName: string; assembled: boolean };

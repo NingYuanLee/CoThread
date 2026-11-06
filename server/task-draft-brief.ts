@@ -7,7 +7,7 @@ import { TASK_DRAFT_SYSTEM_PROMPT, taskDraftPromptText } from "../shared/task-dr
 import { query } from "./db.ts";
 import { latestVersionsByFolderRoots } from "./documents/index.ts";
 import { HttpError } from "./http-error.ts";
-import { modelResponse, responseText } from "./model-config.js";
+import { modelResponse, responseText } from "./model-config.ts";
 import { describeMouthpieceAttachment } from "./mouthpiece.ts";
 import { assertDocumentRefs, assertFolderRefs } from "./task-documents.ts";
 import type { Db, RequestUser } from "./types.ts";

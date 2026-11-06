@@ -10,7 +10,7 @@ import {
 } from "../server/conversation-memory-store.js";
 import { processConversationWindow } from "../server/conversation-memory-runner.ts";
 import { searchProjectMemory } from "../server/memory-search.ts";
-import { supersedeMemoryEntry, confirmMemoryEntry } from "../server/memory-timeline.js";
+import { supersedeMemoryEntry, confirmMemoryEntry } from "../server/memory-timeline.ts";
 import { getWikiPage } from "../server/wiki-pages.ts";
 import { listMemoryHistory, readMemoryRevision } from "../server/memory-history.ts";
 import {
@@ -23,7 +23,7 @@ import { readProjectFacts } from "../server/project-facts.ts";
 import { syncDocumentMemory } from "../server/document-memory.ts";
 import { createVersion, replaceVersionContent } from "../server/documents/versions.ts";
 import { loadTaskMemoryStats } from "../server/task-memory.ts";
-import { callMcpTool } from "../server/mcp.js";
+import { callMcpTool } from "../server/mcp.ts";
 import { createTask } from "../server/task-commands.ts";
 import { readTaskDecisionEvidence } from "../server/memory-decisions.ts";
 import { createArtifact } from "../server/documents/versions.ts";

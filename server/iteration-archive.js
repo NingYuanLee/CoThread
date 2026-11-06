@@ -4,12 +4,12 @@ import { markInTransaction, query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { lockIteration } from "./iteration-state.ts";
 import { latestVersionsByFolderRoots } from "./documents/index.ts";
-import { modelResponse, responseText } from "./model-config.js";
+import { modelResponse, responseText } from "./model-config.ts";
 import { publishWork } from "./work-events.ts";
 import { nativeHistoryFromLiveHome } from "./child-agent-session.ts";
 import { acquireSessionLock } from "./session-lock.ts";
 import { recordArchivePages } from "./wiki-pages.ts";
-import { settleIterationMemory } from "./memory-timeline.js";
+import { settleIterationMemory } from "./memory-timeline.ts";
 
 const ended = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);
 

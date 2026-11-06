@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
-import { dshModelPatch } from "../server/model-config.js";
+import { dshModelPatch } from "../server/model-config.ts";
 
 test("DSH starts with a custom OpenAI-compatible provider route", async () => {
   const home = await mkdtemp(join(tmpdir(), "cothread-model-route-"));

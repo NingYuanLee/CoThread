@@ -8,7 +8,7 @@ import { z } from "zod/v3";
 import { query } from "./db.ts";
 import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
-import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
 import {
   injectMiniprogramRuntimeSource,
   resolveMiniprogramRuntime,

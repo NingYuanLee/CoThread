@@ -6,7 +6,7 @@ import { query } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
 import { assetPath } from "./assets.ts";
 import { dedupeSessionLogs, hasSessionLog, restoreSessionCheckpoint } from "./agent-checkpoint.ts";
-import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.js";
+import { dshModelMaxTokens, dshModelPatch, modelConfig, redactSecrets } from "./model-config.ts";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.ts";
 import { laowengRuntimePatch, elderRuntimePatch } from "./dsh-runtime-config.ts";
 import {

@@ -23,7 +23,7 @@ import {
   dshModelPatch,
   modelForLaunch,
   redactSecrets,
-} from "./model-config.js";
+} from "./model-config.ts";
 import { loadAgentCapabilityProfile } from "./agent-capabilities.ts";
 import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
@@ -34,17 +34,156 @@ import { acquireSessionLock } from "./session-lock.ts";
 import { logAgentTiming } from "./agent-timing-log.ts";
 import { insertUniqueAssistantMessage } from "./assistant-post.ts";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
+import type { AddressInfo } from "node:net";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+import type { AgentSessionScope } from "./agent-session.ts";
+import type { NamedLock } from "./named-lock.ts";
+import type { ThinkingTracker, TrackThinkingOptions } from "./agent-thinking.ts";
+import type {
+  DeepSeekHarness,
+  DeepSeekHarnessOptions,
+  HarnessNotification,
+  NotificationSubscription,
+} from "@deepseek-ai/dsh-sdk-client";
 
-const running = new Map();
-const coordinatorRuntimes = new Map();
+/** 一个 Agent 任务（协调者任务或子 Agent 任务）的标识字段。 */
+type AgentJob = Extract<AgentSessionScope, object> & {
+  /** 协调者任务的事件类型（`child_result` / `child_idle` 等）。 */
+  kind?: string | null;
+};
+
+/** 发起这条 Agent 任务的成员 / 账号身份。 */
+type AgentUser = {
+  id: string;
+  kind?: string | null;
+  scope?: string | null;
+  [field: string]: unknown;
+};
+
+/** 迭代上下文：`service.context()` 的返回值，压缩 / 同步链路传的是同形对象。
+ *  有的调用方按 `Record<string, unknown>` 收窄过，所以这里只声明本文件用到的两项为
+ *  unknown，真正的消息行形状在 `ingest` 处收窄。 */
+type AgentContext = {
+  project_id?: unknown;
+  messages?: unknown;
+  replies?: unknown;
+  [field: string]: unknown;
+};
+
+/** 讨论消息行：只声明本文件读到的列。 */
+type AgentMessage = {
+  id: string;
+  sequence: string | number | bigint;
+  [column: string]: unknown;
+};
+
+/** 启动时捕获的模型路由（`modelForLaunch` 的返回值）。 */
+type ModelCapture = ReturnType<typeof modelForLaunch>;
+
+/** 能力视图：跟着 `loadAgentCapabilityProfile` 的实现走。 */
+type CapabilityProfile = Awaited<ReturnType<typeof loadAgentCapabilityProfile>>;
+
+/** 能力视图的层级键；executor 运行只载入 `child_agent`。 */
+type CapabilityLevel = "xiaoxiang" | "child_agent";
+
+/** 本次运行载入的能力视图。 */
+type CapabilityProfiles = Partial<Record<CapabilityLevel, CapabilityProfile>>;
+
+/** 构造 DSH 运行时的工厂；默认实现懒加载 SDK，测试可注入替身。 */
+type CreateHarness = (options: DeepSeekHarnessOptions) => DeepSeekHarness;
+
+/** 桥接 RPC：DSH 没有为这些自定义方法声明形状，调用点按用到的字段收窄。 */
+type BridgeRequest = <T = unknown>(
+  method: string,
+  params?: Record<string, unknown>,
+  timeoutMs?: number,
+) => Promise<T>;
+
+/** 上下文计量应答（`cothread/context` 与 `cothread/observe` 都回这个形状）。 */
+type ContextStats = { used: number; autoCompactAt?: number; [field: string]: unknown };
+
+/** 桥接工具调用的调用方信息（子会话 id 决定工具层级）。 */
+type ToolCaller = { sessionId?: string | null; [field: string]: unknown };
+
+/** `insertUniqueAssistantMessage` 收的结构化门面视图：Service 在运行期满足它，
+ *  只是 `Service.insertMessage` 的元组入参与被调方声明的 `unknown[]` 不是同一形状。 */
+type AssistantPoster = Parameters<typeof insertUniqueAssistantMessage>[0];
+
+/** `agent_sessions` / `agent_child_sessions` 的一行，只声明本文件读到的列。 */
+type AgentSessionRow = {
+  session_id: string;
+  checkpoint?: string | Buffer | null;
+  seen_sequence?: string | number | bigint;
+  [column: string]: unknown;
+};
+
+/** 一次 Agent 运行时的对外接口（`openAgentRuntime` 的返回值）。 */
+type AgentRuntime = {
+  harness: DeepSeekHarness;
+  session: AgentSessionRow;
+  request: BridgeRequest;
+  sample: () => Promise<void>;
+  close: (completed?: boolean) => Promise<void>;
+  progress: (text: string) => Promise<unknown>;
+  bindTurn: (next?: { job?: AgentJob; user?: AgentUser; context?: AgentContext }) => Promise<void>;
+  park: (completed?: boolean) => Promise<void>;
+  readonly thinking: ThinkingTracker;
+  forgetSession: (sessionId: string | null | undefined) => void;
+  capabilityProfile: CapabilityProfile | undefined;
+  activeChildren: Set<string>;
+  watchChildren: (
+    onNotification: (notification: HarnessNotification) => void,
+    after?: () => Promise<void>,
+  ) => void;
+  hasActiveChildren: () => boolean;
+  modelCapture: ModelCapture;
+  reused?: boolean;
+};
+
+/** 停在内存里的协调者运行时条目。 */
+type CoordinatorEntry = {
+  runtime: AgentRuntime;
+  db: Db;
+  idleTimer?: NodeJS.Timeout;
+  closing?: Promise<void>;
+};
+
+/** `openAgentRuntime` 的选项。 */
+type AgentRuntimeOptions = {
+  db: Db;
+  job: AgentJob;
+  user: AgentUser;
+  observe?: boolean;
+  autoCompact?: boolean;
+  createHarness?: CreateHarness;
+  role?: string;
+  sessionLockHeld?: boolean;
+  keepalive?: boolean;
+  sessionReset?: boolean;
+};
+
+/** `acquireCoordinatorRuntime` 的注入项。 */
+type AcquireCoordinatorOptions = {
+  db: Db;
+  job: AgentJob;
+  user: AgentUser;
+  createHarness?: CreateHarness;
+};
+
+/** 带业务码的 Agent 错误：上层按 `code` / `agentStage` 判别。 */
+type AgentError = Error & { code?: string; agentStage?: string };
+
+const running = new Map<string | undefined, DeepSeekHarness>();
+const coordinatorRuntimes = new Map<string, CoordinatorEntry>();
 const COORDINATOR_IDLE_MS = 5 * 60 * 1000;
 
 function agentRuntimeRoot() {
   return resolve(".local/agents");
 }
 
-export function isCorruptSessionLog(error) {
-  const message = String(error?.message || error || "");
+export function isCorruptSessionLog(error: unknown): boolean {
+  const message = String((error as { message?: unknown } | null)?.message || error || "");
   return (
     /corrupt session log/i.test(message) ||
     /stored log is corrupt/i.test(message) ||
@@ -58,17 +197,22 @@ export function isCorruptSessionLog(error) {
   );
 }
 
-async function discardCoordinatorRuntime(threadId, runtime) {
+async function discardCoordinatorRuntime(
+  threadId: string,
+  runtime: AgentRuntime | null | undefined,
+): Promise<void> {
   const entry = coordinatorRuntimes.get(threadId);
   if (entry?.runtime === runtime) {
-    clearTimeout(entry.idleTimer);
+    clearTimeout(entry!.idleTimer);
     coordinatorRuntimes.delete(threadId);
   }
   if (runtime) await runtime.close(false).catch(() => {});
 }
 
 /** Drop any parked 小祥 runtime for this iteration. Session-id rotations must never leave a stale in-memory 小祥. */
-export async function invalidateCoordinatorRuntime(threadId) {
+export async function invalidateCoordinatorRuntime(
+  threadId: string | null | undefined,
+): Promise<void> {
   if (!threadId) return;
   const entry = coordinatorRuntimes.get(threadId);
   if (!entry?.runtime) return;
@@ -77,7 +221,7 @@ export async function invalidateCoordinatorRuntime(threadId) {
   await entry.runtime.close(false).catch(() => {});
 }
 
-export async function resetAgentSessionStore(db, job) {
+export async function resetAgentSessionStore(db: Db, job: AgentJob): Promise<void> {
   const spec = agentSession(job);
   // Rotate the durable session id only after killing any parked coordinator that still
   // holds the old id; otherwise create_task stamps the new id while child_agent binds the old one.
@@ -90,7 +234,10 @@ export async function resetAgentSessionStore(db, job) {
   await rm(join(agentRuntimeRoot(), spec.homeId, "sessions"), { recursive: true, force: true });
 }
 
-export async function acquireCoordinatorRuntime(context, { db, job, user, createHarness } = {}) {
+export async function acquireCoordinatorRuntime(
+  context: AgentContext,
+  { db, job, user, createHarness }: AcquireCoordinatorOptions = {} as AcquireCoordinatorOptions,
+): Promise<AgentRuntime> {
   const key = job.thread_id;
   let existing = coordinatorRuntimes.get(key);
   if (existing?.closing) {
@@ -103,7 +250,7 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
       })
     : "keep";
   if (reuse === "wait") {
-    const error = new Error("模型配置已更新，等待此迭代正在运行的子任务结束后切换");
+    const error: AgentError = new Error("模型配置已更新，等待此迭代正在运行的子任务结束后切换");
     error.code = "XIAOXIANG_SESSION_BUSY";
     throw error;
   }
@@ -113,11 +260,13 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
     clearTimeout(existing.idleTimer);
     existing.idleTimer = undefined;
     try {
-      const [row] = await query(db, "SELECT session_id FROM agent_sessions WHERE thread_id=?", [
-        key,
-      ]);
+      const [row] = await query<{ session_id?: string | null }>(
+        db,
+        "SELECT session_id FROM agent_sessions WHERE thread_id=?",
+        [key],
+      );
       if (!row?.session_id || row.session_id !== existing.runtime.session?.session_id) {
-        const error = new Error("小祥 session rotated");
+        const error: AgentError = new Error("小祥 session rotated");
         error.code = "XIAOXIANG_SESSION_ROTATED";
         throw error;
       }
@@ -129,9 +278,10 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
     } catch (error) {
       coordinatorRuntimes.delete(key);
       await existing.runtime.close().catch(() => {});
+      const failure = error as { name?: string; code?: string } | null;
       console.error("Coordinator runtime rebind failed", {
-        type: error?.name || "Error",
-        code: error?.code || null,
+        type: failure?.name || "Error",
+        code: failure?.code || null,
       });
     }
   }
@@ -149,7 +299,11 @@ export async function acquireCoordinatorRuntime(context, { db, job, user, create
   return runtime;
 }
 
-export async function parkCoordinatorRuntime(threadId, runtime, completed = true) {
+export async function parkCoordinatorRuntime(
+  threadId: string,
+  runtime: AgentRuntime,
+  completed = true,
+): Promise<void> {
   const entry = coordinatorRuntimes.get(threadId);
   if (!entry || entry.runtime !== runtime) {
     await runtime.close(completed);
@@ -180,7 +334,7 @@ export async function parkCoordinatorRuntime(threadId, runtime, completed = true
   scheduleIdleClose();
 }
 
-function retireCoordinatorRuntime(threadId, entry) {
+function retireCoordinatorRuntime(threadId: string, entry: CoordinatorEntry): Promise<void> {
   if (entry.closing) return entry.closing;
   clearTimeout(entry.idleTimer);
   entry.idleTimer = undefined;
@@ -195,7 +349,7 @@ function retireCoordinatorRuntime(threadId, entry) {
   return entry.closing;
 }
 
-export function releaseIdleStaleCoordinatorRuntimes() {
+export function releaseIdleStaleCoordinatorRuntimes(): void {
   for (const [threadId, entry] of coordinatorRuntimes) {
     if (!entry.idleTimer) continue;
     if (
@@ -210,9 +364,13 @@ export function releaseIdleStaleCoordinatorRuntimes() {
 
 export { discardCoordinatorRuntime };
 
-export async function stopAgent(db, threadId, messageId) {
+export async function stopAgent(db: Db, threadId: string, messageId: string): Promise<void> {
   const task = running.get(messageId);
-  const [reply] = await query(
+  const [reply] = await query<{
+    parent_message_id?: string | null;
+    agent_slot?: string | null;
+    execution_active?: unknown;
+  }>(
     db,
     "SELECT parent_message_id,agent_slot,execution_active FROM assistant_replies WHERE message_id=?",
     [messageId],
@@ -231,10 +389,16 @@ export async function stopAgent(db, threadId, messageId) {
       : undefined,
   ]);
 }
-async function checkpoint(db, { table, key, id }, home, seenSequence, modelMessages) {
+async function checkpoint(
+  db: Db,
+  { table, key, id }: { table: string; key: string; id: string },
+  home: string,
+  seenSequence: unknown,
+  modelMessages?: unknown,
+): Promise<void> {
   const dir = join(home, "sessions");
-  const files = {};
-  async function walk(path, prefix = "") {
+  const files: Record<string, string> = {};
+  async function walk(path: string, prefix = "") {
     for (const entry of await readdir(path, { withFileTypes: true }).catch((e) =>
       e.code === "ENOENT" ? [] : Promise.reject(e),
     )) {
@@ -255,7 +419,10 @@ async function checkpoint(db, { table, key, id }, home, seenSequence, modelMessa
     id,
   ]);
 }
-export async function openAgentRuntime(context, options) {
+export async function openAgentRuntime(
+  context: AgentContext,
+  options: AgentRuntimeOptions,
+): Promise<AgentRuntime> {
   const {
     db,
     job,
@@ -270,9 +437,9 @@ export async function openAgentRuntime(context, options) {
   } = options;
   let createHarness = createHarnessOption;
   const runtimeStarted = performance.now();
-  let sessionLock;
+  let sessionLock: NamedLock | null | undefined;
   let stageStarted = runtimeStarted;
-  const timed = (stage) => {
+  const timed = (stage: string) => {
     const now = performance.now();
     logAgentTiming({
       messageId: job.message_id,
@@ -294,7 +461,7 @@ export async function openAgentRuntime(context, options) {
   const service = new Service(db);
   const actor = { ...user, scope: context.project_id };
   const spec = agentSession(job);
-  const progress = (text) =>
+  const progress = (text: string): Promise<unknown> =>
     job.message_id
       ? query(
           db,
@@ -303,7 +470,7 @@ export async function openAgentRuntime(context, options) {
         )
       : Promise.resolve();
   await progress(job.parent_message_id ? "小祥正在准备处理" : "正在启动运行时");
-  let session;
+  let session: AgentSessionRow;
   await query(db, `INSERT IGNORE INTO ${spec.table}(${spec.key},session_id) VALUES(?,?)`, [
     spec.id,
     randomUUID(),
@@ -311,18 +478,18 @@ export async function openAgentRuntime(context, options) {
   [session] = await query(db, `SELECT * FROM ${spec.table} WHERE ${spec.key}=?`, [spec.id]);
   const sessionRow = { table: spec.table, key: spec.key, id: spec.id };
   if (!job.parent_message_id && !sessionLockHeld && job.thread_id) {
-    sessionLock = await acquireSessionLock(db, job.thread_id, 30);
+    sessionLock = await acquireSessionLock(db as Pool, job.thread_id, 30);
     if (!sessionLock) {
-      const error = new Error("小祥 session is busy");
+      const error: AgentError = new Error("小祥 session is busy");
       error.code = "XIAOXIANG_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
     }
   }
   if (spec.kind === "child_agent" && spec.id && !sessionLockHeld) {
-    sessionLock = await acquireSessionLock(db, spec.homeId, 30);
+    sessionLock = await acquireSessionLock(db as Pool, spec.homeId, 30);
     if (!sessionLock) {
-      const error = new Error("子 Agent session is busy");
+      const error: AgentError = new Error("子 Agent session is busy");
       error.code = "CHILD_SESSION_BUSY";
       error.agentStage = "start";
       throw error;
@@ -336,7 +503,7 @@ export async function openAgentRuntime(context, options) {
       level: "child_agent",
       systemPrompt: SYSTEM_PROMPTS.child_agent.prompt,
     };
-    const capabilityProfiles =
+    const capabilityProfiles: CapabilityProfiles =
       role === "coordinator"
         ? { xiaoxiang: sharedCapabilities, child_agent: childCapabilities }
         : { child_agent: childCapabilities };
@@ -364,29 +531,35 @@ export async function openAgentRuntime(context, options) {
         ? session.session_id
         : "";
     const token = randomBytes(32).toString("hex");
-    const thinkingOptions =
+    const thinkingOptions: TrackThinkingOptions =
       role === "coordinator"
         ? {
-            async onVisibleText(text) {
+            async onVisibleText(text: string) {
               const posted = await insertUniqueAssistantMessage(
-                service,
+                service as unknown as AssistantPoster,
                 db,
                 actor,
                 job.thread_id,
                 text,
-                job.message_id,
+                job.message_id as string,
                 messageTurnIdForJob(job),
               );
               if (posted) publishWork(db, job.thread_id);
             },
           }
         : {};
-    let thinking = trackThinking(db, job.message_id, session.session_id, thinkingOptions);
-    const executeTool = createAgentTools(service, actor, job, {
+    let thinking: ThinkingTracker = trackThinking(
+      db,
+      job.message_id as string,
+      session.session_id,
+      thinkingOptions,
+    );
+    const toolOptions: { role: string; xiaoxiangSessionId: string } = {
       role,
       xiaoxiangSessionId: session.session_id,
-    });
-    const execute = (name, args, caller = {}) => {
+    };
+    const executeTool = createAgentTools(service, actor, job, toolOptions);
+    const execute = (name: string, args: unknown, caller: ToolCaller = {}) => {
       const level =
         role === "coordinator" && caller.sessionId && caller.sessionId !== session.session_id
           ? "child_agent"
@@ -397,7 +570,7 @@ export async function openAgentRuntime(context, options) {
       // binds the spawned 子 Agent through bind_child_agent; it must not require a
       // capability-profile allowlist entry or the model could also call it.
       const internalBridgeTools = new Set(["bind_child_agent"]);
-      if (!internalBridgeTools.has(name) && !capabilityProfiles[level].allowedTools.includes(name))
+      if (!internalBridgeTools.has(name) && !capabilityProfiles[level]!.allowedTools.includes(name))
         throw new HttpError(403, "当前成员未启用该插件能力");
       return executeTool(name, args, caller);
     };
@@ -434,22 +607,23 @@ export async function openAgentRuntime(context, options) {
         const result = await task;
         res.end(JSON.stringify(result));
       } catch (error) {
-        res.writeHead(error.status || 400);
-        res.end(JSON.stringify({ error: error.message }));
+        const failure = error as { status?: number; message?: string };
+        res.writeHead(failure.status || 400);
+        res.end(JSON.stringify({ error: failure.message }));
       }
     });
-    await new Promise((resolve) => bridge.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((done) => bridge.listen(0, "127.0.0.1", done));
     const patch = join(home, "tools.yml");
     const modelPatch = join(home, "model.yml");
     await writeFile(patch, agentRuntimePatch());
-    const parentCapture =
+    const parentCapture: Parameters<typeof modelForLaunch>[1] =
       role === "executor" && job?.thread_id
         ? coordinatorRuntimes.get(job.thread_id)?.runtime?.modelCapture
         : null;
     const configuredModel = modelForLaunch(role, parentCapture);
     await writeFile(modelPatch, dshModelPatch(configuredModel, role));
     // Never inherit database or unrelated application secrets into the Agent process.
-    const env = {};
+    const env: Record<string, string | undefined> = {};
     for (const key of [
       "SystemRoot",
       "WINDIR",
@@ -464,7 +638,7 @@ export async function openAgentRuntime(context, options) {
       if (process.env[key]) env[key] = process.env[key];
     Object.assign(env, {
       MODEL_API_KEY: configuredModel.apiKey,
-      COTHREAD_BRIDGE_URL: `http://127.0.0.1:${bridge.address().port}`,
+      COTHREAD_BRIDGE_URL: `http://127.0.0.1:${(bridge.address() as AddressInfo).port}`,
       COTHREAD_BRIDGE_TOKEN: token,
       COTHREAD_RESUME_SESSION: resumeSessionId,
       COTHREAD_ALLOWED_TOOLS: JSON.stringify([
@@ -514,7 +688,7 @@ export async function openAgentRuntime(context, options) {
     });
     if (job.message_id) running.set(job.message_id, harness);
     let seenSequence = session.seen_sequence;
-    let modelMessages;
+    let modelMessages: unknown;
     if (!job.parent_message_id && session.checkpoint) {
       const saved = JSON.parse(
         gunzipSync(session.checkpoint, { maxOutputLength: 40 * 1024 * 1024 }).toString(),
@@ -524,13 +698,14 @@ export async function openAgentRuntime(context, options) {
           Buffer.from(saved["_cothread_context.json"], "base64").toString(),
         );
     }
-    let sharedHistory;
+    let sharedHistory: unknown;
     if (job.parent_message_id && !session.checkpoint) {
-      const [primary] = await query(
-        db,
-        "SELECT checkpoint,seen_sequence FROM agent_sessions WHERE thread_id=?",
-        [job.thread_id],
-      );
+      const [primary] = await query<{
+        checkpoint?: string | Buffer | null;
+        seen_sequence?: string | number | bigint;
+      }>(db, "SELECT checkpoint,seen_sequence FROM agent_sessions WHERE thread_id=?", [
+        job.thread_id,
+      ]);
       if (primary?.checkpoint) {
         const files = JSON.parse(
           gunzipSync(primary.checkpoint, { maxOutputLength: 40 * 1024 * 1024 }).toString(),
@@ -545,17 +720,17 @@ export async function openAgentRuntime(context, options) {
     }
     let sampling = Promise.resolve();
     let samplingNow = false;
-    let interval;
+    let interval: NodeJS.Timeout | undefined;
     let closed = false;
-    const forgottenSessions = new Set();
-    const activeChildren = new Set();
-    let childWatch;
-    const forgetSession = (sessionId) => {
+    const forgottenSessions = new Set<string>();
+    const activeChildren = new Set<string>();
+    let childWatch: NotificationSubscription | undefined;
+    const forgetSession = (sessionId: string | null | undefined) => {
       if (sessionId && sessionId !== session.session_id) forgottenSessions.add(sessionId);
     };
     const pruneForgottenSessions = async () => {
       const sessionsRoot = resolve(home, "sessions");
-      const walk = async (path) => {
+      const walk = async (path: string): Promise<void> => {
         for (const entry of await readdir(path, { withFileTypes: true }).catch((error) =>
           error.code === "ENOENT" ? [] : Promise.reject(error),
         )) {
@@ -573,20 +748,21 @@ export async function openAgentRuntime(context, options) {
       };
       await walk(sessionsRoot);
     };
-    const request = (method, params = {}) =>
+    const request: BridgeRequest = ((method: string, params: Record<string, unknown> = {}) =>
       harness.client.request(
         `cothread/${method}`,
         { sessionId: session.session_id, ...params },
         250000,
-      );
+      )) as BridgeRequest;
     const compactSafely = async () => {
       try {
         await request("compact", { automatic: true });
       } catch (error) {
+        const failure = error as { name?: string; message?: unknown } | null;
         console.error("Automatic compaction skipped", {
           threadId: job.thread_id,
-          type: error?.name || "Error",
-          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+          type: failure?.name || "Error",
+          diagnostic: redactSecrets(failure?.message || error).slice(-1000),
         });
       }
     };
@@ -594,7 +770,7 @@ export async function openAgentRuntime(context, options) {
       if (samplingNow || closed) return sampling;
       samplingNow = true;
       sampling = (async () => {
-        const stats = await request("context");
+        const stats = await request<ContextStats>("context");
         await query(
           db,
           `UPDATE ${sessionRow.table} SET context_stats=? WHERE ${sessionRow.key}=?`,
@@ -607,7 +783,7 @@ export async function openAgentRuntime(context, options) {
         // Heartbeat is independent of context RPC so a hung meter cannot freeze liveness.
         for (const childId of [...activeChildren]) {
           void touchChildInferenceHeartbeat(db, childId).catch(() => {});
-          void request("context", { sessionId: childId })
+          void request<{ used?: unknown } | null>("context", { sessionId: childId })
             .then((childStats) => persistChildContextStats(db, childId, childStats))
             .catch(() => {});
         }
@@ -616,13 +792,17 @@ export async function openAgentRuntime(context, options) {
       });
       return sampling;
     };
-    const ingest = async (messages, replies) => {
-      const fresh =
-        observe && !job.parent_message_id ? pendingMessages(messages, seenSequence, replies) : [];
+    const ingest = async (messages: unknown[], replies: unknown[] = []) => {
+      const fresh: AgentMessage[] =
+        observe && !job.parent_message_id
+          ? (pendingMessages(messages, seenSequence, replies) as AgentMessage[])
+          : [];
       for (const message of fresh) {
         agentStage = "observe";
         if (!job.parent_message_id) modelMessages = undefined;
-        const stats = await request("observe", { messages: [discussionText(message)] });
+        const stats = await request<ContextStats>("observe", {
+          messages: [discussionText(message)],
+        });
         seenSequence = message.sequence;
         if (autoCompact && stats.used >= (stats.autoCompactAt ?? AUTO_COMPACT_AT)) {
           agentStage = "compact";
@@ -632,9 +812,9 @@ export async function openAgentRuntime(context, options) {
       if (
         observe &&
         messages.length &&
-        BigInt(messages.at(-1).sequence) > BigInt(seenSequence || 0)
+        BigInt((messages.at(-1) as AgentMessage).sequence) > BigInt(seenSequence || 0)
       )
-        seenSequence = messages.at(-1).sequence;
+        seenSequence = (messages.at(-1) as AgentMessage).sequence;
       agentStage = "meter";
       await sample();
     };
@@ -663,27 +843,34 @@ export async function openAgentRuntime(context, options) {
       } catch {}
       await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
     };
-    const bindTurn = async ({ job: nextJob, user: nextUser, context: nextContext } = {}) => {
+    const bindTurn = async ({
+      job: nextJob,
+      user: nextUser,
+      context: nextContext,
+    }: { job?: AgentJob; user?: AgentUser; context?: AgentContext } = {}) => {
       if (closed) throw new Error("runtime closed");
       if (nextJob) Object.assign(job, nextJob);
       if (nextUser) Object.assign(actor, nextUser, { scope: context.project_id });
       if (!job.parent_message_id && !sessionLock && job.thread_id) {
-        sessionLock = await acquireSessionLock(db, job.thread_id, 30);
+        sessionLock = await acquireSessionLock(db as Pool, job.thread_id, 30);
         if (!sessionLock) {
-          const error = new Error("小祥 session is busy");
+          const error: AgentError = new Error("小祥 session is busy");
           error.code = "XIAOXIANG_SESSION_BUSY";
           error.agentStage = "start";
           throw error;
         }
       }
-      thinking = trackThinking(db, job.message_id, session.session_id, thinkingOptions);
+      thinking = trackThinking(db, job.message_id as string, session.session_id, thinkingOptions);
       if (job.message_id) running.set(job.message_id, harness);
       await progress("正在接入运行时");
       await progress("正在准备上下文");
-      await ingest(nextContext?.messages || [], nextContext?.replies || []);
+      await ingest(
+        (nextContext?.messages || []) as unknown[],
+        (nextContext?.replies || []) as unknown[],
+      );
       timed("context_ready");
     };
-    const close = async (completed = false) => {
+    const close = async (completed = false): Promise<void> => {
       if (closed) return;
       clearInterval(interval);
       if (childWatch) {
@@ -714,7 +901,7 @@ export async function openAgentRuntime(context, options) {
           } finally {
             await chain;
             await pruneForgottenSessions();
-            await new Promise((resolve) => bridge.close(resolve));
+            await new Promise<void>((done) => bridge.close(() => done()));
             await thinking.close(completed ? "completed" : "failed");
             try {
               if (handedOff) await checkpoint(db, sessionRow, home, seenSequence, modelMessages);
@@ -752,10 +939,13 @@ export async function openAgentRuntime(context, options) {
       interval.unref();
       // Append only new discussion. Native assistant turns and compressed summaries
       // already live in this session and must never be re-sent as full transcripts.
-      await ingest(context.messages, context.replies);
+      await ingest(context.messages as unknown[], context.replies as unknown[]);
       timed("context_ready");
       handedOff = true;
-      const watchChildren = (onNotification, after = async () => {}) => {
+      const watchChildren = (
+        onNotification: (notification: HarnessNotification) => void,
+        after: () => Promise<void> = async () => {},
+      ) => {
         if (childWatch || !harness?.client?.subscribeSessionTree) return;
         const sub = harness.client.subscribeSessionTree(session.session_id);
         childWatch = sub;
@@ -776,9 +966,10 @@ export async function openAgentRuntime(context, options) {
               await after();
             }
           } catch (error) {
+            const failure = error as { name?: string; message?: unknown } | null;
             console.error("Coordinator child watch ended", {
-              type: error?.name || "Error",
-              diagnostic: redactSecrets(error?.message || error).slice(-1000),
+              type: failure?.name || "Error",
+              diagnostic: redactSecrets(failure?.message || error).slice(-1000),
             });
           } finally {
             if (childWatch === sub) childWatch = undefined;
@@ -808,13 +999,14 @@ export async function openAgentRuntime(context, options) {
         modelCapture: configuredModel,
       };
     } catch (error) {
-      error.agentStage = agentStage;
+      (error as AgentError | null)!.agentStage = agentStage;
       await close().catch(() => {});
       if (!sessionReset && isCorruptSessionLog(error)) {
+        const failure = error as { name?: string } | null;
         console.error("Agent session log corrupt, resetting", {
           threadId: job.thread_id,
           messageId: job.message_id,
-          type: error?.name || "Error",
+          type: failure?.name || "Error",
         });
         await resetAgentSessionStore(db, job);
         return openAgentRuntime(context, { ...options, sessionReset: true });
@@ -830,17 +1022,35 @@ export async function openAgentRuntime(context, options) {
   }
 }
 
-export async function generateAgentReply(context, { db, job, user, runtime }) {
-  const owned = !runtime;
-  runtime ||= await openAgentRuntime(context, { db, job, user });
+/** `generateAgentReply` 的注入项：runtime 省略时由本文件开一个自己的运行时。
+ *  注入的替身只实现 `request` / `close`，所以这里按 unknown 接住、进函数再收窄。 */
+type GenerateReplyOptions = {
+  db: Db;
+  job: AgentJob;
+  user: AgentUser;
+  runtime?: unknown;
+};
+
+/** 上下文注入的正文与来源。 */
+type ContextInjection = { text: string; source: unknown };
+
+export async function generateAgentReply(
+  context: AgentContext,
+  { db, job, user, runtime: injectedRuntime }: GenerateReplyOptions,
+): Promise<string> {
+  const owned = !injectedRuntime;
+  // 注入替身（测试）只提供 request / close；真实运行时由本文件打开，形状是 AgentRuntime。
+  const runtime = (injectedRuntime ||
+    (await openAgentRuntime(context, { db, job, user }))) as AgentRuntime;
   const { harness, session, progress, thinking, capabilityProfile } = runtime;
-  let cancellationTimer;
+  let cancellationTimer: NodeJS.Timeout | undefined;
   let completed = false;
   let polling = Promise.resolve();
   const usageMeter = createUsageMeter();
   // DSH 的上下文注入是带 source 的 user/message：正文进预览，source 进来源。
-  const injections = [];
-  let modelStarted, modelFinished;
+  const injections: ContextInjection[] = [];
+  let modelStarted: number | undefined;
+  let modelFinished: number | undefined;
   try {
     // 本轮真正发给模型的上下文：范围、工作区与应答约束。
     // 它还承担「告诉模型回哪条消息、不许扩展任务」的硬约束，是编排里必要的注入，不是展示用的装饰。
@@ -885,9 +1095,9 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
           }).slice(0, 4000),
         ],
       ).catch((error) => console.error("System prompt persistence failed", { type: error.name }));
-    await deliverTaskUpdates(db, job, runtime, "observe");
+    await deliverTaskUpdates(db, { message_id: job.message_id as string }, runtime, "observe");
     const result = await Promise.race([
-      new Promise((_, reject) => {
+      new Promise<never>((_, reject) => {
         let checking = false;
         cancellationTimer = setInterval(() => {
           if (checking) return;
@@ -905,7 +1115,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
                 reject(new HttpError(409, "任务已停止"));
                 return;
               }
-              await deliverTaskUpdates(db, job, runtime);
+              await deliverTaskUpdates(db, { message_id: job.message_id as string }, runtime);
             } catch (error) {
               reject(error);
             } finally {
@@ -935,9 +1145,12 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
     modelFinished = performance.now();
     if (!result.finalResponse?.trim()) {
       const turnEnd = result.events?.findLast((event) => event?.type === "turn/end");
-      const providerError = turnEnd?.data?.reason?.error;
+      const providerError = (
+        turnEnd?.data as
+          { reason?: { error?: { message?: string; code?: string } } } | null | undefined
+      )?.reason?.error;
       if (providerError?.message) {
-        const error = new Error(providerError.message);
+        const error: AgentError = new Error(providerError.message);
         error.code = providerError.code;
         throw error;
       }
@@ -968,7 +1181,7 @@ export async function generateAgentReply(context, { db, job, user, runtime }) {
     clearInterval(cancellationTimer);
     await polling;
     if (modelStarted !== undefined) {
-      await saveReplyUsage(db, job.message_id, {
+      await saveReplyUsage(db as Pool, job.message_id as string, {
         ...usageMeter.result(),
         ...capturedModelUsage(runtime.modelCapture),
         executionDurationMs: Math.round((modelFinished ?? performance.now()) - modelStarted),

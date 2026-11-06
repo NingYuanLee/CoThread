@@ -10,7 +10,7 @@ import {
   listProjectMemoryEntries,
   readProjectMemory,
   readProjectMemoryEntry,
-} from "../server/memory-timeline.js";
+} from "../server/memory-timeline.ts";
 import { createMemoryRelation } from "../server/memory-graph.ts";
 
 async function setup() {

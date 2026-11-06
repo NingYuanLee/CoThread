@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 import sharp from "sharp";
-import { dshModelPatch } from "../server/model-config.js";
+import { dshModelPatch } from "../server/model-config.ts";
 
 test(
   "老翁 runtime admits image bytes and sends an image to the model",

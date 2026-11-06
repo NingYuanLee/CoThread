@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
-import { modelResponseStream, modelUsage, redactSecrets, responseText } from "./model-config.js";
+import { modelResponseStream, modelUsage, redactSecrets, responseText } from "./model-config.ts";
 import { getWikiPage, listWikiPages } from "./wiki-pages.ts";
 import { companyQuestionMaterials, orgQuestionMaterials } from "./org-shelf.ts";
 import { deepseekFetch, deepseekSearch } from "./deepseek-web.ts";
 import { runElderQuestion } from "./elder-kernel.ts";
 import { elderPersist, elderRoomState, recordElderRun, wikiScopeKey } from "./wiki-session.ts";
-import { callMcpTool } from "./mcp.js";
+import { callMcpTool } from "./mcp.ts";
 import { runMiaowenChat } from "./miaowen-skill.ts";
 import { injectEnvironmentVariables } from "./environment-variables.ts";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";

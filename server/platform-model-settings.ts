@@ -17,7 +17,7 @@ import {
   presentPlatformModelSettings,
   probeModelCompatibility,
   redactSecrets,
-} from "./model-config.js";
+} from "./model-config.ts";
 
 const AAD_DEFAULT = "platform-model:default";
 const AAD_KNOWLEDGE = "platform-model:knowledge";
@@ -478,7 +478,7 @@ export async function savePlatformModelSettings(
   if (deps.retireIdleRuntimes) await deps.retireIdleRuntimes();
   else {
     try {
-      const { releaseIdleStaleCoordinatorRuntimes } = await import("./agent.js");
+      const { releaseIdleStaleCoordinatorRuntimes } = await import("./agent.ts");
       releaseIdleStaleCoordinatorRuntimes();
     } catch (error) {
       console.error("刷新空闲模型运行时失败", { type: errorLike(error).name || "Error" });

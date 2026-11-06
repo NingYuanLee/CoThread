@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { createDatabase, query } from "./db.ts";
 import { createApp } from "./app.ts";
-import { registerDevServerUpgrade, stopCoThreadPreviewServers } from "./miniprogram-dev-server.js";
+import { registerDevServerUpgrade, stopCoThreadPreviewServers } from "./miniprogram-dev-server.ts";
 import { startReplyWorker } from "./replies.ts";
 import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.ts";
 import { createShutdown } from "./shutdown.ts";

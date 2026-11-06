@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { modelConfigFromEnvironment, probeModelCompatibility } from "../server/model-config.js";
+import { modelConfigFromEnvironment, probeModelCompatibility } from "../server/model-config.ts";
 
 const config = modelConfigFromEnvironment("coordinator", {
   MODEL_BASE_URL: "https://model.example.test/v1",

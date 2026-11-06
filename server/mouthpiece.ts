@@ -8,7 +8,7 @@ import { fileDisplayName, isImageFile } from "../shared/document-name.js";
 import { isDocumentText, readDocumentContent } from "./documents/index.ts";
 import { query } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { modelConfig, modelResponse, responseText } from "./model-config.js";
+import { modelConfig, modelResponse, responseText } from "./model-config.ts";
 import type { Service } from "./service.ts";
 
 /** AI嘴替的操作人。 */

@@ -9,7 +9,7 @@ import {
   modelForLaunch,
   probeModelCompatibility,
   redactSecrets,
-} from "../server/model-config.js";
+} from "../server/model-config.ts";
 import {
   loadPlatformModelSettings,
   platformModelSettingsView,

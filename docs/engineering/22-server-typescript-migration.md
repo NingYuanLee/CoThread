@@ -88,12 +88,12 @@ npm test            # 集成测试需要测试库
 
 ## 进度
 
-### 当前总览（2026-11-06，第三十九批之后）
+### 当前总览（2026-11-06，第四十批之后）
 
 | 指标                 | 数值                                         |
 | -------------------- | -------------------------------------------- |
-| `server/` 已转 `.ts` | 179 个                                       |
-| `server/` 仍为 `.js` | 20 个（原 199 个）                           |
+| `server/` 已转 `.ts` | 189 个                                       |
+| `server/` 仍为 `.js` | 10 个（原 199 个）                           |
 | 类型检查             | 0 错（`npm run typecheck:server`）           |
 | 失效说明符           | 0（`node scripts/server-ts-specifiers.mjs`） |
 | 完整测试             | 1096/1096 通过                               |
@@ -103,16 +103,25 @@ npm test            # 集成测试需要测试库
 - 类型检查基础设施：`tsconfig.server.json`、`server/types.ts`、`npm run typecheck:server` 接入 `npm run lint`
 - 迁移工具：`scripts/server-ts-migrate.mjs`（改名 + 改写四类引用）
 - 失效说明符检查：`scripts/server-ts-specifiers.mjs`（`--fix` 可自动修）
+- 调用数审计：`scripts/server-ts-audit-calls.mjs`（抓「补类型时漏掉校验/写库语句」这类 `tsc` 看不见的损伤）
 - 入口 `server/index.ts` 及部署侧路径（`package.json`、`dev-runtime` 进程识别、现行运维文档）
 - `server/service.ts` 门面（152 处引用），方法签名从域操作推导
 - **200 行以内的文件全部转换完毕**
 
-**未完成的 20 个文件**按行数分档（全部在 751 行以上）：
+**未完成的 10 个文件**全部在 1000 行以上，都是各领域的中枢：
 
-| 行数     | 数量 | 文件                                                                                                                                                                                                                                                            |
-| -------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 701–1000 | 10   | `agent`(980)、`project-code-sources`(950)、`agent-participation`(942)、`miniprogram-config`(932)、`local-executors`(910)、`mcp`(838)、`routes/account`(813)、`memory-timeline`(792)、`model-config`(777)、`miniprogram-dev-server`(751)                         |
-| >1000    | 10   | `project-memory`(3262)、`coordinator`(1644)、`agent-tools`(1450)、`routes/project-workspace`(1331)、`documents/service`(1276)、`conversation-memory-store`(1196)、`iteration-archive`(1080)、`service-monitor`(1057)、`cloudbase`(1018)、`wiki-questions`(1011) |
+| 文件                                  | 行数 | 说明                                   |
+| ------------------------------------- | ---- | -------------------------------------- |
+| `server/project-memory.js`            | 3262 | 项目记忆结算、信号与候选               |
+| `server/coordinator.js`               | 1644 | 小祥协调者的主循环与事件消费           |
+| `server/agent-tools.js`               | 1450 | 子 Agent 工具面                        |
+| `server/routes/project-workspace.js`  | 1331 | 工作区路由（文档/小程序/记忆混在一起） |
+| `server/documents/service.js`         | 1276 | 文档内核的对外域操作                   |
+| `server/conversation-memory-store.js` | 1196 | 联合分析窗口的落库                     |
+| `server/iteration-archive.js`         | 1080 | 迭代归档工作流                         |
+| `server/service-monitor.js`           | 1057 | 监控与老翁日志（`agentLogs` 在此）     |
+| `server/cloudbase.js`                 | 1018 | CloudBase 环境与部署                   |
+| `server/wiki-questions.js`            | 1011 | 老翁私聊问答                           |
 
 `service-monitor`、`project-memory`、`coordinator`、`documents/service` 仍是各自领域的中枢，转完之后能进一步降低其余文件的标注成本——**建议按「先中枢、后外围」继续**。
 
@@ -466,6 +475,18 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 另修一处测试夹具：`tests/local-sandbox-admission.test.js` 用 esbuild 把 `server/local-sandbox.ts` 转成 CJS 再在 `vm` 里跑，但没有给 `loader: "ts"`。文件从 `.js` 变 `.ts` 后 `import type` 被当 JS 解析，整份 4 项测试静默不执行——全量从 1096 掉到 1093，却只报「1 个文件失败」。**测试总数变少时先查夹具，别当成偶发。**
 
 剩余 20 个 `.js` 全部在 751 行以上，是各领域的中枢与半中枢；`service-monitor`（1057 行）此前试转后回退，它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断），需要完整读一遍再写。
+
+第四十批（2026-11-06，10 个 701–1000 行模块）：沿用并行打法，4 簇并发。`agent`(980)、`project-code-sources`(950)、`agent-participation`(942)、`miniprogram-config`(932)、`local-executors`(910)、`mcp`(838)、`routes/account`(813)、`memory-timeline`(792)、`model-config`(777)、`miniprogram-dev-server`(751)。
+
+类型检查与说明符改写一次通过，但**全量测试首轮 5 项失败**。三次失败正好对应三类「类型检查看不见的损伤」，是本轮最该记的东西：
+
+1. **门面方法被解构成局部变量会丢 `this`。** `mcp.ts` 把 `service.agentLogs` 提取成 `const agentLogs = … as unknown as …` 再调用，运行期 `this` 是 `undefined`，`get_laoweng_logs` 直接失败。`service.ts` 的方法是类方法（内部用 `this.db`），**必须写成 `(service.agentLogs as T)(…)`**，或提取时 `bind(service)`。
+2. **把 `service.db` 提到函数顶部，会让「null 占位」路径当场解引用。** `mcpToolDefinitions` 顶部写了 `const pool: Pool = service.db as Pool`，而 `mcpReadToolSpecs()` 传 `null` 当 service 占位（只导出工具清单、回调永不执行）。改名后一调用就 `Cannot read properties of null (reading 'db')`，连带 `elder-kernel`、`read-document` 共 3 项失败。惰性取值（`const pool = () => service.db as Pool`）即可。
+3. **漏掉权限校验语句。** `listMiniprogramDevServers` 丢了 `await service.member(user, projectId, false)`，非项目成员能列出开发服务器；`tsc` 与说明符检查都通过，只有 `miniprogram-dev-server.test.js` 抓到。
+
+为此新增 `scripts/server-ts-audit-calls.mjs`：比对改名前后 `service.<方法>(` / `await query` / `await transaction` / `throw new HttpError(` / `.member(` 的出现次数，只报告「新文件少于旧文件」的项。**计数相等不代表语义等价**（条件和顺序仍要看 diff），但减少一定可疑；每批转换后先跑它，再跑全量测试。
+
+修完这三处后复跑：`npm run lint` exit 0、全量 `npm test` **1096/1096**、0 失败（`duration_ms` 1507190）。
 
 ## 领域模块的类型策略
 

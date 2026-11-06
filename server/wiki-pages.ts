@@ -3,7 +3,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import { HttpError } from "./http-error.ts";
 import { refreshParticipantBriefs } from "./wiki-briefs.ts";
-import { projectArchived } from "./memory-timeline.js";
+import { projectArchived } from "./memory-timeline.ts";
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.ts";
 import {
   intactConversationMemorySql,

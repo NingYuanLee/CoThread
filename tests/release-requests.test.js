@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { saveProjectMiniProgramConfig } from "../server/miniprogram-config.js";
+import { saveProjectMiniProgramConfig } from "../server/miniprogram-config.ts";
 import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,

@@ -12,7 +12,7 @@ import {
   normalizeModelBaseUrl,
   redactSecrets,
   responseText,
-} from "../server/model-config.js";
+} from "../server/model-config.ts";
 
 const keys = [
   "MODEL_BASE_URL",

@@ -7,7 +7,7 @@ import { Service } from "../server/service.ts";
 import { searchProjectMemory } from "../server/memory-search.ts";
 import { createMemoryRelation } from "../server/memory-graph.ts";
 import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
-import { callMcpTool } from "../server/mcp.js";
+import { callMcpTool } from "../server/mcp.ts";
 
 async function setup() {
   const database = await testDatabase();

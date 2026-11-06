@@ -14,7 +14,7 @@ test("the 小祥 runtime is composed from DSH AgentTeam plugins", async () => {
     new URL("../dsh-layer/cothread-system-prompt.mjs", import.meta.url),
     "utf8",
   );
-  const agent = await readFile(new URL("../server/agent.js", import.meta.url), "utf8");
+  const agent = await readFile(new URL("../server/agent.ts", import.meta.url), "utf8");
   for (const plugin of [
     "@deepseek-ai/dsh-subagent",
     "@deepseek-ai/dsh-subagent-spawn-in-process",
@@ -76,7 +76,7 @@ test("老翁默认只允许时间工具，联合分析使用受限只读工具�
     new URL("../server/dsh-runtime-config.ts", import.meta.url),
     "utf8",
   );
-  const mcp = await import("../server/mcp.js");
+  const mcp = await import("../server/mcp.ts");
   assert.match(
     laowengTools,
     /ctx\.tools\.guard\(\(call\) =>[\s\S]*=== "beijing_time" \? undefined : "老翁不允许调用工具"/,
@@ -154,7 +154,7 @@ test("stable 小祥 and 子 Agent roles live only in the system prompt plugin", 
   const [{ SYSTEM_PROMPTS }, coordinator, agent] = await Promise.all([
     import("../dsh-layer/cothread-plugin-registry.mjs"),
     readFile(new URL("../server/coordinator.js", import.meta.url), "utf8"),
-    readFile(new URL("../server/agent.js", import.meta.url), "utf8"),
+    readFile(new URL("../server/agent.ts", import.meta.url), "utf8"),
   ]);
   assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /你是当前迭代会话的小祥/);
   assert.doesNotMatch(SYSTEM_PROMPTS.xiaoxiang.prompt, /一级小祥|二级小祥|三级小祥/);

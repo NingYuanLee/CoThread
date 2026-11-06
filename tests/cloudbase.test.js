@@ -8,7 +8,7 @@ import { Service } from "../server/service.ts";
 import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
-} from "../server/miniprogram-config.js";
+} from "../server/miniprogram-config.ts";
 import {
   addCloudbaseDocument,
   assertAgentEnvironment,

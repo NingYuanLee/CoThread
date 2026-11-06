@@ -10,7 +10,7 @@ import {
   syncPlatformScope,
   upsertProjectCodeConnector,
   agentListCodeSources,
-} from "../server/project-code-sources.js";
+} from "../server/project-code-sources.ts";
 import { testDatabase } from "./database.js";
 
 let database, db, service, owner, member, projectId;

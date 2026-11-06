@@ -5,15 +5,206 @@ import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.ts";
 import { ensureMiniprogramWorkspace, migrateLegacyAdminDist } from "./miniprogram-workspace.ts";
 import { readMiniprogramAuthRuntime } from "./miniprogram-auth-config.ts";
-import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
+import {
+  filterProjectLibraryFolders,
+  filterProjectLibraryVersions,
+  type LibraryFolderRow,
+  type LibraryVersionRow,
+} from "./documents/index.ts";
+import type { Db } from "./types.ts";
+import type { AccessService, AccessUser } from "./service-access.ts";
 
-export const MINIPROGRAM_ENVIRONMENTS = ["development", "production"];
-export const MINIPROGRAM_SECRET_KINDS = ["wechat_upload_key", "cloudbase_credential"];
-export const MINIPROGRAM_ADMIN_TARGETS = ["cloudbase_static"];
+/**
+ * 配置校验用的取值集合。写成 `as const` 是为了让 `z.enum(...)` 与下标访问都拿到
+ * 联合类型（擦除模式下不能用 enum）。
+ */
+export const MINIPROGRAM_ENVIRONMENTS = ["development", "production"] as const;
+export const MINIPROGRAM_SECRET_KINDS = ["wechat_upload_key", "cloudbase_credential"] as const;
+export const MINIPROGRAM_ADMIN_TARGETS = ["cloudbase_static"] as const;
+
+/** 一个 CloudBase 环境（只有公开配置，不含密钥）。 */
+type CloudbaseEnvConfig = { envId: string; region: string | null };
+
+/** 按环境名索引的 CloudBase 配置；没配的环境不出现键。 */
+type CloudbaseEnvMap = Record<string, CloudbaseEnvConfig | undefined>;
+
+/** 派生出来的配置状态。 */
+type ConfigStatus =
+  "unconfigured" | "incomplete" | "credential_expired" | "verify_failed" | "verified";
+
+/** 一个机密项的脱敏状态。 */
+type SecretState = {
+  configured: boolean;
+  hint: string | null;
+  updatedAt: string | null;
+  /** 只有 CloudBase 凭据回显 SecretId 时才有这个键。 */
+  secretId?: string | null;
+};
+
+/** 机密项的种类。 */
+type SecretKind = (typeof MINIPROGRAM_SECRET_KINDS)[number];
+
+/** 两种机密各自的脱敏状态。 */
+type SecretStateMap = Record<SecretKind, SecretState>;
+
+/** Admin 静态托管配置。 */
+type AdminDeployConfig = {
+  target: "cloudbase_static";
+  environment: "production";
+  hostingPath: string;
+  customDomain: string | null;
+  spaFallback: boolean;
+};
+
+/** 微信 CI 机器人配置。 */
+type WechatCiConfig = {
+  robotPreview: number;
+  robotUpload: number;
+  descTemplate: string | null;
+};
+
+/** `project_miniprogram_config` 的一行（本文件读到的列）。 */
+type ConfigRow = {
+  project_id: string;
+  enabled: number | boolean | null;
+  version_policy: string | null;
+  cloudbase_envs: unknown;
+  admin_deploy: unknown;
+  status: string | null;
+  last_verified_at: string | null;
+  last_verify_error: string | null;
+  updated_at: string | null;
+};
+
+/** 算派生状态真正读到的列（不同查询只选其中一部分）。 */
+type ConfigStatusRow = Pick<ConfigRow, "cloudbase_envs" | "last_verified_at" | "last_verify_error">;
+
+/** `project_miniprogram_apps` 的一行（本文件读到的列）。 */
+type AppRow = {
+  id: string;
+  project_id: string;
+  name: string | null;
+  app_id: string | null;
+  entry_page: string | null;
+  wechat_ci: unknown;
+  role: string | null;
+  branched_from_app_id: string | null;
+  sort_order: number | null;
+};
+
+/** `project_miniprogram_secrets` 的一行；解码用到的列。 */
+type SecretRow = {
+  kind: string;
+  ciphertext: string | null;
+  hint: string | null;
+  updated_at: string | null;
+  updated_by?: string | null;
+};
+
+/** 主 App 上的密钥行，或从项目行搬过来的旧行（读取时都不带 kind）。 */
+type AppSecretRow = {
+  ciphertext: string | null;
+  hint: string | null;
+  updated_at?: string | null;
+  updated_by?: string | null;
+};
+
+/** 对外的小程序 app 视图（不含任何机密）。 */
+export type MiniprogramAppView = {
+  id: string;
+  role: string | null;
+  name: string | null;
+  appId: string | null;
+  entryPage: string | null;
+  wechatCi: unknown;
+  branchedFromAppId: string | null;
+  isDefault: boolean;
+};
+
+/** `readProjectMiniProgramConfig` 返回的公开配置。 */
+export type MiniprogramConfigView = {
+  projectId: string;
+  enabled: boolean;
+  appId: string | null;
+  appName: string | null;
+  entryPage: string | null;
+  versionPolicy: string;
+  cloudbaseEnvs: CloudbaseEnvMap;
+  adminDeploy: AdminDeployConfig | null;
+  wechatCi: unknown;
+  apps: MiniprogramAppView[];
+  status: ConfigStatus;
+  lastVerifiedAt: string | null;
+  lastVerifyError: string | null;
+  updatedAt: string | null;
+  secrets: SecretStateMap;
+};
+
+/**
+ * 一个环境的公开鉴权配置。
+ *
+ * `readMiniprogramAuthRuntime` 的返回被收成 `Record<string, unknown>`；运行配置
+ * 真正消费的是它按环境写出的视图，所以这里按视图的真实结构声明，形状与
+ * `MiniprogramRuntimeConfig["authConfigs"]` 的元素相容。
+ */
+export type MiniprogramAuthEnvironmentConfig = {
+  projectId: string;
+  environment: string;
+  miniprogram: {
+    silentLogin: boolean;
+    wechatPhoneAuthorization: boolean;
+    appId: string | null;
+    cloudbaseEnvId: string | null;
+    publishableKey: string | null;
+    serverApiKeyConfigured: boolean;
+    readiness: { ready: boolean; missing: string[] };
+  };
+  admin: {
+    passwordLogin: boolean;
+    passwordReadiness: { ready: boolean; missing: string[] };
+  };
+  updatedAt: string | null;
+};
+
+/**
+ * 构建与部署工具用的内部运行时视图：含解密后的机密，不能经 HTTP 暴露。
+ */
+export type ProjectMiniProgramRuntimeConfig = {
+  projectId: string;
+  miniprogramAppId: string | null;
+  enabled: boolean;
+  appId: string | null;
+  appName: string | null;
+  entryPage: string | null;
+  cloudbaseEnvs: CloudbaseEnvMap;
+  adminDeploy: AdminDeployConfig | null;
+  wechatCi: unknown;
+  authConfigs: Record<string, MiniprogramAuthEnvironmentConfig>;
+  secrets: Record<SecretKind, string | null>;
+};
+
+/** 校验结果里的一条检查项。 */
+type ConfigCheck = {
+  id: string;
+  label: string;
+  status: "passed" | "failed" | "pending";
+  detail: string;
+};
+
+/** 把 unknown 当普通对象读字段；非对象一律当空对象。 */
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+/** 错误对象上的文案；没有 message 时退回字符串化的错误本身。 */
+function errorMessage(error: unknown): string {
+  const message = asRecord(error).message;
+  return String(message || error);
+}
 
 /** Dimina 预览和微信上传只要求已保存 AppID，不要求 CloudBase 或连接测试。 */
-export function isMiniProgramWorkspaceReady(config) {
-  return Boolean(config?.appId);
+export function isMiniProgramWorkspaceReady(config: unknown): boolean {
+  return Boolean(asRecord(config).appId);
 }
 
 export const MINIPROGRAM_SECRET_LABELS = {
@@ -27,9 +218,9 @@ const SECRET_KIND = z.enum(MINIPROGRAM_SECRET_KINDS);
 const MAX_SECRET_BYTES = 64 * 1024;
 const WECHAT_APP_ID = /^wx[0-9a-f]{16}$/i;
 
-const vaultId = (projectId) => `project:${projectId}`;
+const vaultId = (projectId: string): string => `project:${projectId}`;
 
-function hintOf(secret) {
+function hintOf(secret: unknown): string | null {
   const value = String(secret || "");
   if (!value) return null;
   return value.length <= 4
@@ -38,11 +229,9 @@ function hintOf(secret) {
 }
 
 /** Show the uploaded key's file name, never a slice of the key material. */
-function wechatKeyFileHint(fileName) {
-  const base = String(fileName || "")
-    .split(/[/\\]/)
-    .pop()
-    .trim();
+function wechatKeyFileHint(fileName: unknown): string | null {
+  const parts = String(fileName || "").split(/[/\\]/);
+  const base = (parts.pop() ?? "").trim();
   const safe = base
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/[<>:"|?*]/g, "")
@@ -81,7 +270,7 @@ const configSchema = z.object({
 });
 
 /** Normalize a WeChat AppID, rejecting malformed values early. */
-export function normalizeAppId(value) {
+export function normalizeAppId(value: unknown): string | null {
   const appId = String(value || "").trim();
   if (!appId) return null;
   if (!WECHAT_APP_ID.test(appId)) {
@@ -90,7 +279,7 @@ export function normalizeAppId(value) {
   return appId.toLowerCase();
 }
 
-function parseHostingPath(value) {
+function parseHostingPath(value: unknown): string {
   let path = String(value || "/").trim() || "/";
   if (!path.startsWith("/")) path = `/${path}`;
   if (path.includes("..")) throw new HttpError(400, "托管路径不能包含 ..");
@@ -98,10 +287,11 @@ function parseHostingPath(value) {
   return path === "/" || path.endsWith("/") ? path : `${path}/`;
 }
 
-function normalizeCloudbaseEnvs(input = {}) {
-  const normalized = {};
+function normalizeCloudbaseEnvs(input: unknown = {}): CloudbaseEnvMap {
+  const normalized: CloudbaseEnvMap = {};
+  const source = asRecord(input);
   for (const kind of MINIPROGRAM_ENVIRONMENTS) {
-    const value = input?.[kind];
+    const value = asRecord(source[kind]);
     if (!value || !value.envId) continue;
     normalized[kind] = {
       envId: String(value.envId).trim(),
@@ -118,52 +308,54 @@ function normalizeCloudbaseEnvs(input = {}) {
   return normalized;
 }
 
-function normalizeAdminDeploy(input) {
+function normalizeAdminDeploy(input: unknown): AdminDeployConfig | null {
   if (!input) return null;
+  const data = asRecord(input);
   return {
     target: "cloudbase_static",
     environment: "production",
-    hostingPath: parseHostingPath(input.hostingPath || "/admin/"),
-    customDomain: input.customDomain ? String(input.customDomain).trim() : null,
-    spaFallback: input.spaFallback !== false,
+    hostingPath: parseHostingPath(data.hostingPath || "/admin/"),
+    customDomain: data.customDomain ? String(data.customDomain).trim() : null,
+    spaFallback: data.spaFallback !== false,
   };
 }
 
-function readAdminDeploy(value) {
-  const parsed = parseJsonColumn(value);
+function readAdminDeploy(value: unknown): AdminDeployConfig | null {
+  const parsed = parseJsonColumn<{ target?: unknown }>(value);
   if (!parsed || parsed.target !== "cloudbase_static") return null;
   return normalizeAdminDeploy(parsed);
 }
 
-function normalizeWechatCi(input) {
+function normalizeWechatCi(input: unknown): WechatCiConfig | null {
   if (!input) return null;
+  const data = asRecord(input);
   return {
-    robotPreview: Number(input.robotPreview) || 1,
-    robotUpload: Number(input.robotUpload) || 1,
-    descTemplate: input.descTemplate ? String(input.descTemplate).trim() : null,
+    robotPreview: Number(data.robotPreview) || 1,
+    robotUpload: Number(data.robotUpload) || 1,
+    descTemplate: data.descTemplate ? String(data.descTemplate).trim() : null,
   };
 }
 
-function parseJsonColumn(value) {
+function parseJsonColumn<T = unknown>(value: unknown): T | null {
   if (value == null) return null;
-  if (typeof value === "object") return value;
+  if (typeof value === "object") return value as T;
   try {
-    return JSON.parse(value);
+    return JSON.parse(String(value)) as T;
   } catch {
     return null;
   }
 }
 
-async function readSecretRows(db, projectId) {
-  const rows = await query(
+async function readSecretRows(db: Db, projectId: string): Promise<Map<string, SecretRow>> {
+  const rows = await query<SecretRow>(
     db,
     `SELECT kind,ciphertext,hint,updated_at FROM project_miniprogram_secrets WHERE project_id=?`,
     [projectId],
   );
-  return new Map(rows.map((row) => [row.kind, row]));
+  return new Map(rows.map((row): [string, SecretRow] => [row.kind, row]));
 }
 
-function secretState(row) {
+function secretState(row: SecretRow | AppSecretRow | null | undefined): SecretState {
   return {
     configured: Boolean(row?.ciphertext),
     hint: row?.hint || null,
@@ -171,11 +363,27 @@ function secretState(row) {
   };
 }
 
+/** `computeConfigStatus` 的入参；`enabled` 由调用方传入但这里不使用。 */
+type ConfigStatusInput = {
+  appId: string | null;
+  cloudbaseEnvs?: CloudbaseEnvMap | null;
+  secrets?: Partial<SecretStateMap> | null;
+  verifyError?: unknown;
+  verifiedAt?: unknown;
+  enabled?: boolean;
+};
+
 /**
  * Derived configuration status. Secret-dependent kinds only flip once the rest
  * of the configuration is complete, so a half-filled form reports "incomplete".
  */
-export function computeConfigStatus({ appId, cloudbaseEnvs, secrets, verifyError, verifiedAt }) {
+export function computeConfigStatus({
+  appId,
+  cloudbaseEnvs,
+  secrets,
+  verifyError,
+  verifiedAt,
+}: ConfigStatusInput): ConfigStatus {
   const hasAppId = Boolean(appId);
   const hasEnv = Boolean(cloudbaseEnvs?.development?.envId);
   const hasWechatKey = secrets?.wechat_upload_key?.configured;
@@ -192,17 +400,22 @@ export function computeConfigStatus({ appId, cloudbaseEnvs, secrets, verifyError
   return "incomplete";
 }
 
-export function redactedSecretState(rows) {
-  const state = {};
+export function redactedSecretState(rows: Map<string, SecretRow>): SecretStateMap {
+  const state: Partial<SecretStateMap> = {};
   for (const kind of MINIPROGRAM_SECRET_KINDS) state[kind] = secretState(rows.get(kind));
-  return state;
+  // 上面的循环覆盖了每一个 kind。
+  return state as SecretStateMap;
 }
 
 /** Derived status from a stored config row plus current credential state. */
-function deriveStatusFromRow(row, secrets, appId) {
+function deriveStatusFromRow(
+  row: ConfigStatusRow,
+  secrets: Partial<SecretStateMap> | null,
+  appId: string | null,
+): ConfigStatus {
   return computeConfigStatus({
     appId,
-    cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
+    cloudbaseEnvs: parseJsonColumn<CloudbaseEnvMap>(row.cloudbase_envs) || {},
     secrets,
     verifyError: row.last_verify_error,
     verifiedAt: row.last_verified_at,
@@ -210,8 +423,8 @@ function deriveStatusFromRow(row, secrets, appId) {
 }
 
 /** The one main miniprogram. Branch rows are ignored until a later phase. */
-async function readMainApp(db, projectId) {
-  const [row] = await query(
+async function readMainApp(db: Db, projectId: string): Promise<AppRow | null> {
+  const [row] = await query<AppRow>(
     db,
     "SELECT id,project_id,name,app_id,entry_page,wechat_ci,role,branched_from_app_id,sort_order FROM project_miniprogram_apps WHERE project_id=? AND role='main' LIMIT 1",
     [projectId],
@@ -219,7 +432,7 @@ async function readMainApp(db, projectId) {
   return row || null;
 }
 
-function presentApp(row) {
+function presentApp(row: AppRow | null): MiniprogramAppView | null {
   if (!row) return null;
   return {
     id: row.id,
@@ -234,16 +447,20 @@ function presentApp(row) {
 }
 
 /** App secret wins. A key saved before any AppID still lives on the project row. */
-async function readWechatKeyRow(db, projectId, mainApp) {
+async function readWechatKeyRow(
+  db: Db,
+  projectId: string,
+  mainApp: AppRow | null,
+): Promise<AppSecretRow | null> {
   if (mainApp) {
-    const [row] = await query(
+    const [row] = await query<AppSecretRow>(
       db,
       "SELECT ciphertext,hint,updated_at,updated_by FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
       [mainApp.id],
     );
     if (row) return row;
   }
-  const [legacy] = await query(
+  const [legacy] = await query<AppSecretRow>(
     db,
     "SELECT ciphertext,hint,updated_at,updated_by FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
     [projectId],
@@ -251,11 +468,18 @@ async function readWechatKeyRow(db, projectId, mainApp) {
   return legacy || null;
 }
 
-function splitCloudbaseCredential(payload) {
+/** 拆出来的腾讯云凭据三段；缺的段是 null。 */
+type CloudbaseCredentialParts = {
+  secretId: string | null;
+  secretKey: string | null;
+  sessionToken: string | null;
+};
+
+function splitCloudbaseCredential(payload: unknown): CloudbaseCredentialParts {
   const text = String(payload || "").trim();
   if (!text) return { secretId: null, secretKey: null, sessionToken: null };
   if (text.startsWith("{")) {
-    const parsed = JSON.parse(text);
+    const parsed = asRecord(JSON.parse(text));
     return {
       secretId: String(parsed.secretId || parsed.SecretId || "").trim() || null,
       secretKey: String(parsed.secretKey || parsed.SecretKey || "").trim() || null,
@@ -272,25 +496,26 @@ function splitCloudbaseCredential(payload) {
   };
 }
 
-function reattachSecretId(decrypted, hint) {
-  let parsed;
+function reattachSecretId(decrypted: string, hint: unknown): string {
+  let parsed: unknown;
   try {
     parsed = JSON.parse(decrypted);
   } catch {
     return decrypted;
   }
-  if (parsed.secretId || parsed.SecretId) return decrypted;
+  const record = asRecord(parsed);
+  if (record.secretId || record.SecretId) return decrypted;
   const secretId = hint && !String(hint).startsWith("*") ? String(hint) : "";
   if (!secretId) return decrypted;
-  return JSON.stringify({ ...parsed, secretId });
+  return JSON.stringify({ ...record, secretId });
 }
 
-function publicSecretId(payload) {
+function publicSecretId(payload: unknown): string | null {
   const text = String(payload || "").trim();
   if (!text) return null;
   if (text.startsWith("{")) {
     try {
-      const parsed = JSON.parse(text);
+      const parsed = asRecord(JSON.parse(text));
       const secretId = String(parsed.secretId || parsed.SecretId || "").trim();
       return secretId || null;
     } catch {
@@ -302,7 +527,11 @@ function publicSecretId(payload) {
   return text.split(separator)[0].trim() || null;
 }
 
-async function secretView(db, projectId, mainApp) {
+async function secretView(
+  db: Db,
+  projectId: string,
+  mainApp: AppRow | null,
+): Promise<SecretStateMap> {
   const rows = await readSecretRows(db, projectId);
   const state = redactedSecretState(rows);
   state.wechat_upload_key = secretState(await readWechatKeyRow(db, projectId, mainApp));
@@ -323,8 +552,12 @@ async function secretView(db, projectId, mainApp) {
   return state;
 }
 
-async function moveProjectWechatKeyToApp(db, projectId, appRowId) {
-  const [kept] = await query(
+async function moveProjectWechatKeyToApp(
+  db: Db,
+  projectId: string,
+  appRowId: string,
+): Promise<void> {
+  const [kept] = await query<{ id: string }>(
     db,
     "SELECT id FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
     [appRowId],
@@ -337,7 +570,7 @@ async function moveProjectWechatKeyToApp(db, projectId, appRowId) {
     );
     return;
   }
-  const [legacy] = await query(
+  const [legacy] = await query<AppSecretRow>(
     db,
     "SELECT ciphertext,hint,updated_by FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
     [projectId],
@@ -356,14 +589,18 @@ async function moveProjectWechatKeyToApp(db, projectId, appRowId) {
 }
 
 /** Clearing the AppID must not drop a key that was already stored on the app. */
-async function moveAppWechatKeyToProject(db, projectId, appRowId) {
-  const [appKey] = await query(
+async function moveAppWechatKeyToProject(
+  db: Db,
+  projectId: string,
+  appRowId: string,
+): Promise<void> {
+  const [appKey] = await query<AppSecretRow>(
     db,
     "SELECT ciphertext,hint,updated_by FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind='wechat_upload_key'",
     [appRowId],
   );
   if (!appKey) return;
-  const [legacy] = await query(
+  const [legacy] = await query<{ id: string }>(
     db,
     "SELECT id FROM project_miniprogram_secrets WHERE project_id=? AND kind='wechat_upload_key'",
     [projectId],
@@ -377,7 +614,19 @@ async function moveAppWechatKeyToProject(db, projectId, appRowId) {
   }
 }
 
-async function upsertMainApp(db, projectId, { appId, appName, entryPage, wechatCi }) {
+/** `upsertMainApp` 的入参：都是已归一化的值。 */
+type UpsertMainAppInput = {
+  appId: string | null;
+  appName: string | null;
+  entryPage: string | null;
+  wechatCi: WechatCiConfig | null;
+};
+
+async function upsertMainApp(
+  db: Db,
+  projectId: string,
+  { appId, appName, entryPage, wechatCi }: UpsertMainAppInput,
+): Promise<string | null> {
   const existing = await readMainApp(db, projectId);
   if (!appId) {
     if (!existing) return null;
@@ -412,8 +661,8 @@ async function upsertMainApp(db, projectId, { appId, appName, entryPage, wechatC
  * persist it, so the column never goes stale after a credential change. The
  * verify outcome (last_verify_error / last_verified_at) is an input here.
  */
-async function persistDerivedStatus(db, projectId) {
-  const [row] = await query(
+async function persistDerivedStatus(db: Db, projectId: string): Promise<ConfigStatus | null> {
+  const [row] = await query<ConfigStatusRow>(
     db,
     `SELECT enabled,cloudbase_envs,last_verified_at,last_verify_error
      FROM project_miniprogram_config WHERE project_id=?`,
@@ -435,10 +684,14 @@ async function persistDerivedStatus(db, projectId) {
 }
 
 /** Public config read: never returns secret material. */
-export async function readProjectMiniProgramConfig(service, user, projectId) {
+export async function readProjectMiniProgramConfig(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+): Promise<MiniprogramConfigView> {
   await service.member(user, projectId, false);
   await migrateLegacyAdminDist(service.db, projectId);
-  const [row] = await query(
+  const [row] = await query<ConfigRow>(
     service.db,
     `SELECT project_id,enabled,version_policy,cloudbase_envs,admin_deploy,
        status,last_verified_at,last_verify_error,updated_at
@@ -475,7 +728,7 @@ export async function readProjectMiniProgramConfig(service, user, projectId) {
     appName: app?.name || null,
     entryPage: app?.entryPage || null,
     versionPolicy: row.version_policy || "manual",
-    cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
+    cloudbaseEnvs: parseJsonColumn<CloudbaseEnvMap>(row.cloudbase_envs) || {},
     adminDeploy: readAdminDeploy(row.admin_deploy),
     wechatCi: app?.wechatCi || null,
     apps: app ? [app] : [],
@@ -488,7 +741,12 @@ export async function readProjectMiniProgramConfig(service, user, projectId) {
   };
 }
 
-export async function saveProjectMiniProgramConfig(service, user, projectId, input) {
+export async function saveProjectMiniProgramConfig(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+  input: unknown,
+): Promise<MiniprogramConfigView> {
   await service.member(user, projectId, true, service.db, true);
   const data = configSchema.parse(input || {});
   const appId = normalizeAppId(data.appId);
@@ -550,13 +808,18 @@ export async function saveProjectMiniProgramConfig(service, user, projectId, inp
 }
 
 /** The Admin sidebar owns the single fixed production/static-hosting configuration. */
-export async function saveAdminProductionConfig(service, user, projectId, input) {
+export async function saveAdminProductionConfig(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+  input: unknown,
+): Promise<MiniprogramConfigView> {
   await service.member(user, projectId, true, service.db, true);
   const data = z
     .object({ hostingPath: z.string().trim().max(255).default("/admin/") })
     .parse(input || {});
   const adminDeploy = normalizeAdminDeploy({ hostingPath: data.hostingPath });
-  const [existing] = await query(
+  const [existing] = await query<{ project_id: string }>(
     service.db,
     "SELECT project_id FROM project_miniprogram_config WHERE project_id=?",
     [projectId],
@@ -571,10 +834,16 @@ export async function saveAdminProductionConfig(service, user, projectId, input)
   return readProjectMiniProgramConfig(service, user, projectId);
 }
 
-export async function saveProjectMiniProgramSecret(service, user, projectId, rawKind, input) {
+export async function saveProjectMiniProgramSecret(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+  rawKind: unknown,
+  input: unknown,
+): Promise<MiniprogramConfigView> {
   await service.member(user, projectId, true, service.db, true);
   const kind = SECRET_KIND.parse(rawKind);
-  if (kind === "cloudbase_credential" && !input?.clear) {
+  if (kind === "cloudbase_credential" && !asRecord(input).clear) {
     const boundApp = await readMainApp(service.db, projectId);
     if (!boundApp?.app_id) {
       throw new HttpError(409, "请先保存微信 AppID，再配置 CloudBase 凭据。环境会绑定到这个小程序");
@@ -609,13 +878,17 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
     if (/[{}\s]/.test(data.secretId) || data.secretId.includes(":")) {
       throw new HttpError(400, "SecretId 里不要包含空格、冒号或花括号，请只粘贴 SecretId 本身的值");
     }
-    const composed = { secretId: data.secretId, secretKey: data.secretKey };
+    const composed: {
+      secretId: string;
+      secretKey: string;
+      sessionToken?: string;
+    } = { secretId: data.secretId, secretKey: data.secretKey };
     if (data.sessionToken) composed.sessionToken = data.sessionToken;
     payload = JSON.stringify(composed);
     hint = data.secretId;
   }
   if (!data.clear && kind === "cloudbase_credential" && payload) {
-    let split;
+    let split: CloudbaseCredentialParts;
     try {
       split = splitCloudbaseCredential(payload);
     } catch {
@@ -625,7 +898,7 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
       throw new HttpError(400, "请同时提供 SecretId 与 SecretKey");
     }
     hint = split.secretId;
-    const stored = { secretKey: split.secretKey };
+    const stored: { secretKey: string; sessionToken?: string } = { secretKey: split.secretKey };
     if (split.sessionToken) stored.sessionToken = split.sessionToken;
     payload = JSON.stringify(stored);
   }
@@ -650,7 +923,7 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
   }
 
   const mainApp = kind === "wechat_upload_key" ? await readMainApp(service.db, projectId) : null;
-  const [existing] = await query(
+  const [existing] = await query<{ id: string }>(
     service.db,
     mainApp
       ? "SELECT id FROM project_miniprogram_app_secrets WHERE miniprogram_app_id=? AND kind=?"
@@ -744,7 +1017,12 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
 }
 
 /** Remove a stored credential. The derived status is recomputed afterwards. */
-export async function deleteProjectMiniProgramSecret(service, user, projectId, rawKind) {
+export async function deleteProjectMiniProgramSecret(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+  rawKind: unknown,
+): Promise<MiniprogramConfigView> {
   await service.member(user, projectId, true, service.db, true);
   const kind = SECRET_KIND.parse(rawKind);
   if (kind === "wechat_upload_key") {
@@ -783,14 +1061,27 @@ export async function deleteProjectMiniProgramSecret(service, user, projectId, r
   return readProjectMiniProgramConfig(service, user, projectId);
 }
 
+/** 配置校验的结果。 */
+export type MiniprogramConfigVerification = {
+  status: "verified" | "verify_failed";
+  configStatus: ConfigStatus | null;
+  checks: ConfigCheck[];
+  verifiedAt: string;
+  error: string | null;
+};
+
 /**
  * Configuration verification. Local structural checks run here; checks that
  * need live CloudBase or WeChat calls report `pending` until the adapters in
  * later phases are wired, instead of pretending to pass.
  */
-export async function verifyProjectMiniProgramConfig(service, user, projectId) {
+export async function verifyProjectMiniProgramConfig(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+): Promise<MiniprogramConfigVerification> {
   await service.member(user, projectId, true, service.db, true);
-  const [row] = await query(
+  const [row] = await query<ConfigStatusRow>(
     service.db,
     `SELECT enabled,cloudbase_envs,admin_deploy FROM project_miniprogram_config WHERE project_id=?`,
     [projectId],
@@ -799,8 +1090,9 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
   const mainApp = await readMainApp(service.db, projectId);
   const secrets = await secretView(service.db, projectId, mainApp);
 
-  const checks = [];
-  const push = (id, label, status, detail) => checks.push({ id, label, status, detail });
+  const checks: ConfigCheck[] = [];
+  const push = (id: string, label: string, status: ConfigCheck["status"], detail: string) =>
+    checks.push({ id, label, status, detail });
 
   if (mainApp?.app_id) push("wechat_appid", "小程序 AppID", "passed", "格式正确");
   else push("wechat_appid", "小程序 AppID", "failed", "尚未填写 AppID");
@@ -830,7 +1122,7 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
         "wechat_credential",
         "代码上传密钥",
         "failed",
-        "微信预览失败：" + String(error?.message || error).slice(0, 240),
+        "微信预览失败：" + errorMessage(error).slice(0, 240),
       );
     }
   }
@@ -863,8 +1155,11 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
  * Internal runtime view used by builders and deploy tooling: includes decrypted
  * secrets and the current source snapshot. Never expose this over HTTP.
  */
-export async function loadProjectMiniProgramRuntime(service, projectId) {
-  const [row] = await query(
+export async function loadProjectMiniProgramRuntime(
+  service: AccessService,
+  projectId: string,
+): Promise<ProjectMiniProgramRuntimeConfig> {
+  const [row] = await query<ConfigStatusRow & { admin_deploy: unknown }>(
     service.db,
     `SELECT enabled,cloudbase_envs,admin_deploy,last_verified_at,last_verify_error
      FROM project_miniprogram_config WHERE project_id=?`,
@@ -874,7 +1169,7 @@ export async function loadProjectMiniProgramRuntime(service, projectId) {
   const mainApp = await readMainApp(service.db, projectId);
   const secretRows = await readSecretRows(service.db, projectId);
   const wechatKey = await readWechatKeyRow(service.db, projectId, mainApp);
-  const secrets = {};
+  const secrets: Partial<Record<SecretKind, string | null>> = {};
   for (const kind of MINIPROGRAM_SECRET_KINDS) {
     const secret = kind === "wechat_upload_key" ? wechatKey : secretRows.get(kind);
     if (!secret?.ciphertext) {
@@ -891,7 +1186,7 @@ export async function loadProjectMiniProgramRuntime(service, projectId) {
     miniprogramAppId: app?.id || null,
     enabled: isMiniProgramWorkspaceReady({
       appId: app?.appId || null,
-      cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
+      cloudbaseEnvs: parseJsonColumn<CloudbaseEnvMap>(row.cloudbase_envs) || {},
       secrets: Object.fromEntries(
         Object.entries(secrets).map(([kind, value]) => [kind, { configured: Boolean(value) }]),
       ),
@@ -901,11 +1196,16 @@ export async function loadProjectMiniProgramRuntime(service, projectId) {
     appId: app?.appId || null,
     appName: app?.name || null,
     entryPage: app?.entryPage || null,
-    cloudbaseEnvs: parseJsonColumn(row.cloudbase_envs) || {},
+    cloudbaseEnvs: parseJsonColumn<CloudbaseEnvMap>(row.cloudbase_envs) || {},
     adminDeploy: readAdminDeploy(row.admin_deploy),
     wechatCi: app?.wechatCi || null,
-    authConfigs: await readMiniprogramAuthRuntime(service.db, projectId),
-    secrets,
+    // readMiniprogramAuthRuntime 的返回被收成 Record<string, unknown>；这里恢复它
+    // 按环境写出的真实视图形状，供运行配置消费。
+    authConfigs: (await readMiniprogramAuthRuntime(service.db, projectId)) as Record<
+      string,
+      MiniprogramAuthEnvironmentConfig
+    >,
+    secrets: secrets as Record<SecretKind, string | null>,
   };
 }
 
@@ -913,7 +1213,11 @@ export async function loadProjectMiniProgramRuntime(service, projectId) {
  * Project view filter used by Agent tooling: the miniprogram area only becomes
  * visible to an Agent when the project has enabled the workspace.
  */
-export function filterMiniprogramArea(project, enabled) {
+export function filterMiniprogramArea<
+  F extends LibraryFolderRow,
+  V extends LibraryVersionRow,
+  T extends { folders?: F[]; versions?: V[] },
+>(project: T, enabled: boolean): T {
   if (enabled) return project;
   return {
     ...project,

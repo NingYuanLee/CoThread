@@ -7,13 +7,13 @@ import { Service } from "./service.ts";
 import { AGENT_XIAOXIANG_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { loadProjectMembers } from "./project-memory.js";
-import { capturedModelUsage, redactSecrets } from "./model-config.js";
+import { capturedModelUsage, redactSecrets } from "./model-config.ts";
 import { createUsageMeter, saveReplyUsage, saveTurnUsage } from "./agent-usage.ts";
 import {
   acquireCoordinatorRuntime,
   discardCoordinatorRuntime,
   parkCoordinatorRuntime,
-} from "./agent.js";
+} from "./agent.ts";
 import { discussionText } from "../shared/context.js";
 import {
   bindChildAgentExecution,
@@ -39,7 +39,7 @@ import {
   loadOpportunisticBurst,
   messageAddressesOthersOnly,
   otherAddressedMessageIds,
-} from "./agent-participation.js";
+} from "./agent-participation.ts";
 import { logAgentTiming } from "./agent-timing-log.ts";
 import {
   assertCurrentExecutorEpoch,

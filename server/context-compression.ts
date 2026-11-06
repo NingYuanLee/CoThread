@@ -167,7 +167,7 @@ async function compressClaimedDiscussion(
     await service.thread(user, job.thread_id, true);
     const context = await service.context(user, job.thread_id);
     const open =
-      openRuntime || ((await import("./agent.js")).openAgentRuntime as unknown as OpenRuntime);
+      openRuntime || ((await import("./agent.ts")).openAgentRuntime as unknown as OpenRuntime);
     runtime = await open(context, {
       db,
       user,
@@ -229,7 +229,7 @@ export async function refreshNextContextStats(db: Db): Promise<boolean> {
     const user = { id: stored.created_by, kind: "session" };
     const context = await new Service(pool).context(user, stored.thread_id);
     runtime = await (
-      await import("./agent.js")
+      await import("./agent.ts")
     ).openAgentRuntime(context, {
       db,
       user,

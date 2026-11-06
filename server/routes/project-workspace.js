@@ -18,7 +18,7 @@ import {
   flagMemoryEntry,
   readProjectMemory,
   readProjectMemoryCounts,
-} from "../memory-timeline.js";
+} from "../memory-timeline.ts";
 import {
   listConversationProgress,
   listMemoryJobHistory,
@@ -106,7 +106,7 @@ import {
   revealProjectCodeConnectorToken,
   syncPlatformScope,
   upsertProjectCodeConnector,
-} from "../project-code-sources.js";
+} from "../project-code-sources.ts";
 import {
   deleteProjectMiniProgramSecret,
   readProjectMiniProgramConfig,
@@ -114,7 +114,7 @@ import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
   verifyProjectMiniProgramConfig,
-} from "../miniprogram-config.js";
+} from "../miniprogram-config.ts";
 import {
   readMiniprogramAuthConfig,
   saveMiniprogramAuthConfig,
@@ -136,7 +136,7 @@ import {
   startMiniprogramDevServer,
   stopMiniprogramDevServer,
   updateMiniprogramDevServer,
-} from "../miniprogram-dev-server.js";
+} from "../miniprogram-dev-server.ts";
 import {
   listMiniprogramDeployments,
   previewMiniprogram,
@@ -431,7 +431,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   });
   app.post("/api/projects/:id/memory/file-groups", async (req, res) => {
     await service.member(req.user, req.params.id, true);
-    const { projectArchived } = await import("../memory-timeline.js");
+    const { projectArchived } = await import("../memory-timeline.ts");
     if (await projectArchived(service.db, req.params.id))
       throw new HttpError(409, "项目已归档，记忆只读");
     const { saveFileIndexGroup } = await import("../file-index-groups.ts");
@@ -448,7 +448,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   });
   app.patch("/api/projects/:id/memory/file-groups/:groupId", async (req, res) => {
     await service.member(req.user, req.params.id, true);
-    const { projectArchived } = await import("../memory-timeline.js");
+    const { projectArchived } = await import("../memory-timeline.ts");
     if (await projectArchived(service.db, req.params.id))
       throw new HttpError(409, "项目已归档，记忆只读");
     const { saveFileIndexGroup } = await import("../file-index-groups.ts");
@@ -466,7 +466,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   });
   app.delete("/api/projects/:id/memory/file-groups/:groupId", async (req, res) => {
     await service.member(req.user, req.params.id, true);
-    const { projectArchived } = await import("../memory-timeline.js");
+    const { projectArchived } = await import("../memory-timeline.ts");
     if (await projectArchived(service.db, req.params.id))
       throw new HttpError(409, "项目已归档，记忆只读");
     const { dismissFileIndexGroup } = await import("../file-index-groups.ts");
@@ -496,7 +496,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   );
   app.post("/api/projects/:id/memory/entries/:entryId/recheck", async (req, res) => {
     await service.member(req.user, req.params.id, true);
-    const { projectArchived } = await import("../memory-timeline.js");
+    const { projectArchived } = await import("../memory-timeline.ts");
     if (await projectArchived(service.db, req.params.id))
       throw new HttpError(409, "项目已归档，记忆已封存");
     const { queueConversationRecheck } = await import("../conversation-memory-store.js");

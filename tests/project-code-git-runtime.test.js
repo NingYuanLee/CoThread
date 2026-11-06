@@ -5,7 +5,7 @@ import {
   codeMirrorBase,
   formatGitFailure,
   parseGithubOwnerRepo,
-} from "../server/project-code-sources.js";
+} from "../server/project-code-sources.ts";
 
 test("code mirror base uses cwd/.local", () => {
   assert.equal(codeMirrorBase(), resolve(".local", "code-mirrors"));

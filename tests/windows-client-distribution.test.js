@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 test("connector application distribution stays outside CoThread", async () => {
   const [server, management, panel, settings, client, build, pkg, sample, migration, main, readme] =
     await Promise.all([
-      readFile(new URL("../server/local-executors.js", import.meta.url), "utf8"),
+      readFile(new URL("../server/local-executors.ts", import.meta.url), "utf8"),
       readFile(new URL("../web/SystemManagement.tsx", import.meta.url), "utf8"),
       readFile(new URL("../web/LocalExecutorPanel.tsx", import.meta.url), "utf8"),
       readFile(new URL("../web/McpSettings.tsx", import.meta.url), "utf8"),

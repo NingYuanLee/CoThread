@@ -43,8 +43,90 @@ import {
   readableConversationMemorySql,
 } from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql } from "./file-index-visibility.ts";
+import type { Request, Response } from "express";
+import type { Pool } from "mysql2/promise";
+import type { Service } from "./service.ts";
 
 export { MCP_TOOL_NAMES };
+
+/**
+ * 工具调用只需要这几项身份。`callMcpTool` 的调用方（记忆工具）只传 `{ id, kind }`，
+ * 不保证拿得到完整的 `RequestUser`，这里按实际读取的字段收口。
+ */
+type McpUser = {
+  id: string;
+  kind?: string | null;
+  scope?: string | null;
+  mcpSource?: string | null;
+};
+
+/**
+ * 一条已注册的 MCP 工具。
+ *
+ * 处理器的入参由注册时的 zod schema 决定；这里只保留「任意入参 → 任意结果」的
+ * 调用形状，供 `createMcpServer` 与 `callMcpTool` 统一调用。
+ */
+type McpToolDefinition = {
+  name: string;
+  description: string;
+  schema: z.ZodRawShape;
+  fn: (args: unknown) => unknown;
+};
+
+/** 发布消息后触发助手执行的钩子，由宿主注入。 */
+type AfterMcpMessage = (user: McpUser, threadId: string) => Promise<unknown>;
+
+/** 带 HTTP 状态码的错误：MCP 工具用它区分 400/404/500。 */
+type StatusError = Error & { status?: number };
+
+/** 文档版本行：直接取 `readDocumentContent` 的入参，避免手抄内核形状。 */
+type DocumentVersion = Parameters<typeof readDocumentContent>[0];
+
+/** zod 内部 `_def`：只按字符串取本文件真正读到的几个字段。 */
+type ZodDefShape = {
+  typeName?: string;
+  innerType?: unknown;
+  values?: unknown;
+  type?: unknown;
+};
+
+/** JSON Schema 里单个参数的最小形状。 */
+type ParamSpec = {
+  type: string;
+  enum?: unknown;
+  items?: ParamSpec;
+  required?: boolean;
+  description?: string;
+};
+
+/**
+ * `project-memory.js` 尚未转换：TS 对「带默认值的解构参数」推断时会丢掉没有默认值的字段，
+ * 三个维护入口的 options 因此只剩一部分键。按运行时真实契约在这里收口一次。
+ */
+type LaowengRunsQuery = {
+  projectId: string;
+  task?: string | null;
+  status?: string | null;
+  limit?: number;
+};
+type LaowengQueueQuery = { projectId: string; limit?: number; readyOnly?: boolean };
+type LaowengQueueRunInput = { projectId: string; task: string; threadId?: string | null };
+
+const laowengRuns = listLaowengRuns as unknown as (
+  service: Service,
+  user: McpUser,
+  options: LaowengRunsQuery,
+) => Promise<unknown>;
+const laowengQueue = listLaowengDocumentQueue as unknown as (
+  service: Service,
+  user: McpUser,
+  options: LaowengQueueQuery,
+) => Promise<unknown>;
+const queueLaowengMemory = queueLaowengMemoryRun as unknown as (
+  service: Service,
+  user: McpUser,
+  options: LaowengQueueRunInput,
+) => Promise<unknown>;
 
 const mcpInlineBase64 = z
   .string()
@@ -54,7 +136,11 @@ const mcpInlineBase64 = z
   );
 const mcpSha256 = z.string().regex(/^[0-9a-fA-F]{64}$/, "sha256 必须是 64 位十六进制");
 
-function sliceVersionBytes(content, start, take) {
+function sliceVersionBytes(
+  content: DocumentVersion["content"],
+  start: number,
+  take: number,
+): Buffer {
   const raw = Buffer.isBuffer(content) ? content : Buffer.from(content || "");
   if (raw.length === take) return raw;
   if (raw.length >= start + take) return raw.subarray(start, start + take);
@@ -62,13 +148,26 @@ function sliceVersionBytes(content, start, take) {
   return raw;
 }
 
-function mcpErrorText(error) {
+function mcpErrorText(error: unknown): string {
   if (error instanceof z.ZodError)
     return error.issues
       .map((item) => `${item.path.join(".") || "参数"}: ${item.message}`)
       .join("；");
-  if (error.status) return error.message;
+  const detail = errorDetail(error);
+  if (detail.status) return String(detail.message ?? "");
   return "请求失败，请检查输入与权限";
+}
+
+/** 只取诊断代码真正读到的错误字段；`catch` 参是 `unknown`。 */
+function errorDetail(error: unknown): { status?: unknown; message?: unknown } {
+  return typeof error === "object" && error !== null
+    ? (error as { status?: unknown; message?: unknown })
+    : {};
+}
+
+/** 指令文案只按来源区分；`mcpSource` 是鉴权中间件额外挂在用户上的字段。 */
+function mcpSourceOf(user: McpUser): string | undefined {
+  return typeof user.mcpSource === "string" ? user.mcpSource : undefined;
 }
 
 const OFFICE_EXTENSION = /\.(doc|docx|docm|dotx|pptx|pptm|xlsx|xlsm)$/i;
@@ -79,7 +178,12 @@ const OFFICE_EXTRACT_MAX_BYTES = 8 * 1024 * 1024;
  * 覆盖「扩展名 docx、实际是 Word 97 二进制」的 WPS 导出件：这类文件按扩展名会被当成
  * OOXML，只有按文件头识别才能读到正文。提取失败时把具体原因回给调用方。
  */
-async function readOfficeDocumentText(service, user, meta, { offset, limit }) {
+async function readOfficeDocumentText(
+  service: Service,
+  user: McpUser,
+  meta: DocumentVersion,
+  { offset, limit }: { offset?: number; limit?: number },
+) {
   if (!OFFICE_EXTENSION.test(String(meta.filename || ""))) return null;
   const byteSize = Number(meta.byte_size) || 0;
   if (byteSize > OFFICE_EXTRACT_MAX_BYTES) return null;
@@ -90,7 +194,11 @@ async function readOfficeDocumentText(service, user, meta, { offset, limit }) {
     filename: full.filename,
     content: full.content,
   });
-  const { text: _text, note: _note, ...base } = readDocumentContent(meta, {});
+  const content: Record<string, unknown> & { text?: boolean; note?: string } = readDocumentContent(
+    meta,
+    {},
+  );
+  const { text: _text, note: _note, ...base } = content;
   if (!extraction.text) {
     return {
       ...base,
@@ -108,40 +216,91 @@ async function readOfficeDocumentText(service, user, meta, { offset, limit }) {
   };
 }
 
-export function mcpToolDefinitions(service, user, afterMessage) {
-  const registered = new Set();
-  const tools = [];
-  const register = (name, description, schema, fn) => {
+export function mcpToolDefinitions(
+  service: Service,
+  user: McpUser,
+  afterMessage?: AfterMcpMessage | null,
+) {
+  const registered = new Set<string>();
+  const tools: McpToolDefinition[] = [];
+  /**
+   * 任务命令内部要发起事务，只接受池；MCP 这条路径拿到的 `service.db` 就是池。
+   *
+   * 这里必须是惰性取值：`mcpReadToolSpecs()` 用 `null` 当 service 占位，只导出工具清单、
+   * 回调永不执行；写成函数顶部的 `const pool = service.db` 会让占位路径当场解引用 null。
+   */
+  const pool = (): Pool => service.db as Pool;
+  /**
+   * 注册一个工具：`fn` 的入参由这张 zod schema 推导，
+   * 存进 `tools` 时按 schema 校验后的形状接收（`createMcpServer` 会先过同一张 schema）。
+   */
+  const register = <S extends z.ZodRawShape>(
+    name: string,
+    description: string,
+    schema: S,
+    fn: (args: z.infer<z.ZodObject<S>>) => unknown,
+  ): void => {
     if (!MCP_TOOL_NAMES.includes(name) || registered.has(name))
       throw new Error(`MCP tool is not declared by the CoThread build: ${name}`);
     registered.add(name);
-    tools.push({ name, description, schema, fn });
+    tools.push({
+      name,
+      description,
+      schema,
+      fn: (args: unknown) => fn(args as z.infer<z.ZodObject<S>>),
+    });
   };
-  const taskFor = async (taskId, write = false) => {
+  const taskFor = async (taskId: string, write = false) => {
     const task = await getTask(service.db, taskId);
     if (!task) {
-      const error = new Error("任务不存在");
+      const error: StatusError = new Error("任务不存在");
       error.status = 404;
       throw error;
     }
-    await service.member(user, task.project_id, write);
+    await service.member(user, String(task.project_id), write);
     return task;
   };
-  const taskActor = () => ({ type: "human_member", id: user.id });
+  /** 任务命令的操作人：MCP 调用一律记成人工成员。 */
+  const taskActor = (): { type: "human_member"; id: string } => ({
+    type: "human_member",
+    id: user.id,
+  });
+  /**
+   * `documentTool` 声明的视图把 `db` 写成了 `Pool`，而门面的 `db` 是 `Db`；
+   * MCP 这条路径永远是池（不接事务连接），在边界上收窄一次。
+   */
+  const documents = service as unknown as Parameters<typeof documentTool>[0];
+  /** 文件上传内核的视图与门面在个别方法上不一致；这里只用到它的三个上传入口。 */
+  const uploads = service as unknown as Parameters<typeof startFileUpload>[0];
+  /**
+   * `service-monitor.js` 的 `agentLogs` 受未转换推断所限，按真实契约收口。
+   *
+   * 注意必须写成「挂在 service 上调用」（`(service.agentLogs as T)(…)`）：它是门面上的类
+   * 方法，内部用 `this.db`；提取成独立变量会丢 `this`，运行期直接抛错。
+   */
+  type AgentLogsSignature = (
+    user: McpUser,
+    scopeType: string,
+    scopeId: string,
+    options: { task?: string | null; before?: string | null; limit?: number },
+  ) => Promise<unknown>;
   for (const { name, description } of MCP_CAPABILITIES.filter(({ name }) =>
     ["list_documents", "manage_document", "manage_folder"].includes(name),
   ))
     register(
       name,
       description,
-      { ...documentToolSchemas[name], projectId: z.string().uuid() },
-      (a) => documentTool(service, user, name, a),
+      {
+        ...(documentToolSchemas as Record<string, Record<string, z.ZodTypeAny>>)[name],
+        projectId: z.string().uuid(),
+      },
+      (a) => documentTool(documents, user, name, a),
     );
   register(
     "get_connection_guide",
     "首次使用先调用：读取会话定位、上传分片与 SHA-256 校验、发消息、引用、@助手、权限和错误处理。超过 6144 字节的文件必须走 start_file_upload。无需安装 SKILL。",
     {},
-    () => ({ instructions: mcpInstructionsForSource(user.mcpSource) }),
+    () => ({ instructions: mcpInstructionsForSource(mcpSourceOf(user)) }),
   );
   register(
     "list_projects",
@@ -156,7 +315,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     async ({ projectId }) => {
       const project = modelProject(
         await service.project(user, projectId, { includeLibrary: false }),
-      );
+      ) as Record<string, unknown>;
       return {
         id: project.id,
         name: project.name,
@@ -174,11 +333,14 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     "读取单个项目成员的资料，以及按其关键发言整理的摘要。不做性格或能力评价。",
     { projectId: z.string().uuid(), memberId: z.string().min(1) },
     async ({ projectId, memberId }) => {
-      const member = await service.conversationMembers(user, projectId, memberId);
-      if (member.kind !== "human") return member;
+      const member: unknown = await service.conversationMembers(user, projectId, memberId);
+      // 不带 memberId 时内核返回列表；这条路由一定带，列表分支原样返回即可。
+      if (!member || typeof member !== "object" || Array.isArray(member)) return member;
+      const view = member as { kind?: string | null; [field: string]: unknown };
+      if (view.kind !== "human") return view;
       const understanding = await loadMemberUnderstanding(service.db, projectId, memberId);
       return {
-        ...member,
+        ...view,
         understanding: understanding?.understanding || null,
         statementSummary: understanding?.statementSummary || null,
         understandingUpdatedAt: understanding?.understandingUpdatedAt || null,
@@ -225,7 +387,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         [projectId, kind, sourceId],
       );
       if (!referenced) {
-        const error = new Error("出处不存在或不可访问");
+        const error: StatusError = new Error("出处不存在或不可访问");
         error.status = 404;
         throw error;
       }
@@ -258,7 +420,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
           [projectId, sourceId],
         );
       if (!rows.length) {
-        const error = new Error("出处不存在或不可访问");
+        const error: StatusError = new Error("出处不存在或不可访问");
         error.status = 404;
         throw error;
       }
@@ -434,12 +596,12 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       const total =
         meta.byte_size == null ? Buffer.byteLength(ignored || "") : Number(meta.byte_size);
       if (start > total) {
-        const error = new Error("偏移已经超过文件大小");
+        const error: StatusError = new Error("偏移已经超过文件大小");
         error.status = 400;
         throw error;
       }
       const take = Math.min(size, total - start);
-      let bytes = Buffer.alloc(0);
+      let bytes: Buffer = Buffer.alloc(0);
       if (take > 0) {
         const row = await service.version(user, versionId, {
           includeContent: true,
@@ -450,7 +612,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       }
       const returned = bytes.length;
       if (returned !== take) {
-        const error = new Error("文档分片长度不符");
+        const error: StatusError = new Error("文档分片长度不符");
         error.status = 500;
         throw error;
       }
@@ -568,7 +730,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       sha256: mcpSha256.describe("完整原始字节的 SHA-256"),
       chunkSize: z.number().int().min(4096).max(524288).optional().describe("不要改；默认 6144"),
     },
-    (a) => startFileUpload(service, user, a),
+    (a) => startFileUpload(uploads, user, a),
   );
   register(
     "upload_file_chunk",
@@ -579,7 +741,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       contentBase64: z.string().min(1).max(700000).describe("这一片原始字节的 Base64"),
       sha256: mcpSha256.describe("这一片原始字节的 SHA-256，不是整文件哈希"),
     },
-    (a) => putFileUploadChunk(service, user, a.uploadId, a),
+    (a) => putFileUploadChunk(uploads, user, a.uploadId, a),
   );
   register(
     "complete_file_upload",
@@ -588,7 +750,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       uploadId: z.string().uuid(),
       sha256: mcpSha256.optional().describe("整文件 SHA-256，应与 start_file_upload 时相同"),
     },
-    (a) => completeFileUpload(service, user, a.uploadId, a),
+    (a) => completeFileUpload(uploads, user, a.uploadId, a),
   );
   register(
     "list_tasks",
@@ -616,12 +778,12 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         listTaskStatusEvents(service.db, taskId),
         listTaskExecutionRuns(service.db, taskId),
       ]);
-      const folderContents = [];
-      for (const folderId of task.folder_refs || []) {
+      const folderContents: Record<string, unknown>[] = [];
+      for (const folderId of (task.folder_refs as string[] | null | undefined) || []) {
         try {
           folderContents.push(
-            await documentTool(service, user, "list_documents", {
-              projectId: task.project_id,
+            await documentTool(documents, user, "list_documents", {
+              projectId: String(task.project_id),
               folderId,
               recursive: true,
               limit: 200,
@@ -642,7 +804,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         executionRuns,
         decisionEvidence: await (
           await import("./memory-decisions.ts")
-        ).readTaskDecisionEvidence(service.db, task.project_id, task.id),
+        ).readTaskDecisionEvidence(service.db, String(task.project_id), String(task.id)),
         activity: mergeTaskActivity({ updates, statusHistory, executionRuns }),
         folder_contents: folderContents,
       };
@@ -657,7 +819,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     },
     async ({ taskId, mode }) => {
       const task = await taskFor(taskId, true);
-      return acceptTask(service.db, task.id, taskActor(), mode || "auto");
+      return acceptTask(pool(), String(task.id), taskActor(), mode || "auto");
     },
   );
   register(
@@ -666,7 +828,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     { taskId: z.string().uuid(), reason: z.string().trim().max(1000).optional() },
     async ({ taskId, reason }) => {
       const task = await taskFor(taskId, true);
-      return rejectTask(service.db, task.id, taskActor(), reason);
+      return rejectTask(pool(), String(task.id), taskActor(), reason);
     },
   );
   register(
@@ -694,7 +856,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     },
     async ({ taskId, ...update }) => {
       await taskFor(taskId, true);
-      return updateTask(service.db, taskId, taskActor(), update);
+      return updateTask(pool(), taskId, taskActor(), update);
     },
   );
   register(
@@ -714,7 +876,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       status: z.string().max(40).optional(),
       limit: z.number().int().min(1).max(100).optional(),
     },
-    async (a) => listLaowengRuns(service, user, a),
+    async (a) => laowengRuns(service, user, a),
   );
   register(
     "list_laoweng_document_queue",
@@ -724,7 +886,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       limit: z.number().int().min(1).max(200).optional(),
       readyOnly: z.boolean().optional(),
     },
-    async (a) => listLaowengDocumentQueue(service, user, a),
+    async (a) => laowengQueue(service, user, a),
   );
   register(
     "get_laoweng_logs",
@@ -740,7 +902,9 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       ]),
     },
     async ({ projectId, task }) =>
-      service.agentLogs(user, "project", projectId, { task: normalizeLaowengTask(task) }),
+      (service.agentLogs as AgentLogsSignature)(user, "project", projectId, {
+        task: normalizeLaowengTask(task),
+      }),
   );
   register(
     "retry_laoweng_task",
@@ -753,31 +917,45 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     async ({ projectId, task, threadId }) =>
       task === "project_memory"
         ? queueProjectMemoryRun(service, user, projectId)
-        : queueLaowengMemoryRun(service, user, { projectId, task, threadId }),
+        : queueLaowengMemory(service, user, { projectId, task, threadId }),
   );
   if (registered.size !== MCP_TOOL_NAMES.length)
     throw new Error("CoThread MCP tool manifest is incomplete");
   return tools;
 }
 
-function zodFieldToParam(field, required) {
-  const typeName = field?._def?.typeName;
+function zodDefOf(field: unknown): ZodDefShape | undefined {
+  return typeof field === "object" && field !== null
+    ? (field as { _def?: ZodDefShape })._def
+    : undefined;
+}
+
+function zodDescriptionOf(field: unknown): string | undefined {
+  return typeof field === "object" && field !== null
+    ? (field as { description?: string }).description
+    : undefined;
+}
+
+function zodFieldToParam(field: unknown, required: boolean): ParamSpec {
+  const def = zodDefOf(field);
+  const typeName = def?.typeName;
   if (typeName === "ZodOptional" || typeName === "ZodDefault" || typeName === "ZodNullable")
-    return zodFieldToParam(field._def.innerType, false);
-  let param;
+    return zodFieldToParam(def?.innerType, false);
+  let param: ParamSpec;
   if (typeName === "ZodNumber") param = { type: "number" };
   else if (typeName === "ZodBoolean") param = { type: "boolean" };
-  else if (typeName === "ZodEnum") param = { type: "string", enum: field._def.values };
+  else if (typeName === "ZodEnum") param = { type: "string", enum: def?.values };
   else if (typeName === "ZodArray")
-    param = { type: "array", items: zodFieldToParam(field._def.type, true) };
+    param = { type: "array", items: zodFieldToParam(def?.type, true) };
   else param = { type: "string" };
   if (required) param.required = true;
-  if (field?.description) param.description = field.description;
+  const description = zodDescriptionOf(field);
+  if (description) param.description = description;
   return param;
 }
 
-function zodObjectToParams(schema) {
-  const parameters = {};
+function zodObjectToParams(schema: z.ZodRawShape | null | undefined): Record<string, ParamSpec> {
+  const parameters: Record<string, ParamSpec> = {};
   for (const [key, field] of Object.entries(schema || {}))
     parameters[key] = zodFieldToParam(field, true);
   return parameters;
@@ -785,7 +963,13 @@ function zodObjectToParams(schema) {
 
 export function mcpReadToolSpecs() {
   const access = new Map(MCP_CAPABILITIES.map((item) => [item.name, item.access]));
-  return mcpToolDefinitions(null, { mcpSource: "spec" })
+  // 只为导出工具清单：这些回调不会被执行，`service` 在这里只是占位。
+  const noService = null as unknown as Service;
+  return mcpToolDefinitions(noService, {
+    id: "",
+    kind: "api",
+    mcpSource: "spec",
+  })
     .filter((tool) => access.get(tool.name) === "read")
     .map((tool) => ({
       name: tool.name,
@@ -794,8 +978,12 @@ export function mcpReadToolSpecs() {
     }));
 }
 
-export function createMcpServer(service, user, afterMessage) {
-  const instructions = mcpInstructionsForSource(user.mcpSource);
+export function createMcpServer(
+  service: Service,
+  user: McpUser,
+  afterMessage?: AfterMcpMessage | null,
+) {
+  const instructions = mcpInstructionsForSource(mcpSourceOf(user));
   const server = new McpServer({ name: MCP_SERVER_NAME, version: "0.3.0" }, { instructions });
   for (const tool of mcpToolDefinitions(service, user, afterMessage)) {
     server.registerTool(
@@ -813,7 +1001,12 @@ export function createMcpServer(service, user, afterMessage) {
   return server;
 }
 
-export async function callMcpTool(service, sessionUser, name, args) {
+export async function callMcpTool(
+  service: Service,
+  sessionUser: McpUser,
+  name: string,
+  args: unknown,
+) {
   const access = MCP_CAPABILITIES.find((item) => item.name === name)?.access;
   if (access !== "read") throw new Error("老翁只能只读查阅");
   const tool = mcpToolDefinitions(service, sessionUser).find((item) => item.name === name);
@@ -821,7 +1014,12 @@ export async function callMcpTool(service, sessionUser, name, args) {
   return tool.fn(args || {});
 }
 
-export async function handleMcp(req, res, service, afterMessage) {
+export async function handleMcp(
+  req: Request,
+  res: Response,
+  service: Service,
+  afterMessage?: AfterMcpMessage | null,
+) {
   const mcpSource = "mcp";
   const server = createMcpServer(service, { ...req.user, mcpSource }, afterMessage);
   const transport = new StreamableHTTPServerTransport({

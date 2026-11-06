@@ -1,7 +1,7 @@
 import { completeArchiveRequest, archiveAppOptions } from "./archive-helper.js";
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { openAgentRuntime } from "../server/agent.js";
+import { openAgentRuntime } from "../server/agent.ts";
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";

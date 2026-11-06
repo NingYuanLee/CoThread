@@ -6,7 +6,7 @@ import { accountCredential } from "../auth.ts";
 import { decryptToken } from "../credential-vault.ts";
 import { query } from "../db.ts";
 import { HttpError } from "../service.ts";
-import { handleMcp } from "../mcp.js";
+import { handleMcp } from "../mcp.ts";
 import { MCP_CAPABILITIES } from "../../shared/mcp-capabilities.js";
 import type { Express } from "express";
 import type { Pool } from "mysql2/promise";

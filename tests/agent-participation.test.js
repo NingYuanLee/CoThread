@@ -30,7 +30,7 @@ import {
   OPPORTUNISTIC_CONTEXT_CHAR_BUDGET,
   persistOpportunisticParticipationArtifacts,
   OPPORTUNISTIC_SETTLE_MS,
-} from "../server/agent-participation.js";
+} from "../server/agent-participation.ts";
 
 let database, db;
 before(async () => {

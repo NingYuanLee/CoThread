@@ -12,11 +12,11 @@ import {
   resetAgentSessionStore,
   invalidateCoordinatorRuntime,
   releaseIdleStaleCoordinatorRuntimes,
-} from "../server/agent.js";
+} from "../server/agent.ts";
 import {
   installPlatformModelSettings,
   clearPlatformModelSettings,
-} from "../server/model-config.js";
+} from "../server/model-config.ts";
 import { acquireSessionLock, discussionHasActiveCoordinator } from "../server/session-lock.ts";
 
 let database, db, service;

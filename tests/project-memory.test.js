@@ -21,7 +21,7 @@ import {
   readProjectMemory,
   readProjectMemoryCounts,
   settleIterationMemory,
-} from "../server/memory-timeline.js";
+} from "../server/memory-timeline.ts";
 import { readArchiveWorkflow } from "../server/iteration-archive.js";
 
 async function setup() {

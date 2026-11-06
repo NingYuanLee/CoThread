@@ -8,7 +8,7 @@ import { Service } from "../server/service.ts";
 import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
-} from "../server/miniprogram-config.js";
+} from "../server/miniprogram-config.ts";
 import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.js";
 import { miniprogramSnapshot } from "../server/miniprogram-workspace.ts";
 import {

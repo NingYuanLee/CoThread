@@ -2,7 +2,7 @@ import { validDocumentSummarySql } from "./file-index-visibility.ts";
 import { finishAgentEvent } from "./thread-activity.ts";
 import { documentTool } from "./documents/index.ts";
 import { z } from "zod/v3";
-import { redactSecrets } from "./model-config.js";
+import { redactSecrets } from "./model-config.ts";
 import { deepseekFetch, deepseekSearch } from "./deepseek-web.ts";
 import { formatAgentAction } from "../shared/agent-label.js";
 import { posix } from "node:path";
@@ -25,7 +25,7 @@ import {
   loadProjectWikiIndexes,
   queueDocumentMemory,
 } from "./project-memory.js";
-import { localExecutorTool } from "./local-executors.js";
+import { localExecutorTool } from "./local-executors.ts";
 import {
   acknowledgeTaskRejection,
   askTaskQuestion,
@@ -48,7 +48,7 @@ import {
   agentListCodeSources,
   agentListCodeTree,
   agentReadCodeFile,
-} from "./project-code-sources.js";
+} from "./project-code-sources.ts";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
 import {
   MINIPROGRAM_FIXED_FOLDERS,
@@ -59,7 +59,7 @@ import { buildMiniprogramPreview } from "./miniprogram-build.ts";
 import {
   registerMiniprogramDevServer,
   updateMiniprogramDevServer,
-} from "./miniprogram-dev-server.js";
+} from "./miniprogram-dev-server.ts";
 import {
   assertAgentEnvironment,
   ensureCloudbasePublishableKey,
@@ -82,7 +82,7 @@ import {
 } from "./cloud-backend.ts";
 import { previewMiniprogram, uploadMiniprogram } from "./wechat-ci.ts";
 import { listReleaseRequests, submitReleaseRequest } from "./release-requests.ts";
-import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
 import {
   saveMiniprogramPublishableKey,
   setMiniprogramPhoneAuthForAgent,

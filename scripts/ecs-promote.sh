@@ -61,7 +61,7 @@ if [[ -z "$RELEASE_DIR" ]]; then
   fi
 fi
 
-if [[ ! -f "$RELEASE_DIR/package.json" || ! -f "$RELEASE_DIR/server/index.js" ]]; then
+if [[ ! -f "$RELEASE_DIR/package.json" || ! -f "$RELEASE_DIR/server/index.ts" ]]; then
   echo "release 不完整：$RELEASE_DIR" >&2
   cleanup_failed_release "$RELEASE_DIR"
   exit 1
@@ -98,7 +98,7 @@ trap 'stop_probe' EXIT
 echo "在端口 $HEALTH_PORT 探活新版本（不影响 $PROD_PORT）…"
 (
   cd "$RELEASE_DIR"
-  PORT="$HEALTH_PORT" nohup node --env-file-if-exists=.env server/index.js --production --health-probe \
+  PORT="$HEALTH_PORT" nohup node --env-file-if-exists=.env server/index.ts --production --health-probe \
     >"$LOG_DIR/release-${release_id}.log" 2>&1 &
   echo $! >"$LOG_DIR/release-${release_id}.pid"
 )
@@ -146,7 +146,7 @@ Type=simple
 WorkingDirectory=/opt/cothread/current
 Environment=PATH=/usr/local/bin:/usr/bin
 Environment=PORT=${PROD_PORT}
-ExecStart=/usr/local/bin/node --env-file-if-exists=.env server/index.js --production
+ExecStart=/usr/local/bin/node --env-file-if-exists=.env server/index.ts --production
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
@@ -156,6 +156,12 @@ WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
   systemctl enable cothread.service
+elif grep -q 'server/index\.js' "$UNIT"; then
+  # 2026-11-06：server 迁到 TypeScript 后入口是 server/index.ts。线上已有的单元仍写着
+  # server/index.js，切换 current 之后 systemd 会因找不到入口而拉不起来，必须同步改。
+  echo "更新 systemd 单元入口：server/index.js → server/index.ts"
+  sed -i 's#server/index\.js#server/index.ts#g' "$UNIT"
+  systemctl daemon-reload
 fi
 
 echo "原子切换 current -> $RELEASE_DIR"

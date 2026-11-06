@@ -510,6 +510,8 @@ export type AccessService = {
 
 入口最后转：`package.json` 的 `start` / `dev:static`、systemd `ExecStart`、`scripts/ecs-*` 都写着 `server/index.js`，改名要同步改这些地方。
 
+> **2026-11-06 补记（这笔漏了，直到发布当天才暴露）**：上面这句「改名要同步改这些地方」当时只做到了 `package.json` 与 `scripts/dev-runtime.js`，**漏了 `scripts/ecs-promote.sh` 与 `Dockerfile`**。后果是 2026-11-06 首次发布这批改动时，线上发布卡在 `ReleaseWaiting`：发布脚本的完整性检查（`server/index.js`）判定包不完整、删掉本轮 release 目录并退出，探活从未开始，实例上的 `current` 纹丝不动；OOS 侧只显示「等待你的操作」，真因要靠翻执行输出才看得见。已修 `ecs-promote.sh`（完整性检查 / 探活启动 / systemd `ExecStart` 三处改为 `server/index.ts`，并对**已存在的** systemd 单元做一次 `sed` 迁移，否则切换 `current` 后 systemd 会因找不到入口而拉不起来）与 `Dockerfile` 的 `CMD`，并新增 `tests/deploy-entry.test.js` 把「部署脚本实际会用到的入口」与「仓库里真实存在的文件」绑在一起，今后改入口名会在本地测试里直接失败。
+
 ## 选文件的顺序
 
 被引用次数少只是必要条件，**还要看它依赖谁**：

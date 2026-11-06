@@ -19,4 +19,4 @@ COPY --from=build --chown=node:node /app/dsh-layer ./dsh-layer
 RUN mkdir -p /app/.local && chown node:node /app/.local
 USER node
 EXPOSE 3100
-CMD ["node", "server/index.js", "--production"]
+CMD ["node", "server/index.ts", "--production"]

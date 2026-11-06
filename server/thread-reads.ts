@@ -49,38 +49,39 @@ export async function threadReadSummary(
   userId: string,
   threadId: string,
 ): Promise<ThreadReadSummary> {
-  const [read] = await query<{ last_read_sequence?: unknown }>(
+  // 已读位、未读数、未读提及、收件箱计数读的是同一个迭代的同一批数据，
+  // 合成一条查询：少三次往返，口径与拆分版一致。
+  const [row] = await query<{
+    last_read_sequence?: unknown;
+    unread_count?: unknown;
+    mention_count?: unknown;
+    chat_unread?: unknown;
+    task_unread?: unknown;
+  }>(
     db,
-    "SELECT last_read_sequence FROM thread_reads WHERE thread_id=? AND user_id=?",
-    [threadId, userId],
+    `SELECT COALESCE(r.last_read_sequence,'0') last_read_sequence,
+      (SELECT COUNT(*) FROM messages m
+        WHERE m.thread_id=? AND m.sequence>COALESCE(r.last_read_sequence,0)
+          AND m.author_id<>? AND ${visibleMessage}) unread_count,
+      (SELECT COUNT(*) FROM notifications n JOIN messages m ON m.id=n.message_id
+        WHERE n.user_id=? AND n.thread_id=? AND n.kind='mention'
+          AND m.sequence>COALESCE(r.last_read_sequence,0)) mention_count,
+      (SELECT SUM(kind='mention') FROM notifications
+        WHERE user_id=? AND thread_id=? AND read_at IS NULL) chat_unread,
+      (SELECT SUM(kind IN ('task_assigned','task_decision','task_blocked','task_completed','task_failed'))
+        FROM notifications WHERE user_id=? AND thread_id=? AND read_at IS NULL) task_unread
+     FROM (SELECT ? AS thread_id) t
+     LEFT JOIN thread_reads r ON r.thread_id=t.thread_id AND r.user_id=?`,
+    [threadId, userId, userId, threadId, userId, threadId, userId, threadId, threadId, userId],
   );
-  const last = read?.last_read_sequence || "0";
-  const [count] = await query<{ n: unknown }>(
-    db,
-    "SELECT COUNT(*) n FROM messages m WHERE m.thread_id=? AND m.sequence>? AND m.author_id<>? AND " +
-      visibleMessage,
-    [threadId, last, userId],
-  );
-  const [mention] = await query<{ n: unknown }>(
-    db,
-    "SELECT COUNT(*) n FROM notifications n JOIN messages m ON m.id=n.message_id WHERE n.user_id=? AND n.thread_id=? AND n.kind='mention' AND m.sequence>?",
-    [userId, threadId, last],
-  );
-  const [inbox] = await query<{ chat_unread?: unknown; task_unread?: unknown }>(
-    db,
-    `SELECT SUM(kind='mention') chat_unread,
-      SUM(kind IN ('task_assigned','task_decision','task_blocked','task_completed','task_failed')) task_unread
-      FROM notifications WHERE user_id=? AND thread_id=? AND read_at IS NULL`,
-    [userId, threadId],
-  );
-  const mentionCount = Number(mention?.n || 0);
+  const mentionCount = Number(row?.mention_count || 0);
   return {
-    lastReadSequence: String(last),
-    unreadCount: Number(count?.n || 0),
+    lastReadSequence: String(row?.last_read_sequence || "0"),
+    unreadCount: Number(row?.unread_count || 0),
     unreadMention: mentionCount > 0,
     unreadMentionCount: mentionCount,
-    unreadChat: Number(inbox?.chat_unread || 0),
-    unreadTask: Number(inbox?.task_unread || 0),
+    unreadChat: Number(row?.chat_unread || 0),
+    unreadTask: Number(row?.task_unread || 0),
   };
 }
 

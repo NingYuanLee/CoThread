@@ -23,6 +23,7 @@ import { DEFAULT_UI_THEME } from "../shared/ui-theme.js";
 import { UiIcon } from "./ui-icon";
 import { api } from "./workspace-api";
 import { PanelIcon, ProjectActionIcon } from "./workspace-chrome";
+import { usePoll } from "./use-poll";
 import type { Project } from "./workspace-types";
 import type { PersonalProfile } from "./ProfileFields";
 import { projectCopyInfo } from "./project-copy";
@@ -105,12 +106,13 @@ export function WorkspaceTopbar({
   /** 项目页签右键菜单：记录指针落点与被操作的项目，菜单本身渲染在顶层浮层。 */
   const [tabMenu, setTabMenu] = useState<{ project: Project; x: number; y: number } | null>(null);
   const [inboxByProject, setInboxByProject] = useState<Record<string, number>>({});
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
+  usePoll({
+    intervalMs: 15000,
+    deps: [projectId],
+    load: (active) => {
       void api("/notifications?summary=1")
         .then((page: { projects?: { id: string; chat?: number; task?: number }[] }) => {
-          if (!alive) return;
+          if (!active()) return;
           const next: Record<string, number> = {};
           for (const row of page.projects || []) {
             const total = (row.chat || 0) + (row.task || 0);
@@ -119,14 +121,8 @@ export function WorkspaceTopbar({
           setInboxByProject(next);
         })
         .catch(() => {});
-    };
-    load();
-    const timer = window.setInterval(load, 15000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, [projectId]);
+    },
+  });
   const copyProjectInfo = async (project: Project) => {
     try {
       await navigator.clipboard.writeText(projectCopyInfo({ projectId: project.id, mcpEndpoint }));

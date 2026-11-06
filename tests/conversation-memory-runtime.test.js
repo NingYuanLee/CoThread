@@ -9,7 +9,7 @@ import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 import { dshModelPatch } from "../server/model-config.ts";
 import { elderRuntimePatch } from "../server/dsh-runtime-config.ts";
 
-test("真实 DSH runtime 注册受限的只读工具并转发调用", { timeout: 90000 }, async () => {
+test("真实 DSH runtime 注册受限的只读工具并转发调用", { timeout: 300000 }, async () => {
   const home = await mkdtemp(join(tmpdir(), "cothread-conversation-runtime-"));
   let requests = 0;
   let toolCall = null;
@@ -130,7 +130,8 @@ test("真实 DSH runtime 注册受限的只读工具并转发调用", { timeout:
     env,
     provider: "cothread-compatible",
     model: "test",
-    initializeTimeoutMs: 30000,
+    // 同 context-runtime：并行跑时 DSH profile 初始化会被拖长，放宽初始化上限。
+    initializeTimeoutMs: 120000,
     requestTimeoutMs: 30000,
   });
   try {

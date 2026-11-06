@@ -4,7 +4,8 @@ import express from "express";
 import { createServer as createHttpServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { createDatabase, query } from "./db.ts";
+import { createDatabase, query, DEFAULT_POOL_SIZE } from "./db.ts";
+import { precompressedStatic } from "./static-compression.ts";
 import { createApp } from "./app.ts";
 import { registerDevServerUpgrade, stopCoThreadPreviewServers } from "./miniprogram-dev-server.ts";
 import { startReplyWorker } from "./replies.ts";
@@ -66,8 +67,12 @@ if (process.platform === "win32") {
       "未找到 Git Bash。本机沙箱执行命令会失败，请安装 Git for Windows 或设置 GIT_BASH_PATH。",
     );
 }
-const db = await createDatabase(databaseUrl.href, { connectionLimit: 8 });
-const workDb = await createDatabase(databaseUrl.href, { connectionLimit: 16 });
+const db = await createDatabase(databaseUrl.href, {
+  connectionLimit: Number(process.env.DATABASE_POOL_SIZE || DEFAULT_POOL_SIZE),
+});
+const workDb = await createDatabase(databaseUrl.href, {
+  connectionLimit: Number(process.env.DATABASE_WORK_POOL_SIZE || 16),
+});
 await query(db, "SELECT 1");
 const allowWrites = productionWriteAllowed(process.env, { production });
 if (allowWrites) await migrate(db, undefined, { seedAdmin: true });
@@ -96,6 +101,8 @@ let vite: import("vite").ViteDevServer | undefined;
 let server: import("node:http").Server | undefined;
 if (production) {
   const dist = resolve("dist");
+  // 生产没有反向代理兜底压缩，dist 由构建期产出的 .br / .gz 直接供给。
+  app.use(precompressedStatic(dist));
   app.use(
     express.static(dist, {
       index: false,

@@ -47,7 +47,7 @@ test("context accounting excludes already retained discussion and native replies
 
 test(
   "native context survives resume, manual compaction reduces history, and pressure auto-compacts",
-  { timeout: 120000 },
+  { timeout: 300000 },
   async () => {
     const home = await mkdtemp(join(tmpdir(), "cothread-context-test-"));
     const requests = [];
@@ -118,7 +118,9 @@ test(
           COTHREAD_RESUME_SESSION: resume,
         },
         model: "context-test",
-        initializeTimeoutMs: 30000,
+        // DSH profile 初始化在并行跑时会被 CPU 与 profile 目录争抢拖长，
+        // 30 秒初始化上限会让这些用例在并行下偶发超时失败，这里放宽到 120 秒。
+        initializeTimeoutMs: 120000,
         requestTimeoutMs: 60000,
       });
     let harness = make();

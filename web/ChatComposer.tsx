@@ -7,14 +7,14 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { folderDisplayName, folderRootKind, libraryFolderPath } from "./document-library";
 import { AGENT_XIAOXIANG_MEMBER, AGENT_MEMBER } from "../shared/agent-member.js";
 import { fileDisplayName, isImageFile } from "../shared/document-name.js";
-import { FileIcon } from "@react-symbols/icons/utils";
 import {
-  Document,
-  Markdown as MarkdownFile,
-  Notebook,
-  Python,
-  Text,
-} from "@react-symbols/icons/files";
+  DocumentIcon,
+  FileIcon,
+  MarkdownIcon,
+  NotebookIcon,
+  PythonIcon,
+  TextIcon,
+} from "./ui-file-icons";
 import { UiIcon } from "./ui-icon";
 import { scaleDesignPx } from "./apply-ui-scale";
 import { ImagePreviewDialog, type ImagePreviewSource } from "./ImagePreview";
@@ -81,19 +81,19 @@ type Upload = {
   removing?: boolean;
 };
 const officeIcons = {
-  doc: Document,
-  docx: Document,
-  odt: Document,
-  rtf: Document,
-  ppt: Notebook,
-  pptx: Notebook,
-  odp: Notebook,
-  md: MarkdownFile,
-  markdown: MarkdownFile,
-  txt: Text,
-  log: Text,
-  env: Text,
-  py: Python,
+  doc: DocumentIcon,
+  docx: DocumentIcon,
+  odt: DocumentIcon,
+  rtf: DocumentIcon,
+  ppt: NotebookIcon,
+  pptx: NotebookIcon,
+  odp: NotebookIcon,
+  md: MarkdownIcon,
+  markdown: MarkdownIcon,
+  txt: TextIcon,
+  log: TextIcon,
+  env: TextIcon,
+  py: PythonIcon,
   ...wechatFileIcons,
 };
 function FilePreview({ name, url, id }: { name: string; url?: string; id?: string }) {

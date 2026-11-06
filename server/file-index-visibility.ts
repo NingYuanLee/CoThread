@@ -57,17 +57,22 @@ export function visibleFileIndexSql(alias: string): string {
           AND target_index.indexed_version_id=fg.evidence_target_version_id
       ))
       OR (fg.manually_managed=0 AND fg.evidence_kind='reference' AND (
-        SELECT COUNT(*) FROM file_index_entries candidate_index
-        JOIN wiki_pages candidate_page ON candidate_page.id=candidate_index.page_id AND candidate_page.status='current'
-        JOIN artifacts candidate_artifact ON candidate_artifact.id=candidate_index.artifact_id
+        -- 同名候选核对：按目标版本的文件名直接查版本表（迁移 224 的函数索引
+        -- versions((LOWER(filename))) 承载），不再逐组遍历项目内每个候选文件。
+        -- STRAIGHT_JOIN 固定驱动顺序，否则优化器会退回按 artifact 扫全表。
+        SELECT COUNT(*) FROM versions candidate_version
+        STRAIGHT_JOIN file_index_entries candidate_index ON candidate_index.project_id=fg.project_id
+          AND candidate_index.artifact_id=candidate_version.artifact_id
+          AND candidate_index.indexed_version_id=candidate_version.id
+        STRAIGHT_JOIN wiki_pages candidate_page ON candidate_page.id=candidate_index.page_id AND candidate_page.status='current'
+        STRAIGHT_JOIN artifacts candidate_artifact ON candidate_artifact.id=candidate_index.artifact_id
           AND candidate_artifact.project_id=candidate_index.project_id
-        JOIN versions candidate_version ON candidate_version.id=candidate_index.indexed_version_id
           AND candidate_version.artifact_id=candidate_artifact.id
         LEFT JOIN version_recycle candidate_recycle ON candidate_recycle.version_id=candidate_version.id
-        JOIN versions target_version ON target_version.id=fg.evidence_target_version_id
-        WHERE candidate_index.project_id=fg.project_id AND candidate_index.artifact_id<>fg.evidence_artifact_id
+        WHERE LOWER(candidate_version.filename)=(SELECT LOWER(target_version.filename) FROM versions target_version WHERE target_version.id=fg.evidence_target_version_id)
+          AND candidate_index.artifact_id<>fg.evidence_artifact_id
           AND candidate_artifact.deleted_at IS NULL AND candidate_artifact.purged_at IS NULL
-          AND candidate_recycle.version_id IS NULL AND LOWER(candidate_version.filename)=LOWER(target_version.filename)
+          AND candidate_recycle.version_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM versions newest LEFT JOIN version_recycle newest_recycle ON newest_recycle.version_id=newest.id
             WHERE newest.artifact_id=candidate_artifact.id AND newest.version>candidate_version.version AND newest_recycle.version_id IS NULL)
       )<>1)

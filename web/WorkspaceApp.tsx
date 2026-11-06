@@ -5,6 +5,7 @@ import { useConversationSelection } from "./use-conversation-selection";
 import { useAccountSession } from "./use-account-session";
 import { useProjectTasks } from "./use-project-tasks";
 import { useThreadTaskStats } from "./use-thread-task-stats";
+import { usePoll } from "./use-poll";
 import React, {
   lazy,
   Suspense,
@@ -861,28 +862,25 @@ export function WorkspaceApp() {
     applyUiTheme(user?.ui_theme || DEFAULT_UI_THEME);
   }, [loading, user?.id, user?.ui_theme]);
   useEffect(() => {
+    // 登出后清空执行器列表；轮询本身由 usePoll 的 enabled 控制。
     if (!user) {
       setConnectors([]);
       setConnectorsReady(false);
-      return;
     }
-    let alive = true;
-    const load = async () => {
+  }, [user?.id]);
+  usePoll({
+    intervalMs: 15000,
+    enabled: Boolean(user),
+    deps: [user?.id],
+    load: async (active) => {
       try {
         const devices = await api("/local-executors");
-        if (alive) {
-          setConnectors((current) => (sameSnapshot(current, devices) ? current : devices));
-          setConnectorsReady(true);
-        }
+        if (!active()) return;
+        setConnectors((current) => (sameSnapshot(current, devices) ? current : devices));
+        setConnectorsReady(true);
       } catch {}
-    };
-    void load();
-    const timer = setInterval(load, 15000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [user?.id]);
+    },
+  });
   useEffect(() => {
     if (!user || !projectId) return;
     try {

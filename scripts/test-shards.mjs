@@ -57,13 +57,20 @@ const tests = readdirSync("tests")
   .map((name) => {
     const file = "tests/" + name;
     const text = readFileSync(file, "utf8");
-    return { file, db: text.includes("./database.js"), weight: statSync(file).size };
+    return {
+      file,
+      db: text.includes("./database.js"),
+      // 会真的拉起 DSH runtime 的文件共用同一个 profile 初始化，排在最前面派发，
+      // 避免关键路径被队列等待拉长（实测见 scripts/test-unit.js 里的说明）。
+      heavy: text.includes("initializeTimeoutMs"),
+      weight: statSync(file).size,
+    };
   });
 const dbFiles = tests.filter((t) => t.db).sort((a, b) => b.weight - a.weight);
 const plainFiles = tests
   .filter((t) => !t.db)
-  .map((t) => t.file)
-  .sort();
+  .sort((a, b) => Number(b.heavy) - Number(a.heavy) || a.file.localeCompare(b.file))
+  .map((t) => t.file);
 const shards = dbs.map((db) => ({ db, files: [], weight: 0 }));
 for (const t of dbFiles) {
   shards.sort((a, b) => a.weight - b.weight);

@@ -30,7 +30,8 @@ test("DSH starts with a custom OpenAI-compatible provider route", async () => {
     env,
     provider: "cothread-compatible",
     model: "local-model",
-    initializeTimeoutMs: 30000,
+    // 同 context-runtime：并行跑时 DSH profile 初始化会被拖长，放宽初始化上限。
+    initializeTimeoutMs: 120000,
   });
   try {
     await harness.start();

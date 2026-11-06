@@ -54,7 +54,10 @@ test("pending chat reads preserve cursor precision, quotes and reply accounting"
     const observed = {
       async execute(sql, params) {
         const result = await db.execute(sql, params);
-        if (sql.includes("m.sequence>COALESCE")) captured.push(result[0].map((row) => row.id));
+        // 只截获「待读消息」这条查询：它按游标取消息行，本用例要断言游标精度。
+        // thread-reads 等查询也带 m.sequence>COALESCE，但返回聚合计数，不在断言范围内。
+        if (sql.includes("m.sequence>COALESCE") && /\bSELECT\s+m\.id\b/.test(sql))
+          captured.push(result[0].map((row) => row.id));
         return result;
       },
     };
@@ -75,7 +78,9 @@ test("pending chat reads preserve cursor precision, quotes and reply accounting"
         .filter((m) => BigInt(m.sequence) > seen)
         .map((m) => m.id)
         .sort();
-      for (const ids of captured.splice(0)) assert.deepEqual(ids.sort(), expected);
+      const capturedIds = captured.splice(0);
+      assert.ok(capturedIds.length > 0, "待读消息查询没有被截获，断言会变成空跑");
+      for (const ids of capturedIds) assert.deepEqual(ids.sort(), expected);
       assert.ok(
         visible.messages.some((m) => m.id === messages[1].id),
         "visible native replies are retained",

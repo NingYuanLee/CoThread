@@ -6,14 +6,14 @@ import {
   type CSSProperties,
   type SVGProps,
 } from "react";
-import { FileIcon } from "@react-symbols/icons/utils";
 import {
-  Document,
-  Markdown as MarkdownFile,
-  Notebook,
-  Python,
-  Text,
-} from "@react-symbols/icons/files";
+  DocumentIcon,
+  FileIcon,
+  MarkdownIcon,
+  NotebookIcon,
+  PythonIcon,
+  TextIcon,
+} from "./ui-file-icons";
 import { wechatFileIcons } from "./wechat-file-icons";
 import { designPxToRem } from "../shared/ui-scale.js";
 
@@ -25,18 +25,18 @@ function scaleBox(width?: number | string, height?: number | string) {
 }
 
 const officeIcons = {
-  odt: Document,
-  rtf: Document,
-  odp: Notebook,
-  md: MarkdownFile,
-  markdown: MarkdownFile,
-  txt: Text,
-  log: Text,
-  env: Text,
-  ini: Text,
-  conf: Text,
-  toml: Text,
-  py: Python,
+  odt: DocumentIcon,
+  rtf: DocumentIcon,
+  odp: NotebookIcon,
+  md: MarkdownIcon,
+  markdown: MarkdownIcon,
+  txt: TextIcon,
+  log: TextIcon,
+  env: TextIcon,
+  ini: TextIcon,
+  conf: TextIcon,
+  toml: TextIcon,
+  py: PythonIcon,
   ...wechatFileIcons,
 };
 

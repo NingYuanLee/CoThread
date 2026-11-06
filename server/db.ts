@@ -8,6 +8,15 @@ import type { Db, SqlParams } from "./types.ts";
 /** 建池时可覆盖的项；其余连接参数写死在这里。 */
 export type CreateDatabaseOptions = { connectionLimit?: number | string };
 
+/**
+ * 连接池默认上限。
+ *
+ * 单个请求会并行发起十几条查询（迭代上下文一次扇出 13 条），池比这个数小的时候，
+ * 查询在池内排队：实测 `/api/threads/:id` 的 `db_sum` 明显大于 `db`，差值就是排队时间。
+ * 具体值可用 `DATABASE_POOL_SIZE` 覆盖。
+ */
+export const DEFAULT_POOL_SIZE = 20;
+
 const RETRYABLE_DB_ERRORS = new Set([
   "ETIMEDOUT",
   "ECONNRESET",
@@ -46,7 +55,9 @@ export async function createDatabase(
     charset: "utf8mb4",
     timezone: "Z",
     dateStrings: true,
-    connectionLimit: Number(options.connectionLimit || process.env.DATABASE_POOL_SIZE || 10),
+    connectionLimit: Number(
+      options.connectionLimit || process.env.DATABASE_POOL_SIZE || DEFAULT_POOL_SIZE,
+    ),
     connectTimeout: 8_000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 5_000,

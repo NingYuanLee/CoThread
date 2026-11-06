@@ -359,20 +359,14 @@ export async function contextOperation(
         [threadId, threadId],
       )
     : Promise.resolve(null);
-  const toolDurationQuery = query<Row>(
-    db,
-    `SELECT COALESCE(SUM(GREATEST(TIMESTAMPDIFF(MICROSECOND, e.created_at, e.finished_at),0)),0) ms
-     FROM agent_events e JOIN messages m ON m.id=e.message_id
-     WHERE m.thread_id=? AND e.finished_at IS NOT NULL AND e.tool<>'thinking'
-       AND NOT EXISTS (SELECT 1 FROM agent_child_sessions cs WHERE cs.session_id=e.agent_session_id)
-       AND NOT EXISTS (SELECT 1 FROM agent_task_execution_runs cr
-         WHERE cr.executor_type='child_agent' AND cr.executor_id=e.agent_session_id)`,
-    [threadId],
-  );
+  // 工具耗时与轮次口径读的是同一批事件（只有轮次口径不限 finished_at 与 thinking），
+  // 合并成一条聚合：少一次往返，也少扫一遍事件表。
   // 轮次口径与轨迹一致：有事件（=小祥真的跑过）的触发消息数，排除子 Agent 会话。
-  const trajectoryRoundsQuery = query<Row>(
+  const eventAggregatesQuery = query<Row>(
     db,
-    `SELECT COUNT(DISTINCT COALESCE(e.turn_id,e.message_id)) n
+    `SELECT COALESCE(SUM(CASE WHEN e.finished_at IS NOT NULL AND e.tool<>'thinking'
+         THEN GREATEST(TIMESTAMPDIFF(MICROSECOND, e.created_at, e.finished_at),0) ELSE 0 END),0) ms,
+       COUNT(DISTINCT COALESCE(e.turn_id,e.message_id)) n
      FROM agent_events e JOIN messages m ON m.id=e.message_id
      WHERE m.thread_id=?
        AND NOT EXISTS (SELECT 1 FROM agent_child_sessions cs WHERE cs.session_id=e.agent_session_id)
@@ -398,8 +392,7 @@ export async function contextOperation(
     requests,
     pending,
     localExecutorTasks,
-    toolDurationRows,
-    [trajectoryRoundsRow],
+    eventAggregates,
     turnUsageRows,
   ] = await Promise.all([
     display ? Promise.resolve(selected) : messagesQuery,
@@ -412,8 +405,7 @@ export async function contextOperation(
     requestsQuery,
     pendingQuery,
     localExecutorTasksQuery,
-    toolDurationQuery,
-    trajectoryRoundsQuery,
+    eventAggregatesQuery,
     turnUsageQuery,
   ]);
   const parsedRows = [...(pending || []), ...messages].map(
@@ -465,9 +457,9 @@ export async function contextOperation(
     updates,
     requests,
     localExecutorTasks,
-    toolDurationMs: Number(toolDurationRows?.[0]?.ms || 0) / 1000,
+    toolDurationMs: Number(eventAggregates?.[0]?.ms || 0) / 1000,
     // 底部统计的「N 轮」「N 步」用它，和轨迹页同口径。
-    trajectoryRounds: Number(trajectoryRoundsRow?.n || 0),
+    trajectoryRounds: Number(eventAggregates?.[0]?.n || 0),
     turnUsage: turnUsageRows,
   };
   if (revisionMatched)

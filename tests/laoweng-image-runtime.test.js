@@ -11,7 +11,7 @@ import { dshModelPatch } from "../server/model-config.ts";
 
 test(
   "老翁 runtime admits image bytes and sends an image to the model",
-  { timeout: 60000 },
+  { timeout: 300000 },
   async () => {
     const home = await mkdtemp(join(tmpdir(), "cothread-image-"));
     let requestBody;
@@ -51,7 +51,8 @@ test(
       env,
       provider: "cothread-compatible",
       model: "test",
-      initializeTimeoutMs: 30000,
+      // 同 context-runtime：并行跑时 DSH profile 初始化会被拖长，放宽初始化上限。
+      initializeTimeoutMs: 120000,
       requestTimeoutMs: 30000,
     });
     try {

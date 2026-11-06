@@ -341,12 +341,22 @@ test("detached worktrees ignore uncommitted files in the main checkout", async (
   };
   try {
     runGit(repo, ["init", "-b", "main"]);
-    runGit(repo, ["config", "user.email", "connector@test"]);
-    runGit(repo, ["config", "user.name", "connector"]);
     await mkdir(join(repo, "apps", "web"), { recursive: true });
     await writeFile(join(repo, "apps", "web", "index.js"), "ok\n", "utf8");
     runGit(repo, ["add", "."]);
-    runGit(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "init"]);
+    // 作者身份用 -c 随本次提交传入，省掉两次独立的 git config 子进程；
+    // 提交的 author/committer 与原来写入仓库级配置后提交完全一致。
+    runGit(repo, [
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "user.email=connector@test",
+      "-c",
+      "user.name=connector",
+      "commit",
+      "-m",
+      "init",
+    ]);
     await writeFile(join(repo, "dirty.txt"), "uncommitted\n", "utf8");
     assert.ok(runGit(repo, ["status", "--porcelain"]).trim());
     addDetachedWorktree(repo, worktree);

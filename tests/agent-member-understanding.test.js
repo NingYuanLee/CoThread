@@ -208,8 +208,20 @@ test("project memory gathers cross-iteration statements and rejects stale overwr
       "SELECT summary,through_sequence FROM agent_member_summaries WHERE project_id=? AND user_id=?",
       [project.id, member.id],
     );
-    assert.equal(stored.summary, "该成员决定先完成接口，并承诺周三补充测试。");
-    assert.equal(String(stored.through_sequence), String(later.sequence));
+    // 失败时把现场数据带出来：这个文件历史上偶发失败，症状是「刚写进去的行不见了」
+    // 与「sequence 倒着走」，只报断言值没法归因。
+    const diagnosis = JSON.stringify({
+      stored,
+      earlier: String(earlier.sequence),
+      later: String(later.sequence),
+      summaries: await query(
+        db,
+        "SELECT summary,through_sequence FROM agent_member_summaries WHERE project_id=? AND user_id=?",
+        [project.id, member.id],
+      ),
+    });
+    assert.equal(stored.summary, "该成员决定先完成接口，并承诺周三补充测试。", `诊断=${diagnosis}`);
+    assert.equal(String(stored.through_sequence), String(later.sequence), `诊断=${diagnosis}`);
   } finally {
   }
 });
@@ -393,7 +405,18 @@ test("zero output completes the window without creating or overwriting memories"
   assert.equal(stored.statement_summary, before[0].statement_summary);
   const [pageAfter] = await query(db, "SELECT id,body FROM wiki_pages WHERE id=?", [pageBefore.id]);
   assert.deepEqual(pageAfter, pageBefore);
-  assert.ok(Number(second.sequence) < Number(third.sequence));
+  // 失败时带出本迭代的消息序列：sequence 不递增只可能是并发重建了 messages 表
+  // （自增列被拨回起点），现场数据能直接印证这一点。
+  assert.ok(
+    Number(second.sequence) < Number(third.sequence),
+    `sequence 未递增；诊断=${JSON.stringify({
+      second: String(second.sequence),
+      third: String(third.sequence),
+      msgs: await query(db, "SELECT id,sequence,body FROM messages WHERE thread_id=? ORDER BY id", [
+        thread.id,
+      ]),
+    })}`,
+  );
 
   await service.postMessage(owner, thread.id, { body: "再见。" });
   await run(async () => ({ statements: [], discussions: [] }));

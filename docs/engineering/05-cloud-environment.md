@@ -86,9 +86,19 @@
 
    平台模型配置的 118 号迁移仅新增单例配置表，初始不写配置。新版本探活也会应用该迁移；若随后回切旧代码，可保留新增表，不执行删除表或重写迁移记录。旧代码不会读取此表，因此启用数据库模型配置后再回切旧代码，会重新采用服务器环境变量，恢复前须核对两者。
 
+   2026-11-06 核对正式库现状（只读，DoH 解析真实 IP 后连公网端点，未写任何数据）：正式库是 **MySQL 8.0.36**，`max_connections=10520`，`innodb_buffer_pool_size=768MB`，`innodb_flush_log_at_trx_commit=1`，`lock_wait_timeout=31536000`；`Threads_connected=25`、`Max_used_connections=506`、`Uptime≈58 天`。正式库当前迁移停在 223。`versions` 表 573 行、data 39.5MB / index 0.2MB（体积几乎全在 `content` 的 LONGBLOB 上），`artifacts` 447 行、`messages` 1046 行、`file_index_entries` 411 行。
+
+   连接池上限从 8 提到 20（`server/db.ts` 的 `DEFAULT_POOL_SIZE`，可用 `DATABASE_POOL_SIZE` / `DATABASE_WORK_POOL_SIZE` 覆盖）后，单实例两个池合计 36 个连接，相对 `max_connections=10520` 与 `Max_used_connections=506` 都有充足余量，不需要额外调整 RDS 的 `max_connections`。
+
+   迁移 224（`ALTER TABLE versions ADD INDEX versions_filename_lower ((LOWER(filename))), ALGORITHM=INPLACE`）已在与正式库**同实例同版本（8.0.36）**的 RDS 测试库上用同形临时表演练通过：函数索引要求 MySQL ≥ 8.0.13，8.0.36 满足；`ALGORITHM=INPLACE` 可用（63ms），显式指定它的意义是**万一不能 INPLACE 就直接失败，而不是退化成整表复制**（`versions` 存文件内容，复制代价高）。实测确认 `LOCK=NONE` 不被支持（`ER_ALTER_OPERATION_NOT_SUPPORTED_REASON: … Try LOCK=SHARED`），即建索引期间写入被短暂挡住；正式库 `versions` 只有 39.5MB，挡住的时间在秒级，不构成上线风险。该迁移**不幂等**（重复执行报 `ER_DUP_KEYNAME`），依赖 `schema_migrations` 按名记录保证只跑一次。
+
+   给 `versions` 再加**第二个**函数索引会失败（`INPLACE ADD or DROP of virtual columns cannot be combined with other ALTER TABLE actions. Try ALGORITHM=COPY`）。以后若要再加函数索引，不能照抄迁移 224 的写法，要改成先显式加虚拟列再单独建索引。
+
 6. 远端测试库出现 `PROTOCOL_CONNECTION_LOST` 时，先区分连接故障与业务断言失败。测试配置用的已经是公网域名 `TEST_DATABASE_HOST_PUBLIC`，不是内网地址；本机 TUN 仍把该域名解析到 `198.18.0.0/15`，所以“改用公网域名”不能绕过假 IP。2026-10-26 该主机名解析到 `198.18.30.123`，整轮 431 项都是连接丢失、0 项断言失败，不能记成业务回归。2026-10-27 系统 `Resolve-DnsName` 与未打补丁的 `node` 仍分别得到 `198.18.124.171`、`198.18.124.172`。桌面插件 `dsh-real-ip` 只改当前进程的 `dns.lookup`：在测试进程启动时 `--import` 它的 `installProcessLookup` 后，同一公网域名不再落在 `198.18`，并且能连上 `cothread_test`。这个补丁不会传给测试里用干净 `env` 拉起的子进程，系统自带的 `Resolve-DnsName` 和 `mysql` 客户端也仍然看到假 IP。公网 RDS 上串行全量很慢：2026-10-27 一轮 900 项用了约 82 分钟，而本机 `cothread_test_2` 上一轮大约 6 分钟；慢的是跨网 SQL，不是 `DELETE` 重置被改回 `TRUNCATE`。本机 `127.0.0.1:3307` 没有名为 `cothread_test` 的库，仍有 `cothread_test_2` 到 `_5`；本机 `cothread` 账号能写 `_2`，RDS 的 `TEST_DATABASE_AUTH` 不能连这些本机库。要在本机库复跑时，只向测试子进程注入 `TEST_DATABASE_HOST_PUBLIC=127.0.0.1:3307/cothread_test_2` 和本机账号的 `TEST_DATABASE_AUTH`，凭据从现有本地配置读取，不打印、不提交。`npm test` 会清空目标测试库，不能指向生产库或 `cothread_dev`。`cothread_deploy_test` 若未单独授权不可直接使用。
 
    2026-10-28 第三次发布前确认：用本机 `cothread` 账号在 `cothread_test_2`…`_5` 上并行跑全量（5 路、925 项、约 7 分钟）和串行 `npm test` 都可行，只需向测试进程注入 `TEST_DATABASE_HOST_PUBLIC=127.0.0.1:3307/cothread_test_2` 与本机账号的 `TEST_DATABASE_AUTH`；某个库刚整库重建时会先花 1–2 分钟重放 152 条迁移。并行分片首轮曾因旧版测试把 test_5 结构改残而连锁失败，重建该库后复跑全绿，不是业务回归。
+
+   2026-11-06 补充：桌面插件 `dsh-real-ip` 已不在本机，本机连公网 RDS 仍会因 TUN 假 IP 报 `PROTOCOL_CONNECTION_LOST`。**只读核对正式库**的可用途径是先用 DoH（`https://dns.alidns.com/resolve?name=<域名>&type=A`）拿到真实 IP，再按该 IP 建连：`.env` 未启用 `DATABASE_SSL`，MySQL 连接不需要 SNI，用 IP 直连即可。实测 `rm-bp1ms41b96tgs544puo.rwlb.rds.aliyuncs.com` 的系统解析是 `198.18.116.142`（假 IP），DoH 解析得到真实地址后可正常连上正式库并读到 `VERSION()`。这条路径**只用于只读核对**；写操作仍走 ECS 上的应用，不从本机直连。
 
 7. 完成最终构建后再打包。推荐 `npm run deploy:ecs`；只有确认 `dist/` 对应最终前端源码时，才用 `npm run deploy:ecs -- --pack-only`。不要并行构建和打包；源码、锁文件或发布钩子改动后都应重打包。清单由[打包入口](../../scripts/ecs-deploy.mjs)生成，不手改 `.code_deploy/last-deploy.json`，发布期间也不要继续修改待上传源码。
 8. 提交并推送待发布修改，确认远端分支 HEAD 与本地一致；记录提交号、产物文件名及 SHA-256，再进入上传步骤。

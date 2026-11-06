@@ -9,7 +9,7 @@ import {
   isVisibleLibraryTreeFolder,
   filterProjectLibraryFolders,
   filterProjectLibraryVersions,
-} from "../server/documents/project-library.js";
+} from "../server/documents/project-library.ts";
 import {
   ensureMiniprogramWorkspace,
   publishMiniprogramSourceFile,
@@ -17,7 +17,7 @@ import {
   miniprogramWorkspaceFolders,
   migrateLegacyAdminDist,
   MINIPROGRAM_FIXED_FOLDERS,
-} from "../server/miniprogram-workspace.js";
+} from "../server/miniprogram-workspace.ts";
 
 async function seedProject(database) {
   const user = { id: randomUUID(), kind: "session" };

@@ -6,7 +6,7 @@ import { query, transaction } from "../server/db.ts";
 import { createExecutorDatabase } from "../server/executor-access.ts";
 import { Service } from "../server/service.ts";
 import { acquireNamedLock } from "../server/named-lock.ts";
-import { startReplyWorker } from "../server/replies.js";
+import { startReplyWorker } from "../server/replies.ts";
 import { publishWork } from "../server/work-events.ts";
 import { setTimeout as delay } from "node:timers/promises";
 

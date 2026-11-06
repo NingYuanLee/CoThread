@@ -1,5 +1,5 @@
 import { HttpError } from "./service.ts";
-import { uploadMiniprogram } from "./wechat-ci.js";
+import { uploadMiniprogram } from "./wechat-ci.ts";
 import { deployAdminHosting, promoteCloudbaseFunction } from "./cloud-backend.ts";
 
 /**
@@ -29,7 +29,7 @@ export async function executeRelease(
   if (!request || !request.target) throw new HttpError(400, "发布申请缺少目标");
   if (request.target === "wechat_upload") {
     // Compatibility for requests created before experience uploads became direct.
-    const result = await uploadMiniprogram(service, actor, projectId, {
+    const result = await uploadMiniprogram(service as never, actor as never, projectId, {
       version: request.version,
       desc: request.releaseNote || undefined,
     });
@@ -40,7 +40,11 @@ export async function executeRelease(
     return result.deploymentId;
   }
   if (request.target === "cloudbase_function") {
-    const result = await promoteCloudbaseFunction(service, actor, projectId, request);
+    // 申请单只按这两个字段驱动云函数发布镜像；其余字段属于状态机自己记录的内容。
+    const result = await promoteCloudbaseFunction(service as never, actor as never, projectId, {
+      resourceName: request.resourceName,
+      sourceHash: request.sourceHash,
+    });
     return result.deploymentId;
   }
   throw new HttpError(400, `未知发布目标：${request.target}`);

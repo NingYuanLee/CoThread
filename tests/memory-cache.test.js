@@ -142,7 +142,7 @@ test("文档版本备注不会冒充已识别正文摘要", async () => {
     );
     assert.equal(cache, undefined, "尚未分析正文时不能把版本备注写成摘要");
     const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-      await import("../server/file-index-discovery.js");
+      await import("../server/file-index-discovery.ts");
     while (await discoverNextFileIndexChange(db)) {}
     while (await reconcileNextFileIndexArtifact(db)) {}
     const [index] = await query(

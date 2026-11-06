@@ -12,7 +12,7 @@ import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
 } from "../server/miniprogram-config.js";
-import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.js";
+import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.ts";
 import {
   devServerProxyBase,
   devServerTokenMatches,

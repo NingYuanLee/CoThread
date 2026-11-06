@@ -282,7 +282,7 @@ export function laowengTaskLabel(task) {
 
 const VISIBLE_AGENT_TEXT = [
   ["dsh-layer/laoweng-tools.mjs", "老翁工具策略"],
-  ["server/laoweng-agent.js", "老翁维护"],
+  ["server/laoweng-agent.ts", "老翁维护"],
   ["COTHREAD_SKILLS_BY_LEVEL.laoweng", "老翁 Skill 配置"],
   ["COTHREAD_SKILLS_BY_LEVEL.xiaoxiang", "小祥 Skill 配置"],
   ["COTHREAD_SKILLS_BY_LEVEL.child_agent", "子 Agent Skill 配置"],

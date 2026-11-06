@@ -99,7 +99,7 @@ export async function upsertMemoryPage(
     sourceFamily || sourceFamilyForSources(sources),
     pageId,
   ]);
-  const { captureMemoryRevision } = await import("./memory-history.js");
+  const { captureMemoryRevision } = await import("./memory-history.ts");
   await captureMemoryRevision(
     db,
     { id: pageId, title: clean, body: text, status: "current" },

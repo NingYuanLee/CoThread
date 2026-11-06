@@ -252,7 +252,7 @@ export async function createProjectOperation(
       ...(image ? { image: "set" } : {}),
     });
     // 新项目先建空扫描水位：扫描器下一轮会把这批首批事实（含「项目初创」）作为信号。
-    const { startProjectMemoryScanState } = await import("./project-memory-scan.js");
+    const { startProjectMemoryScanState } = await import("./project-memory-scan.ts");
     await startProjectMemoryScanState(db, projectId);
   });
   return {

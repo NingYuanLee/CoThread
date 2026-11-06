@@ -14,7 +14,7 @@ import {
   loadPlatformModelSettings,
   platformModelSettingsView,
   savePlatformModelSettings,
-} from "../server/platform-model-settings.js";
+} from "../server/platform-model-settings.ts";
 
 afterEach(() => clearPlatformModelSettings());
 

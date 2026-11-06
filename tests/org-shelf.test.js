@@ -8,7 +8,7 @@ import {
   createOrganization,
   setOrganizationMember,
   changeProjectOrganizationLink,
-} from "../server/organizations.js";
+} from "../server/organizations.ts";
 import { createWikiPage } from "../server/wiki-pages.ts";
 import {
   createCompanyGuide,

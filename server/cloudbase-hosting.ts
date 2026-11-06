@@ -7,7 +7,7 @@ import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
-import { miniprogramSnapshot } from "./miniprogram-workspace.js";
+import { miniprogramSnapshot } from "./miniprogram-workspace.ts";
 import { getCloudbaseManager } from "./cloudbase.js";
 import {
   injectAdminRuntimeHtml,

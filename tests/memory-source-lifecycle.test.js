@@ -8,11 +8,11 @@ import {
   queueConversationMessage,
   createConversationWindow,
 } from "../server/conversation-memory-store.js";
-import { processConversationWindow } from "../server/conversation-memory-runner.js";
+import { processConversationWindow } from "../server/conversation-memory-runner.ts";
 import { searchProjectMemory } from "../server/memory-search.ts";
 import { supersedeMemoryEntry, confirmMemoryEntry } from "../server/memory-timeline.js";
 import { getWikiPage } from "../server/wiki-pages.ts";
-import { listMemoryHistory, readMemoryRevision } from "../server/memory-history.js";
+import { listMemoryHistory, readMemoryRevision } from "../server/memory-history.ts";
 import {
   resolveMemorySourceFamily,
   sourceFamilyForSources,
@@ -20,11 +20,11 @@ import {
 } from "../server/memory-policy.ts";
 import { upsertMemoryPage } from "../server/memory-pages.ts";
 import { readProjectFacts } from "../server/project-facts.ts";
-import { syncDocumentMemory } from "../server/document-memory.js";
+import { syncDocumentMemory } from "../server/document-memory.ts";
 import { createVersion, replaceVersionContent } from "../server/documents/versions.ts";
-import { loadTaskMemoryStats } from "../server/task-memory.js";
+import { loadTaskMemoryStats } from "../server/task-memory.ts";
 import { callMcpTool } from "../server/mcp.js";
-import { createTask } from "../server/task-commands.js";
+import { createTask } from "../server/task-commands.ts";
 import { readTaskDecisionEvidence } from "../server/memory-decisions.ts";
 import { createArtifact } from "../server/documents/versions.ts";
 import { transaction } from "../server/db.ts";

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { setImmediate as turn } from "node:timers/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
-import { startReplyWorker } from "../server/replies.js";
+import { startReplyWorker } from "../server/replies.ts";
 
 test("executor keeps its named lock until in-flight lanes have drained", async () => {
   const database = await testDatabase();

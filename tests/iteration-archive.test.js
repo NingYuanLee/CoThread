@@ -6,7 +6,7 @@ import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { createTask, acceptTask, updateTask, cancelTask } from "../server/task-pool.ts";
 import { processNextProjectMemory } from "../server/project-memory.js";
-import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 import { claimReply } from "../server/reply-dispatch.ts";
 import { lockIteration } from "../server/iteration-state.ts";
 import { createApp } from "../server/app.ts";

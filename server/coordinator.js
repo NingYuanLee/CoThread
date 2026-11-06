@@ -29,7 +29,7 @@ import { childBindingFromToolResult } from "./child-agent-binding.ts";
 import { insertUniqueAssistantMessage } from "./assistant-post.ts";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { countTurnSteps } from "../shared/turn-steps.js";
-import { persistChildContextStats, persistChildRunCheckpoint } from "./child-agent-session.js";
+import { persistChildContextStats, persistChildRunCheckpoint } from "./child-agent-session.ts";
 import {
   composeOpportunisticParticipation,
   absorbOpportunisticBurst,

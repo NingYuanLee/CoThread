@@ -6,7 +6,7 @@ import { assertCanSupersedeMemory, resolveMemorySourceFamily } from "./memory-po
 import { intactConversationMemorySql } from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql, visibleFileSourceSql } from "./file-index-visibility.ts";
 import { hydrateFileIndexRoots } from "./file-index-roots.ts";
-import { hydrateFileIndexGroups } from "./file-index-groups.js";
+import { hydrateFileIndexGroups } from "./file-index-groups.ts";
 import { hydrateFileIndexPaths } from "./file-index-path.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
 import { MEMORY_SUBTYPES, MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";

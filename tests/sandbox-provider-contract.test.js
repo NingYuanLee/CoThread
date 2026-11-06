@@ -7,7 +7,7 @@ import {
   formatSandboxReference,
   parseSandboxReference,
 } from "../server/sandbox-provider.ts";
-import { LocalSandbox } from "../server/local-sandbox.js";
+import { LocalSandbox } from "../server/local-sandbox.ts";
 import { acquireSandbox, releaseSandbox } from "../server/agent-sandbox.ts";
 function factory() {
   const live = new Map();

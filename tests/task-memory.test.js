@@ -12,7 +12,7 @@ import {
   taskDistributionMarkdown,
   syncTaskMemory,
   taskMemoryMarkdown,
-} from "../server/task-memory.js";
+} from "../server/task-memory.ts";
 
 async function setup() {
   const database = await testDatabase();

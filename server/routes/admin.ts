@@ -36,7 +36,7 @@ import {
   loadPlatformModelSettings,
   platformModelSettingsView,
   savePlatformModelSettings,
-} from "../platform-model-settings.js";
+} from "../platform-model-settings.ts";
 import {
   archiveOrganization,
   changeProjectOrganizationLink,
@@ -45,7 +45,7 @@ import {
   listOrganizations,
   setOrganizationMember,
   updateOrganization,
-} from "../organizations.js";
+} from "../organizations.ts";
 
 /** 管理域路由。守卫与全部 /api/admin 端点集中在此，注册顺序与原先一致。 */
 export function registerAdminRoutes(app: Express, { db, service }: { db: Db; service: Service }) {

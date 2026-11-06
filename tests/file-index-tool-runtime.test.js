@@ -9,7 +9,7 @@ import { processNextProjectMemory } from "../server/project-memory.js";
 import {
   discoverNextFileIndexChange,
   reconcileNextFileIndexArtifact,
-} from "../server/file-index-discovery.js";
+} from "../server/file-index-discovery.ts";
 
 test("真实 DSH 注册文件摘要工具并通过工具提交", { timeout: 90000 }, async () => {
   const database = await testDatabase();

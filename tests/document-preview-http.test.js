@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { createApp } from "../server/app.ts";
 import { hashPassword } from "../server/auth.ts";
 import { query } from "../server/db.ts";
-import { libraryChange } from "../server/documents/library.js";
+import { libraryChange } from "../server/documents/library.ts";
 import { Service } from "../server/service.ts";
 import { testDatabase } from "./database.js";
 

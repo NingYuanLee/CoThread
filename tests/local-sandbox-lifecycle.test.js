@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LocalSandbox } from "../server/local-sandbox.js";
+import { LocalSandbox } from "../server/local-sandbox.ts";
 
 test(
   "invalid UTF-8 cannot expand retained output beyond the byte cap",

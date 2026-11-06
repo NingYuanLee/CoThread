@@ -8,7 +8,7 @@ import {
   mergeNativeMetadata,
   nativeHistoryFromCheckpoint,
   nativeHistoryFromLiveHome,
-} from "./child-agent-session.js";
+} from "./child-agent-session.ts";
 import { mergeLaowengSessionTurns } from "./laoweng-session-turns.ts";
 import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";
@@ -151,7 +151,7 @@ export async function processNextLaowengContextCompression(
     params,
   );
   if (!candidate) return false;
-  const { compactLaowengSession, laowengSessionScope } = await import("./laoweng-agent.js");
+  const { compactLaowengSession, laowengSessionScope } = await import("./laoweng-agent.ts");
   const scope = laowengSessionScope(candidate.task, {
     projectId: candidate.project_id,
   }) as { task: string; scopeId: string };

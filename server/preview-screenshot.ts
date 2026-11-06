@@ -4,10 +4,17 @@ import { inlineHtmlPreviewAssets } from "../shared/html-preview.mjs";
 import { previewContentType, storedContentType } from "./documents/index.ts";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
 
-/** 文档树用到的文件夹行。 */
-type FolderRow = { id: string; name?: unknown; parent_id?: string | null };
+/** 文档树用到的文件夹行；字段形状要与 `LibraryFolderRow` 相容才能交给 `filter*`。 */
+type FolderRow = {
+  id: string;
+  name?: string | null;
+  parent_id?: string | null;
+  folder_kind?: string | null;
+  system_key?: string | null;
+  thread_id?: string | null;
+};
 
-/** 文档树用到的版本行。 */
+/** 文档树用到的版本行；同上，要满足 `LibraryVersionRow`。 */
 type VersionRow = {
   artifact_id?: string;
   artifactId?: string;
@@ -17,6 +24,9 @@ type VersionRow = {
   title?: unknown;
   mime?: unknown;
   content?: Buffer;
+  deleted_at?: unknown;
+  folder_kind?: string | null;
+  folder_thread_id?: string | null;
 };
 
 /** 项目树输入：调用方给的结构更宽，{@link treeMarkup} 内部自行收窄。 */

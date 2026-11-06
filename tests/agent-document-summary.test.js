@@ -13,7 +13,7 @@ import { replaceVersionContent } from "../server/documents/versions.ts";
 
 async function discoverDocumentChanges(db) {
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-    await import("../server/file-index-discovery.js");
+    await import("../server/file-index-discovery.ts");
   while (await discoverNextFileIndexChange(db)) {}
   while (await reconcileNextFileIndexArtifact(db)) {}
 }
@@ -765,7 +765,7 @@ test("人工重新识别保留旧摘要，失败后重排，成功才替换", as
     const [file] = await query(db, "SELECT artifact_id artifactId FROM versions WHERE id=?", [
       version.id,
     ]);
-    const { retryFileIndexJob } = await import("../server/file-index-jobs.js");
+    const { retryFileIndexJob } = await import("../server/file-index-jobs.ts");
     await retryFileIndexJob(service, user, project.id, file.artifactId);
     assert.equal(
       (
@@ -868,7 +868,7 @@ test("文件批次保留逐文件结果且单项失败不阻断后续文件", as
         return { summary: "成功", topics: [] };
       },
     });
-    const { listMemoryJobHistory } = await import("../server/memory-jobs.js");
+    const { listMemoryJobHistory } = await import("../server/memory-jobs.ts");
     const history = await listMemoryJobHistory(db, project.id, "document_memory");
     const run = history.rows[0];
     assert.equal(run.status, "failed");

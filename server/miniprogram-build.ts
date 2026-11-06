@@ -1,0 +1,731 @@
+import { spawn } from "node:child_process";
+import { randomUUID, createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm, mkdir, writeFile, readdir, readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
+import { dirname, join, relative, sep, resolve as resolvePath } from "node:path";
+import JSZip from "jszip";
+import { query } from "./db.ts";
+import type { Db } from "./types.ts";
+import { HttpError } from "./service.ts";
+import { miniprogramSnapshot, miniprogramWorkspaceFolders } from "./miniprogram-workspace.ts";
+import type { MiniprogramFile } from "./miniprogram-workspace.ts";
+import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
+import {
+  injectMiniprogramRuntimeSource,
+  resolveMiniprogramRuntime,
+  runtimeBuildHash,
+} from "./miniprogram-runtime-environment.ts";
+import type { MiniprogramRuntimeConfig } from "./miniprogram-runtime-environment.ts";
+import {
+  createArtifact,
+  createVersion,
+  uniqueArtifactTitle,
+  uniqueVersionFilename,
+} from "./documents/index.ts";
+
+const require = createRequire(import.meta.url);
+
+/** 项目小程序运行时配置；本文件只读到这些字段。 */
+type MiniProgramRuntime = MiniprogramRuntimeConfig & {
+  enabled?: boolean;
+  appId?: string | null;
+  miniprogramAppId?: string | null;
+  entryPage?: string | null;
+};
+
+/**
+ * `resolveMiniprogramRuntime` 声明返回 `Readonly<Record<string, unknown>>`；
+ * 这里补上本文件真正读取的两个键。
+ */
+type ResolvedRuntime = Readonly<Record<string, unknown>> & {
+  channel?: string;
+  environment?: string;
+  cloudbase?: { envId?: string | null } | null;
+};
+
+/** 编译产物里的一个文件：工作区相对路径与磁盘绝对路径。 */
+type CollectedFile = { path: string; full: string };
+
+/** 一次编译器运行的入参与结果。 */
+type CompilerRunInput = { srcDir: string; outDir: string; signal?: AbortSignal | null };
+
+type CompilerRunResult = {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+  aborted?: boolean;
+  spawnError?: boolean;
+};
+
+/** 构建任务所需的 Service 视图。 */
+type MiniprogramBuildService = {
+  db: Db;
+  member(user: MiniprogramUser, projectId: string, write?: boolean): Promise<unknown>;
+};
+
+/** 触发构建的人。 */
+type MiniprogramUser = { id: string; kind?: string | null };
+
+/** 预览构建的可选项。 */
+type BuildOptions = { force?: boolean; signal?: AbortSignal | null };
+
+/** 校验结果：通过时一定没有原因。 */
+type CheckResult = { ok: true; reason: null } | { ok: false; reason: string };
+
+/** `miniprogram_builds` 的一行；按读取点补上可选列。 */
+type BuildRow = {
+  id: string;
+  kind: string;
+  source_hash: string | null;
+  status: string;
+  output_folder_id: string | null;
+  output_version_id: string | null;
+  runtime_version: string | null;
+  error_code: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  log?: string | null;
+  source_snapshot?: unknown;
+  project_id?: string;
+  operator_name?: string | null;
+};
+
+export const BUILD_KINDS = ["app_preview", "admin_build"];
+export const COMPILER_TIMEOUT_MS = Number(process.env.MINIPROGRAM_COMPILE_TIMEOUT_MS || 180000);
+export const MAX_BUILD_LOG_BYTES = 64 * 1024;
+export const MAX_BUNDLE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * The compiler package does not export "./package.json", so derive its root
+ * from the resolved entry point and read the manifest from disk instead.
+ */
+function compilerPackageRoot(): string {
+  return dirname(dirname(require.resolve("@dimina/compiler")));
+}
+
+function compilerManifest(): {
+  version?: string;
+  bin?: string | Record<string, string>;
+} | null {
+  try {
+    return JSON.parse(readFileSync(join(compilerPackageRoot(), "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve the pinned Dimina compiler CLI shipped with this deployment. */
+export function compilerBinPath(): string {
+  const manifest = compilerManifest();
+  const bin = typeof manifest?.bin === "string" ? manifest.bin : manifest?.bin?.dmcc;
+  if (!bin) throw new HttpError(500, "Dimina 编译器缺少 dmcc 可执行入口");
+  return resolvePath(compilerPackageRoot(), bin);
+}
+
+export function compilerVersion(): string | null {
+  return compilerManifest()?.version || null;
+}
+
+function truncateLog(value: unknown): string {
+  const text = String(value || "");
+  if (Buffer.byteLength(text, "utf8") <= MAX_BUILD_LOG_BYTES) return text;
+  return `${text.slice(0, MAX_BUILD_LOG_BYTES)}\n…（日志已截断）`;
+}
+
+function safeRelativePath(value: unknown): string {
+  const normalized = String(value || "")
+    .replaceAll("\\", "/")
+    .replace(/^\/+/, "");
+  if (!normalized || normalized.split("/").some((part) => part === ".." || part === "")) {
+    throw new HttpError(400, `非法的小程序文件路径：${value}`);
+  }
+  return normalized;
+}
+
+/** Materialize the effective source snapshot into a temp workspace. */
+async function materializeSources(
+  db: Db,
+  files: MiniprogramFile[],
+  root: string,
+  runtimeConfig: ResolvedRuntime | null = null,
+): Promise<number> {
+  let written = 0;
+  for (const file of files) {
+    const relativePath = safeRelativePath(file.path);
+    const target = join(root, ...relativePath.split("/"));
+    await mkdir(dirname(target), { recursive: true });
+    const [row] = await query<{ content: Buffer }>(db, "SELECT content FROM versions WHERE id=?", [
+      file.versionId,
+    ]);
+    if (!row) throw new HttpError(409, `源码版本已不存在：${file.path}`);
+    const isEntry = /^(app|game)\.(js|ts)$/i.test(relativePath);
+    const content =
+      runtimeConfig && isEntry
+        ? injectMiniprogramRuntimeSource(row.content, relativePath, runtimeConfig)
+        : row.content;
+    await writeFile(target, content);
+    written += 1;
+  }
+  return written;
+}
+
+/** Run the Dimina compiler with a hard timeout and bounded output. */
+export function runCompiler({
+  srcDir,
+  outDir,
+  signal,
+}: CompilerRunInput): Promise<CompilerRunResult> {
+  const bin = compilerBinPath();
+  return new Promise<CompilerRunResult>((resolve) => {
+    const child = spawn(
+      process.execPath,
+      [bin, "build", "-c", srcDir, "-s", outDir, "--no-app-id-dir"],
+      {
+        cwd: srcDir,
+        env: {
+          ...process.env,
+          DIMINA_COMPILER_MAX_WORKERS: process.env.DIMINA_COMPILER_MAX_WORKERS || "1",
+          NODE_OPTIONS: "",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (result: CompilerRunResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {}
+      finish({ code: null, stdout, stderr, timedOut: true });
+    }, COMPILER_TIMEOUT_MS);
+    child.stdout?.on("data", (chunk) => {
+      if (stdout.length < MAX_BUILD_LOG_BYTES * 2) stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      if (stderr.length < MAX_BUILD_LOG_BYTES * 2) stderr += chunk.toString();
+    });
+    child.on("error", (error) =>
+      finish({ code: null, stdout, stderr: `${stderr}${error.message}`, spawnError: true }),
+    );
+    child.on("close", (code) => finish({ code, stdout, stderr, timedOut: false }));
+    if (signal) {
+      if (signal.aborted) {
+        try {
+          child.kill();
+        } catch {}
+        finish({ code: null, stdout, stderr, aborted: true });
+      } else {
+        signal.addEventListener(
+          "abort",
+          () => {
+            try {
+              child.kill();
+            } catch {}
+            finish({ code: null, stdout, stderr, aborted: true });
+          },
+          { once: true },
+        );
+      }
+    }
+  });
+}
+
+async function collectFiles(
+  root: string,
+  base: string = root,
+  out: CollectedFile[] = [],
+): Promise<CollectedFile[]> {
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = join(root, entry.name);
+    if (entry.isDirectory()) await collectFiles(full, base, out);
+    else if (entry.isFile()) out.push({ path: relative(base, full).split(sep).join("/"), full });
+  }
+  return out;
+}
+
+/** Validate a compiled bundle looks like a runnable Dimina resource pack. */
+export function validateBundlePaths(paths: string[]): CheckResult {
+  const set = new Set(paths);
+  if (!set.has("main/app-config.json")) {
+    return { ok: false, reason: "编译产物缺少 main/app-config.json" };
+  }
+  if (![...set].some((path) => path === "main/logic.js")) {
+    return { ok: false, reason: "编译产物缺少 main/logic.js" };
+  }
+  return { ok: true, reason: null };
+}
+
+function validateSources(files: MiniprogramFile[]): CheckResult {
+  const paths = new Set(files.map((file) => file.path));
+  if (!paths.size) return { ok: false, reason: "小程序源文件目录为空，请先写入源码" };
+  const hasAppJson = paths.has("app.json");
+  if (!hasAppJson) return { ok: false, reason: "缺少 app.json" };
+  const hasEntry = [...paths].some((path) => /^(app\.(js|ts)|game\.(js|ts))$/.test(path));
+  if (!hasEntry) return { ok: false, reason: "缺少 app.js / app.ts 入口文件" };
+  return { ok: true, reason: null };
+}
+
+async function latestSucceededBuild(
+  db: Db,
+  projectId: string,
+  kind: string,
+  sourceHash: string,
+): Promise<BuildRow | null> {
+  const [row] = await query<BuildRow>(
+    db,
+    `SELECT id,source_hash,output_folder_id,output_version_id,runtime_version,created_at,finished_at
+     FROM miniprogram_builds
+     WHERE project_id=? AND kind=? AND status='succeeded' AND source_hash=?
+     ORDER BY finished_at DESC, created_at DESC LIMIT 1`,
+    [projectId, kind, sourceHash],
+  );
+  return row || null;
+}
+
+export async function findRunningBuild(
+  db: Db,
+  projectId: string,
+  kind: string,
+): Promise<BuildRow | null> {
+  const [row] = await query<BuildRow>(
+    db,
+    `SELECT id,status,started_at FROM miniprogram_builds
+     WHERE project_id=? AND kind=? AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1`,
+    [projectId, kind],
+  );
+  return row || null;
+}
+
+/**
+ * Compile the miniprogram source area into the Web resource pack used by the
+ * Dimina container, storing the bundle as one immutable version under
+ * miniprogram_web and recording a build row for status and logs.
+ */
+export async function buildMiniprogramPreview(
+  service: MiniprogramBuildService,
+  actor: MiniprogramUser,
+  projectId: string,
+  options: BuildOptions = {},
+) {
+  const kind = "app_preview";
+  const runtime = (await loadProjectMiniProgramRuntime(
+    service,
+    projectId,
+  )) as unknown as MiniProgramRuntime;
+  if (!runtime.enabled) throw new HttpError(409, "尚未配置微信小程序 AppID");
+  if (!runtime.appId) throw new HttpError(409, "尚未配置微信小程序 AppID");
+  const runtimeConfig = resolveMiniprogramRuntime(runtime, "dimina") as ResolvedRuntime;
+
+  const snapshot = await miniprogramSnapshot(service.db, projectId);
+  const sources = snapshot.areas.miniprogram_source?.files || [];
+  const sourceCheck = validateSources(sources);
+  if (!sourceCheck.ok) throw new HttpError(409, sourceCheck.reason);
+  const buildSourceHash = runtimeBuildHash(snapshot.sourceHash, runtimeConfig);
+
+  const running = await findRunningBuild(service.db, projectId, kind);
+  if (running) {
+    return { buildId: running.id, status: running.status, reused: true, running: true };
+  }
+
+  if (!options.force) {
+    const cached = await latestSucceededBuild(service.db, projectId, kind, buildSourceHash);
+    if (cached) {
+      return { buildId: cached.id, status: "succeeded", reused: true, running: false };
+    }
+  }
+
+  const { byKind } = await miniprogramWorkspaceFolders(service.db, projectId);
+  const webFolderId = byKind.get("miniprogram_web")?.id || null;
+  if (!webFolderId) throw new HttpError(409, "小程序 Web 产物目录不存在，请先保存配置");
+
+  const buildId = randomUUID();
+  await query(
+    service.db,
+    `INSERT INTO miniprogram_builds(id,project_id,miniprogram_app_id,kind,source_hash,source_snapshot,status,runtime_version,created_by,started_at)
+     VALUES(?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`,
+    [
+      buildId,
+      projectId,
+      runtime.miniprogramAppId || null,
+      kind,
+      buildSourceHash,
+      JSON.stringify({
+        sourceHash: snapshot.sourceHash,
+        runtime: runtimeConfig,
+        files: sources.map((file) => ({
+          path: file.path,
+          versionId: file.versionId,
+          sha256: file.sha256,
+        })),
+      }),
+      "running",
+      compilerVersion(),
+      actor.id,
+    ],
+  );
+
+  const workRoot = await mkdtemp(join(tmpdir(), "cothread-miniprogram-"));
+  const srcDir = join(workRoot, "src");
+  const outDir = join(workRoot, "out");
+  let log = "";
+  try {
+    await mkdir(srcDir, { recursive: true });
+    await mkdir(outDir, { recursive: true });
+    const written = await materializeSources(service.db, sources, srcDir, runtimeConfig);
+    // Dimina 渠道如果没有 CloudBase 环境，这里会和改动前一样直接抛错（已知问题，未在本次改动处理）。
+    log += `已写入源码文件 ${written} 个，源码 hash ${snapshot.sourceHash}，CloudBase ${runtimeConfig.environment}/${runtimeConfig.cloudbase!.envId}\n`;
+
+    const result = await runCompiler({ srcDir, outDir, signal: options.signal });
+    log += `--- dmcc stdout ---\n${result.stdout}\n--- dmcc stderr ---\n${result.stderr}\n`;
+
+    if (result.aborted) {
+      await finishBuild(service.db, buildId, "cancelled", log, "cancelled");
+      throw new HttpError(499, "构建已取消");
+    }
+    if (result.timedOut || result.code !== 0) {
+      const code = result.timedOut ? "timeout" : "compile_error";
+      await finishBuild(service.db, buildId, "failed", log, code);
+      throw new HttpError(
+        409,
+        result.timedOut
+          ? `小程序编译超时（${Math.round(COMPILER_TIMEOUT_MS / 1000)} 秒）`
+          : "小程序编译失败，请查看构建日志",
+      );
+    }
+
+    const compiled = await collectFiles(outDir);
+    const bundleCheck = validateBundlePaths(compiled.map((file) => file.path));
+    if (!bundleCheck.ok) {
+      await finishBuild(
+        service.db,
+        buildId,
+        "failed",
+        `${log}${bundleCheck.reason}\n`,
+        "invalid_bundle",
+      );
+      throw new HttpError(500, `编译产物不完整：${bundleCheck.reason}`);
+    }
+
+    const zip = new JSZip();
+    for (const file of compiled) zip.file(file.path, await readFile(file.full));
+    const bytes = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    if (bytes.length > MAX_BUNDLE_BYTES) {
+      await finishBuild(service.db, buildId, "failed", log, "bundle_too_large");
+      throw new HttpError(
+        413,
+        `编译产物超过 ${Math.round(MAX_BUNDLE_BYTES / 1024 / 1024)} MiB 上限`,
+      );
+    }
+
+    const published = await publishBundle(service.db, {
+      projectId,
+      folderId: webFolderId,
+      filename: `${runtime.appId}.zip`,
+      content: bytes,
+      createdBy: actor.id,
+      note: `Dimina 编译产物 · ${(snapshot.sourceHash || "").slice(0, 12)} · ${runtimeConfig.environment}`,
+    });
+    log += `已保存编译产物 ${compiled.length} 个文件，bundle ${bytes.length} 字节\n`;
+
+    await query(
+      service.db,
+      `UPDATE miniprogram_builds
+       SET status='succeeded',log=?,output_folder_id=?,output_version_id=?,finished_at=UTC_TIMESTAMP(3),error_code=NULL
+       WHERE id=?`,
+      [truncateLog(log), webFolderId, published.versionId, buildId],
+    );
+
+    return {
+      buildId,
+      status: "succeeded",
+      reused: false,
+      running: false,
+      versionId: published.versionId,
+      artifactId: published.artifactId,
+      fileCount: compiled.length,
+      bundleBytes: bytes.length,
+      sourceHash: buildSourceHash,
+      sourceContentHash: snapshot.sourceHash,
+      environment: runtimeConfig.environment,
+      envId: runtimeConfig.cloudbase!.envId,
+    };
+  } catch (error) {
+    if (errorLike(error).status === 499) throw error;
+    await finishBuild(
+      service.db,
+      buildId,
+      "failed",
+      `${log}${errorLike(error).message || error}\n`,
+      "internal_error",
+    );
+    throw error;
+  } finally {
+    await rm(workRoot, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** `catch` 参数是 `unknown`；这里只取代码真正读到的字段。 */
+function errorLike(error: unknown): { status?: number; message?: string; name?: string } {
+  return typeof error === "object" && error !== null
+    ? (error as { status?: number; message?: string; name?: string })
+    : {};
+}
+
+async function finishBuild(
+  db: Db,
+  buildId: string,
+  status: string,
+  log: string,
+  errorCode: string | null,
+): Promise<void> {
+  try {
+    await query(
+      db,
+      `UPDATE miniprogram_builds SET status=?,log=?,error_code=?,finished_at=UTC_TIMESTAMP(3) WHERE id=?`,
+      [status, truncateLog(log), errorCode || null, buildId],
+    );
+  } catch {}
+}
+
+/** 一个已编译产物包要写进文档库的内容。 */
+type PublishBundleInput = {
+  projectId: string;
+  folderId: string;
+  filename: string;
+  content: Buffer;
+  createdBy: string;
+  note?: string;
+};
+
+/** Store the compiled bundle as one immutable version in the given folder. */
+async function publishBundle(
+  db: Db,
+  { projectId, folderId, filename, content, createdBy, note }: PublishBundleInput,
+) {
+  const sha256 = createHash("sha256").update(content).digest("hex");
+  const title = await uniqueArtifactTitle(
+    db,
+    projectId,
+    folderId,
+    filename.replace(/\.zip$/i, ""),
+    null,
+    filename,
+  );
+  const storedName = await uniqueVersionFilename(db, projectId, folderId, filename);
+  const artifactId = randomUUID();
+  const versionId = randomUUID();
+  await createArtifact(db, {
+    id: artifactId,
+    projectId,
+    folderId,
+    title,
+    createdBy,
+  });
+  await createVersion(db, {
+    id: versionId,
+    artifactId,
+    version: 1,
+    filename: storedName,
+    mime: "application/zip",
+    content,
+    sha256,
+    byteSize: content.length,
+    note: note || "",
+    createdBy,
+  });
+  return { artifactId, versionId, sha256, byteSize: content.length };
+}
+
+export async function listMiniprogramBuilds(
+  service: MiniprogramBuildService,
+  user: MiniprogramUser,
+  projectId: string,
+  { kind = "app_preview", limit = 20 }: { kind?: string; limit?: number } = {},
+) {
+  await service.member(user, projectId, false);
+  const size = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const rows = await query<BuildRow>(
+    service.db,
+    `SELECT b.id,b.kind,b.source_hash,b.status,b.output_folder_id,b.output_version_id,b.runtime_version,b.error_code,
+       b.created_by,b.created_at,b.started_at,b.finished_at,u.name AS operator_name
+     FROM miniprogram_builds b
+     LEFT JOIN users u ON u.id=b.created_by
+     WHERE b.project_id=? AND b.kind=?
+     ORDER BY b.created_at DESC LIMIT ${size}`,
+    [projectId, kind],
+  );
+  return {
+    builds: rows.map((row) => ({ ...redactBuild(row), operatorName: row.operator_name || null })),
+  };
+}
+
+export async function readMiniprogramBuild(
+  service: MiniprogramBuildService,
+  user: MiniprogramUser,
+  projectId: string,
+  buildId: string,
+) {
+  await service.member(user, projectId, false);
+  const [row] = await query<BuildRow>(
+    service.db,
+    `SELECT id,project_id,kind,source_hash,source_snapshot,status,log,output_folder_id,output_version_id,
+       runtime_version,error_code,created_by,created_at,started_at,finished_at
+     FROM miniprogram_builds WHERE id=?`,
+    [buildId],
+  );
+  if (!row || row.project_id !== projectId) throw new HttpError(404, "构建记录不存在");
+  return { ...redactBuild(row), log: row.log || "", sourceSnapshot: row.source_snapshot || null };
+}
+
+function redactBuild(row: BuildRow) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    sourceHash: row.source_hash || null,
+    status: row.status,
+    outputFolderId: row.output_folder_id || null,
+    outputVersionId: row.output_version_id || null,
+    runtimeVersion: row.runtime_version || null,
+    errorCode: row.error_code || null,
+    createdBy: row.created_by || null,
+    createdAt: row.created_at || null,
+    startedAt: row.started_at || null,
+    finishedAt: row.finished_at || null,
+  };
+}
+
+/**
+ * What the Dimina预览 tab needs: whether a runnable bundle exists, where the
+ * container should look for resources, and which pageFrame to use.
+ */
+export async function readMiniprogramPreviewMeta(
+  service: MiniprogramBuildService,
+  user: MiniprogramUser,
+  projectId: string,
+) {
+  await service.member(user, projectId, false);
+  const runtime = (await loadProjectMiniProgramRuntime(
+    service,
+    projectId,
+  )) as unknown as MiniProgramRuntime;
+  const snapshot = await miniprogramSnapshot(service.db, projectId);
+  const runtimeConfig = runtime.appId
+    ? (resolveMiniprogramRuntime(runtime, "dimina") as ResolvedRuntime)
+    : null;
+  const buildSourceHash = runtimeConfig
+    ? runtimeBuildHash(snapshot.sourceHash, runtimeConfig)
+    : null;
+  const [build] = await query<BuildRow>(
+    service.db,
+    `SELECT id,status,source_hash,output_version_id,output_folder_id,error_code,finished_at
+     FROM miniprogram_builds WHERE project_id=? AND kind='app_preview'
+     ORDER BY created_at DESC LIMIT 1`,
+    [projectId],
+  );
+  const current =
+    runtimeConfig && build && build.source_hash === buildSourceHash && build.status === "succeeded";
+  return {
+    appId: runtime.appId,
+    entryPage: runtime.entryPage,
+    enabled: runtime.enabled,
+    sourceHash: snapshot.sourceHash,
+    environment: runtimeConfig?.environment || "development",
+    envId: runtimeConfig?.cloudbase?.envId || null,
+    sourceFileCount: (snapshot.areas.miniprogram_source?.files || []).length,
+    build: build ? redactBuild(build) : null,
+    runnable: Boolean(current && build?.output_version_id && runtime.appId),
+    stale: Boolean(build && (!buildSourceHash || build.source_hash !== buildSourceHash)),
+    // Global runtime assets (app-agnostic) and the per-project resource space.
+    runtime: {
+      moduleUrl: "/dimina/index.js",
+      styleUrl: "/dimina/index.css",
+      pageFrameUrl: "/dimina/pageFrame.html",
+      resourceBaseUrl: `/api/projects/${projectId}/miniprogram/resources/`,
+    },
+  };
+}
+
+/**
+ * Serve one file from the stored compiled bundle. The container requests
+ * `<resourceBaseUrl><appId>/<path>`, so the appId segment is stripped here.
+ */
+export async function readMiniprogramResource(
+  service: MiniprogramBuildService,
+  user: MiniprogramUser,
+  projectId: string,
+  appId: string,
+  assetPath: string,
+) {
+  await service.member(user, projectId, false);
+  const clean = String(assetPath || "").replace(/^\/+/, "");
+  const expected = String(appId || "");
+  if (!clean) throw new HttpError(404, "资源不存在");
+  const [row] = await query<{ content: Buffer | null }>(
+    service.db,
+    `SELECT v.content FROM miniprogram_builds b
+     JOIN versions v ON v.id=b.output_version_id
+     WHERE b.project_id=? AND b.kind='app_preview' AND b.status='succeeded'
+     ORDER BY b.finished_at DESC, b.created_at DESC LIMIT 1`,
+    [projectId],
+  );
+  if (!row?.content) return null;
+  const zip = await JSZip.loadAsync(row.content);
+  const entry = zip.file(clean);
+  if (!entry) return null;
+  const buffer = await entry.async("nodebuffer");
+  return { content: buffer, mime: resourceMime(clean) };
+}
+
+export function resourceMime(path: string): string {
+  const ext = String(path).split(".").pop()?.toLowerCase() || "";
+  const table: Record<string, string> = {
+    js: "text/javascript; charset=utf-8",
+    mjs: "text/javascript; charset=utf-8",
+    css: "text/css; charset=utf-8",
+    json: "application/json; charset=utf-8",
+    html: "text/html; charset=utf-8",
+    wxml: "text/plain; charset=utf-8",
+    wxss: "text/css; charset=utf-8",
+    map: "application/json; charset=utf-8",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    webp: "image/webp",
+    woff: "font/woff",
+    woff2: "font/woff2",
+    ttf: "font/ttf",
+    wasm: "application/wasm",
+  };
+  return table[ext] || "application/octet-stream";
+}
+
+/** Quick existence probe used by tests and diagnostics. */
+export async function bundleEntryCount(content: Buffer): Promise<number> {
+  const zip = await JSZip.loadAsync(content);
+  return Object.keys(zip.files).filter((name) => !zip.files[name].dir).length;
+}
+
+export async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}

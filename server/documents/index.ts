@@ -16,9 +16,9 @@
  * - 工具面：documentTool / documentToolSchemas
  * - 正文读取：isDocumentText / readDocumentContent（不写库，不返回二进制字节）
  */
-export * from "./library.js";
+export * from "./library.ts";
 export * from "./read-text.ts";
-export * from "./project-library.js";
+export * from "./project-library.ts";
 export * from "./document-tools.ts";
 export * from "./document-audit.ts";
 export * from "./file-upload.ts";

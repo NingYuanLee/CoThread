@@ -3,7 +3,7 @@ import {
   listFileIndexIssues,
   listFileIndexScanBatches,
   requestFileIndexScan,
-} from "../file-index-jobs.js";
+} from "../file-index-jobs.ts";
 import { queueLaowengContextCompression, readLaowengTaskSession } from "../laoweng-context.ts";
 import { registerCloudbaseRoutes } from "./cloudbase-routes.ts";
 import { registerMiniprogramRoutes } from "./miniprogram.ts";
@@ -25,7 +25,7 @@ import {
   listMemoryJobs,
   resetMemoryJobSettings,
   updateMemoryJobSettings,
-} from "../memory-jobs.js";
+} from "../memory-jobs.ts";
 import {
   askCompanyQuestion,
   askOrgQuestion,
@@ -92,7 +92,7 @@ import {
   updateTask,
 } from "../task-pool.ts";
 import { threadTaskStats } from "../task-stats.ts";
-import { draftBriefSchema, generateTaskDraftBrief } from "../task-draft-brief.js";
+import { draftBriefSchema, generateTaskDraftBrief } from "../task-draft-brief.ts";
 import {
   mentionTaskSourceNotice,
   taskSourceMentionToken,
@@ -126,8 +126,8 @@ import {
   readMiniprogramBuild,
   readMiniprogramPreviewMeta,
   readMiniprogramResource,
-} from "../miniprogram-build.js";
-import { migrateLegacyAdminDist, publishMiniprogramSourceFile } from "../miniprogram-workspace.js";
+} from "../miniprogram-build.ts";
+import { migrateLegacyAdminDist, publishMiniprogramSourceFile } from "../miniprogram-workspace.ts";
 import {
   listMiniprogramDevServers,
   proxyDevServerRequest,
@@ -142,7 +142,7 @@ import {
   previewMiniprogram,
   readMiniprogramDeployment,
   uploadMiniprogram,
-} from "../wechat-ci.js";
+} from "../wechat-ci.ts";
 import {
   approveReleaseApplication,
   approveReleaseRequest,
@@ -155,7 +155,7 @@ import {
   rejectReleaseRequest,
   submitReleaseApplication,
   submitReleaseRequest,
-} from "../release-requests.js";
+} from "../release-requests.ts";
 import { executeRelease } from "../release-executor.ts";
 
 /**
@@ -290,7 +290,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     res.json({ input, output, error: event.status === "failed" ? event.output || "" : "" });
   });
   app.get("/api/wiki-sessions/agent-logs", async (req, res) => {
-    const { elderAgentLogs } = await import("../wiki-session.js");
+    const { elderAgentLogs } = await import("../wiki-session.ts");
     res.json(
       await elderAgentLogs(
         db,
@@ -302,7 +302,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     );
   });
   app.post("/api/wiki-sessions/compact", async (req, res) => {
-    const { beginElderCompaction } = await import("../wiki-session.js");
+    const { beginElderCompaction } = await import("../wiki-session.ts");
     // 压缩要起一个 DSH 运行、调模型总结历史，通常几十秒；等它返回会让浏览器
     // 和反代先超时。这里先同步置好 running，再让压缩在后台跑，前端按
     // compactStatus 轮询到结束。
@@ -426,7 +426,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
   });
   app.get("/api/projects/:id/memory/file-groups/needs-repair", async (req, res) => {
     await service.member(req.user, req.params.id, true);
-    const { listFileIndexGroupsNeedingRepair } = await import("../file-index-groups.js");
+    const { listFileIndexGroupsNeedingRepair } = await import("../file-index-groups.ts");
     res.json({ entries: await listFileIndexGroupsNeedingRepair(service.db, req.params.id) });
   });
   app.post("/api/projects/:id/memory/file-groups", async (req, res) => {
@@ -434,7 +434,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     const { projectArchived } = await import("../memory-timeline.js");
     if (await projectArchived(service.db, req.params.id))
       throw new HttpError(409, "项目已归档，记忆只读");
-    const { saveFileIndexGroup } = await import("../file-index-groups.js");
+    const { saveFileIndexGroup } = await import("../file-index-groups.ts");
     const { title, evidence, members } = req.body || {};
     res.status(201).json(
       await saveFileIndexGroup(service.db, {
@@ -451,7 +451,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     const { projectArchived } = await import("../memory-timeline.js");
     if (await projectArchived(service.db, req.params.id))
       throw new HttpError(409, "项目已归档，记忆只读");
-    const { saveFileIndexGroup } = await import("../file-index-groups.js");
+    const { saveFileIndexGroup } = await import("../file-index-groups.ts");
     const { title, evidence, members } = req.body || {};
     res.json(
       await saveFileIndexGroup(service.db, {
@@ -469,7 +469,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     const { projectArchived } = await import("../memory-timeline.js");
     if (await projectArchived(service.db, req.params.id))
       throw new HttpError(409, "项目已归档，记忆只读");
-    const { dismissFileIndexGroup } = await import("../file-index-groups.js");
+    const { dismissFileIndexGroup } = await import("../file-index-groups.ts");
     res.json(
       await dismissFileIndexGroup(service.db, {
         projectId: req.params.id,
@@ -531,7 +531,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     res.status(202).json(await retryMemoryJob(service, req.user, req.params.id, req.params.key)),
   );
   app.post("/api/projects/:id/memory/files/:artifactId/retry", async (req, res) => {
-    const { retryFileIndexJob } = await import("../file-index-jobs.js");
+    const { retryFileIndexJob } = await import("../file-index-jobs.ts");
     res
       .status(202)
       .json(await retryFileIndexJob(service, req.user, req.params.id, req.params.artifactId));
@@ -548,7 +548,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     ),
   );
   app.get("/api/projects/:id/memory/entries/:entryId/history", async (req, res) => {
-    const { listMemoryHistory } = await import("../memory-history.js");
+    const { listMemoryHistory } = await import("../memory-history.ts");
     res.json(
       await listMemoryHistory(service, req.user, req.params.id, req.params.entryId, req.query),
     );
@@ -559,7 +559,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     res.json(await readProjectFacts(service.db, req.params.id, req.query));
   });
   app.get("/api/memory-revisions/:revisionId", async (req, res) => {
-    const { readMemoryRevision } = await import("../memory-history.js");
+    const { readMemoryRevision } = await import("../memory-history.ts");
     res.json(await readMemoryRevision(service, req.user, req.params.revisionId));
   });
   app.get("/api/document-content-revisions/:revisionId", async (req, res) => {
@@ -570,7 +570,7 @@ export function registerProjectWorkspaceRoutes(app, { db, service }) {
     );
     if (!revision) throw new HttpError(404, "文件内容修订不存在");
     await service.member(req.user, revision.project_id, false);
-    const { canReadHistoricalSources } = await import("../memory-history.js");
+    const { canReadHistoricalSources } = await import("../memory-history.ts");
     if (
       !(await canReadHistoricalSources(service.db, revision.project_id, [
         { kind: "document_version", id: revision.version_id },

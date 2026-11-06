@@ -8,7 +8,7 @@ import {
   expandFileIndexProjectReconciliation,
   reconcileNextFileIndexArtifact,
   scheduleNextFileIndexSweep,
-} from "./file-index-discovery.js";
+} from "./file-index-discovery.ts";
 import { HttpError } from "./service.ts";
 import type { Db } from "./types.ts";
 import {
@@ -16,7 +16,7 @@ import {
   claimProjectMemoryBackfill,
   completeProjectMemoryBackfill,
 } from "./memory-backfill.ts";
-import { scanNextProjectMemoryProject, scanProjectMemorySignals } from "./project-memory-scan.js";
+import { scanNextProjectMemoryProject, scanProjectMemorySignals } from "./project-memory-scan.ts";
 
 export function assertMemoryMaintenanceAuth(authorizationHeader: unknown): void {
   const configured = process.env.MEMORY_MAINTENANCE_TOKEN;

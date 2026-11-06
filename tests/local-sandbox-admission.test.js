@@ -12,10 +12,12 @@ import { transformSync } from "esbuild";
 const require = createRequire(import.meta.url);
 // The transformed module requires siblings such as ./executor-fence.js.
 // Resolve those from server/, not from this test file.
-const serverRequire = createRequire(new URL("../server/local-sandbox.js", import.meta.url));
+const serverRequire = createRequire(new URL("../server/local-sandbox.ts", import.meta.url));
 const code = transformSync(
-  readFileSync(new URL("../server/local-sandbox.js", import.meta.url), "utf8"),
-  { format: "cjs" },
+  readFileSync(new URL("../server/local-sandbox.ts", import.meta.url), "utf8"),
+  // 源文件已经是 .ts：不加 loader 时 esbuild 按 JS 解析，`import type` 会直接报
+  // `Expected "from" but found "{"`，整个文件 3 项测试都不会执行。
+  { format: "cjs", loader: "ts" },
 ).code;
 
 // Exercise the actual provider with real files; gate only one async filesystem

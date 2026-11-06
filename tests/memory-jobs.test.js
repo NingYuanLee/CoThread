@@ -11,7 +11,7 @@ import {
   listMemoryJobs,
   resetMemoryJobSettings,
   updateMemoryJobSettings,
-} from "../server/memory-jobs.js";
+} from "../server/memory-jobs.ts";
 import {
   maybeQueueProjectMemoryRun,
   queueProjectMemoryRun,

@@ -892,7 +892,7 @@ export async function agentLogsOperation(
       [scopeId],
     );
     if (childRun?.executor_id && task.origin_thread_id) {
-      const { nativeHistoryFromLiveHome } = await import("./child-agent-session.js");
+      const { nativeHistoryFromLiveHome } = await import("./child-agent-session.ts");
       const history = await nativeHistoryFromLiveHome(task.origin_thread_id, childRun.executor_id);
       const answers = history.filter((message) => message.role === "assistant" && message.usage);
       const normalize = (value) =>

@@ -1,7 +1,7 @@
 import { query } from "./db.ts";
 import { upsertUtteranceMemory } from "./utterance-memory.ts";
-import { syncTaskMemory } from "./task-memory.js";
-import { syncDocumentMemory } from "./document-memory.js";
+import { syncTaskMemory } from "./task-memory.ts";
+import { syncDocumentMemory } from "./document-memory.ts";
 import { queueConversationThread } from "./conversation-memory-store.js";
 import { folderRootKind } from "./documents/index.ts";
 import { ensureFileIndexRoots } from "./file-index-roots.ts";
@@ -103,6 +103,7 @@ export async function backfillProjectMemory(
   for (const artifact of artifacts) {
     const root = await folderRootKind(db, artifact.folderId);
     if (
+      !root ||
       ![
         "project_official",
         "project_cache",

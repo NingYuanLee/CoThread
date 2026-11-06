@@ -15,7 +15,7 @@ import { markMiniProgramWorkspaceVerified } from "./miniprogram-ready.js";
 import {
   ensureMiniprogramWorkspace,
   publishMiniprogramSourceFile,
-} from "../server/miniprogram-workspace.js";
+} from "../server/miniprogram-workspace.ts";
 import { testDatabase } from "./database.js";
 
 const VALID_APP_ID = "wx1234567890abcdef";

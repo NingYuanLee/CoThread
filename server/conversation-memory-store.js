@@ -735,7 +735,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
           }),
         ],
       );
-      const { captureMemoryRevision } = await import("./memory-history.js");
+      const { captureMemoryRevision } = await import("./memory-history.ts");
       await captureMemoryRevision(
         conn,
         { ...current, id: pageId },
@@ -805,7 +805,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
           message.createdAt || null,
         ],
       );
-      const { recordMemoryEvidence } = await import("./memory-history.js");
+      const { recordMemoryEvidence } = await import("./memory-history.ts");
       await recordMemoryEvidence(conn, {
         projectId: candidate.projectId,
         pageId,
@@ -850,7 +850,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
         ...messages.map((message) => message.id),
       ],
     );
-    const { captureMemoryRevision } = await import("./memory-history.js");
+    const { captureMemoryRevision } = await import("./memory-history.ts");
     await captureMemoryRevision(
       conn,
       { id: pageId, title: payload.title, body, status: "current" },

@@ -435,7 +435,7 @@ export function DeploymentRecordList({
   );
 }
 
-/** `server/release-requests.js` 的 publicRow 形状。 */
+/** `server/release-requests.ts` 的 publicRow 形状。 */
 export type ReleaseRequest = {
   id: string;
   applicationId: string;

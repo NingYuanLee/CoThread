@@ -9,7 +9,7 @@ import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,
   publishMiniprogramSourceFile,
-} from "../server/miniprogram-workspace.js";
+} from "../server/miniprogram-workspace.ts";
 import {
   approveReleaseApplication,
   approveReleaseRequest,
@@ -22,7 +22,7 @@ import {
   submitReleaseRequest,
   sweepReleaseRequests,
   RELEASE_EXPIRY_HOURS,
-} from "../server/release-requests.js";
+} from "../server/release-requests.ts";
 
 const VALID_APP_ID = "wx1234567890abcdef";
 

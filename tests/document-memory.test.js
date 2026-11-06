@@ -11,15 +11,15 @@ import {
 import { searchProjectMemory } from "../server/memory-search.ts";
 import { getWikiPage, listWikiPages } from "../server/wiki-pages.ts";
 import { readProjectMemory } from "../server/memory-timeline.js";
-import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 import { loadProjectWikiIndexes, loadProjectMemoryEntryIndex } from "../server/project-memory.js";
-import { libraryChange as libraryChangeRaw } from "../server/documents/library.js";
+import { libraryChange as libraryChangeRaw } from "../server/documents/library.ts";
 import {
   saveFileIndexGroup,
   dismissFileIndexGroup,
   discoverReferencedFileGroups,
   listFileIndexGroupsNeedingRepair,
-} from "../server/file-index-groups.js";
+} from "../server/file-index-groups.ts";
 import JSZip from "jszip";
 import sharp from "sharp";
 import {
@@ -28,7 +28,7 @@ import {
   documentKindLabel,
   documentMemoryMarkdown,
   syncDocumentMemory,
-} from "../server/document-memory.js";
+} from "../server/document-memory.ts";
 
 // These tests exercise the settled result after the independent discovery lane.
 async function discoverChanges(db) {
@@ -36,7 +36,7 @@ async function discoverChanges(db) {
     discoverNextFileIndexChange,
     expandFileIndexProjectReconciliation,
     reconcileNextFileIndexArtifact,
-  } = await import("../server/file-index-discovery.js");
+  } = await import("../server/file-index-discovery.ts");
   for (let count = 0; count < 1000; count++) {
     if (await discoverNextFileIndexChange(db)) continue;
     if (await expandFileIndexProjectReconciliation(db)) continue;

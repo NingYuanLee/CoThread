@@ -9,7 +9,7 @@ import {
   parseTaskDraftBrief,
   takeDraftBriefGap,
   taskDraftModelRequest,
-} from "../server/task-draft-brief.js";
+} from "../server/task-draft-brief.ts";
 import {
   DEFAULT_TASK_DRAFT_PROMPT,
   TASK_DRAFT_JSON_TEXT,

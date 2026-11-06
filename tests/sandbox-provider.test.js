@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { testDatabase } from "./database.js";
 import { createApp } from "../server/app.ts";
-import { LocalSandbox } from "../server/local-sandbox.js";
+import { LocalSandbox } from "../server/local-sandbox.ts";
 import {
   listSandboxProviders,
   registerSandboxProvider,

@@ -10,7 +10,7 @@ import {
   readableConversationMemorySql,
 } from "./conversation-memory-integrity.ts";
 import { hydrateFileIndexRoots } from "./file-index-roots.ts";
-import { hydrateFileIndexGroups } from "./file-index-groups.js";
+import { hydrateFileIndexGroups } from "./file-index-groups.ts";
 import { hydrateFileIndexPaths } from "./file-index-path.ts";
 import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";
@@ -139,7 +139,7 @@ export async function getWikiPage(
   user: WikiUser,
   projectId: string,
   id: string,
-): Promise<{ page: WikiPageView & { memoryRevisionId?: string }; sources: unknown[] }> {
+): Promise<{ page: WikiPageView & { memoryRevisionId?: string | null }; sources: unknown[] }> {
   if (typeof service.db.getConnection === "function")
     return transaction(service.db, (conn) =>
       getWikiPage(Object.assign(Object.create(service), { db: conn }), user, projectId, id),
@@ -161,7 +161,7 @@ export async function getWikiPage(
   const rootPages = await hydrateFileIndexRoots(service.db, projectId, [row]);
   const groupPages = await hydrateFileIndexGroups(service.db, projectId, rootPages);
   const [page] = await hydrateFileIndexPaths(service.db, projectId, groupPages);
-  const { captureMemoryRevision } = await import("./memory-history.js");
+  const { captureMemoryRevision } = await import("./memory-history.ts");
   // Retain every original dependency, including a source hidden from the current preview.
   const memoryRevisionId = await captureMemoryRevision(service.db, page);
   return { page: { ...mapPage(page), memoryRevisionId }, sources };
@@ -172,7 +172,7 @@ export async function createWikiPage(
   user: WikiUser,
   projectId: string,
   input: unknown,
-): Promise<{ page: WikiPageView & { memoryRevisionId?: string }; sources: unknown[] }> {
+): Promise<{ page: WikiPageView & { memoryRevisionId?: string | null }; sources: unknown[] }> {
   await access(service, user, projectId, true);
   if (await projectArchived(service.db, projectId))
     throw new HttpError(409, "项目已归档，项目记忆已封存，只能查看");

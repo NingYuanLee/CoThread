@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { startConversationToolBridge } from "../server/conversation-memory-tools.js";
+import { startConversationToolBridge } from "../server/conversation-memory-tools.ts";
 
 const call = async (bridge, name, args) => {
   const response = await fetch(`${bridge.env.COTHREAD_BRIDGE_URL}/tool`, {

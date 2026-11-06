@@ -10,14 +10,14 @@ import {
   saveProjectMiniProgramSecret,
 } from "../server/miniprogram-config.js";
 import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.js";
-import { miniprogramSnapshot } from "../server/miniprogram-workspace.js";
+import { miniprogramSnapshot } from "../server/miniprogram-workspace.ts";
 import {
   createCloudbaseTimer,
   deleteCloudbaseTimer,
   deployDevelopmentCloudbaseFunction,
   listCloudbaseFunctions,
   promoteCloudbaseFunction,
-} from "../server/cloudbase-functions.js";
+} from "../server/cloudbase-functions.ts";
 
 async function seed(database, { withProduction = true } = {}) {
   const user = { id: randomUUID(), kind: "session" };

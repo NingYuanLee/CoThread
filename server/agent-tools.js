@@ -54,8 +54,8 @@ import {
   MINIPROGRAM_FIXED_FOLDERS,
   miniprogramSnapshot,
   publishMiniprogramSourceFile,
-} from "./miniprogram-workspace.js";
-import { buildMiniprogramPreview } from "./miniprogram-build.js";
+} from "./miniprogram-workspace.ts";
+import { buildMiniprogramPreview } from "./miniprogram-build.ts";
 import {
   registerMiniprogramDevServer,
   updateMiniprogramDevServer,
@@ -80,8 +80,8 @@ import {
   listCloudbaseAccountEnvironments,
   listCloudbaseFunctions,
 } from "./cloud-backend.ts";
-import { previewMiniprogram, uploadMiniprogram } from "./wechat-ci.js";
-import { listReleaseRequests, submitReleaseRequest } from "./release-requests.js";
+import { previewMiniprogram, uploadMiniprogram } from "./wechat-ci.ts";
+import { listReleaseRequests, submitReleaseRequest } from "./release-requests.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.js";
 import {
   saveMiniprogramPublishableKey,
@@ -715,7 +715,7 @@ export function createAgentTools(
           beforeEventId: args.beforeEventId,
         });
       } else if (name === "read_memory_history") {
-        const { listMemoryHistory } = await import("./memory-history.js");
+        const { listMemoryHistory } = await import("./memory-history.ts");
         result = await listMemoryHistory(
           service,
           user,
@@ -724,7 +724,7 @@ export function createAgentTools(
           { limit: args.limit, offset: args.offset },
         );
       } else if (name === "read_memory_revision") {
-        const { readMemoryRevision } = await import("./memory-history.js");
+        const { readMemoryRevision } = await import("./memory-history.ts");
         result = await readMemoryRevision(service, user, z.string().uuid().parse(args.revisionId));
         if (result.projectId !== thread.project_id) throw new HttpError(403, "不能跨项目读取记忆");
       } else if (name === "search_memory") {
@@ -856,7 +856,7 @@ export function createAgentTools(
         const version = await service.version(user, z.string().uuid().parse(args.versionId));
         if (version.project_id !== thread.project_id)
           throw new HttpError(403, "文档不属于当前项目");
-        const { captureDocumentRevision } = await import("./memory-history.js");
+        const { captureDocumentRevision } = await import("./memory-history.ts");
         const contentRevisionId = await captureDocumentRevision(
           service.db,
           thread.project_id,

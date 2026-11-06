@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
-import { LocalSandbox } from "../server/local-sandbox.js";
+import { LocalSandbox } from "../server/local-sandbox.ts";
 
 test("all aliases share one kill completion and reject new filesystem work", async () => {
   const sandbox = await LocalSandbox.create();

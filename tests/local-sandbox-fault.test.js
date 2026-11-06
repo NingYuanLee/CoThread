@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LocalSandbox } from "../server/local-sandbox.js";
+import { LocalSandbox } from "../server/local-sandbox.ts";
 
 test(
   "a command that backgrounds work does not leave a marker after it returns",

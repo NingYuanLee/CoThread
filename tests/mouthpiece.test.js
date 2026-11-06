@@ -11,7 +11,7 @@ import {
   formatGroupLines,
   formatReplyFocus,
   parseMouthpieceText,
-} from "../server/mouthpiece.js";
+} from "../server/mouthpiece.ts";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const threadId = "22222222-2222-4222-8222-222222222222";

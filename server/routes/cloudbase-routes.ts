@@ -92,7 +92,7 @@ export function registerCloudbaseRoutes(app: Express, { service }: CloudbaseRout
   app.get("/api/projects/:id/cloudbase/admin-experience-url", readAdminProductionAddress);
   app.get("/api/projects/:id/cloudbase/functions", async (req: Request, res: Response) =>
     res.json(
-      await listCloudbaseFunctions(service, req.user, req.params.id, {
+      await listCloudbaseFunctions(service as never, req.user, String(req.params.id), {
         environment: req.query.environment,
       }),
     ),
@@ -104,9 +104,9 @@ export function registerCloudbaseRoutes(app: Express, { service }: CloudbaseRout
         .status(201)
         .json(
           await createCloudbaseTimer(
-            service,
+            service as never,
             req.user,
-            req.params.id,
+            String(req.params.id),
             req.params.functionName,
             req.body || {},
           ),
@@ -117,9 +117,9 @@ export function registerCloudbaseRoutes(app: Express, { service }: CloudbaseRout
     async (req: Request, res: Response) =>
       res.json(
         await deleteCloudbaseTimer(
-          service,
+          service as never,
           req.user,
-          req.params.id,
+          String(req.params.id),
           req.params.functionName,
           req.params.triggerName,
           { environment: req.query.environment },

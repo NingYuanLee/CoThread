@@ -10,16 +10,16 @@ import {
   queueConversationMessage,
   createConversationWindow,
 } from "../server/conversation-memory-store.js";
-import { processConversationWindow } from "../server/conversation-memory-runner.js";
+import { processConversationWindow } from "../server/conversation-memory-runner.ts";
 import { loadConversationContext } from "../server/conversation-memory-context.ts";
-import { startConversationToolBridge } from "../server/conversation-memory-tools.js";
+import { startConversationToolBridge } from "../server/conversation-memory-tools.ts";
 import { createVersion } from "../server/documents/versions.ts";
 import {
   listFileIndexIssues,
   readFileIndexJobs,
   retryFileIndexJob,
-} from "../server/file-index-jobs.js";
-import { listMemoryJobs } from "../server/memory-jobs.js";
+} from "../server/file-index-jobs.ts";
+import { listMemoryJobs } from "../server/memory-jobs.ts";
 import { processNextProjectMemory } from "../server/project-memory.js";
 
 async function setup() {
@@ -175,7 +175,7 @@ test("文件工具桥动态导航与回收边界，文件覆盖及重试绑定�
       createdBy: owner.id,
     });
     const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-      await import("../server/file-index-discovery.js");
+      await import("../server/file-index-discovery.ts");
     while (await discoverNextFileIndexChange(db)) {}
     while (await reconcileNextFileIndexArtifact(db)) {}
     const [file] = await query(

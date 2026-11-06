@@ -12,7 +12,7 @@ import {
   COORDINATOR_LANE_CONCURRENCY,
   EXECUTOR_LOCK_NAME,
   startReplyWorker,
-} from "../server/replies.js";
+} from "../server/replies.ts";
 
 let database, db, service;
 before(async () => {

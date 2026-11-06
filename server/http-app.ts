@@ -3,7 +3,7 @@ import express from "express";
 import { createAccountSurface } from "./routes/account.js";
 import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerCredentialRoutes } from "./routes/credentials.ts";
-import { registerProjectRuntimeRoutes } from "./routes/project-runtime.js";
+import { registerProjectRuntimeRoutes } from "./routes/project-runtime.ts";
 import { registerProjectWorkspaceRoutes } from "./routes/project-workspace.js";
 import { ZodError } from "zod/v3";
 import { authenticate, authenticatePreviewTicket } from "./auth.ts";
@@ -19,7 +19,7 @@ import {
 } from "./local-executors.js";
 import { jsonBodyLimit } from "./json-body-limit.ts";
 import { appOrigins } from "./runtime-config.ts";
-import { EXECUTOR_LOCK_NAME, executorStatus } from "./replies.js";
+import { EXECUTOR_LOCK_NAME, executorStatus } from "./replies.ts";
 import { resolveSandboxProvider, sandboxProviderName } from "./sandbox-provider.ts";
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Db, RequestUser } from "./types.ts";

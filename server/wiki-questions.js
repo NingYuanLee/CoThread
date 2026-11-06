@@ -5,8 +5,8 @@ import { modelResponseStream, modelUsage, redactSecrets, responseText } from "./
 import { getWikiPage, listWikiPages } from "./wiki-pages.ts";
 import { companyQuestionMaterials, orgQuestionMaterials } from "./org-shelf.ts";
 import { deepseekFetch, deepseekSearch } from "./deepseek-web.ts";
-import { runElderQuestion } from "./elder-kernel.js";
-import { elderPersist, elderRoomState, recordElderRun, wikiScopeKey } from "./wiki-session.js";
+import { runElderQuestion } from "./elder-kernel.ts";
+import { elderPersist, elderRoomState, recordElderRun, wikiScopeKey } from "./wiki-session.ts";
 import { callMcpTool } from "./mcp.js";
 import { runMiaowenChat } from "./miaowen-skill.ts";
 import { injectEnvironmentVariables } from "./environment-variables.ts";

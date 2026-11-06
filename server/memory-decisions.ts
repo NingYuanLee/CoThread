@@ -2,7 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { HttpError } from "./http-error.ts";
-import { captureDocumentRevision, canReadHistoricalSources } from "./memory-history.js";
+import { captureDocumentRevision, canReadHistoricalSources } from "./memory-history.ts";
 import type { Db } from "./types.ts";
 
 /** 一组行。 */
@@ -51,10 +51,10 @@ export async function recordTaskCreationDecision(
       "SELECT id,page_id pageId,title,sources FROM memory_page_revisions WHERE id=? AND project_id=?",
       [id, input.projectId],
     );
-    if (
-      !revision ||
-      !(await canReadHistoricalSources(db, input.projectId, parse(revision.sources) || []))
-    )
+    const frozenSources = (parse(revision?.sources) ?? []) as Parameters<
+      typeof canReadHistoricalSources
+    >[2];
+    if (!revision || !(await canReadHistoricalSources(db, input.projectId, frozenSources)))
       throw new HttpError(403, "任务的记忆依据不存在、跨项目或已不可访问");
     basis.push({
       kind: "memory_page",
@@ -62,7 +62,7 @@ export async function recordTaskCreationDecision(
       memoryRevisionId: id,
       title: revision.title,
       role: "declared_basis",
-      frozenSources: parse(revision.sources) || [],
+      frozenSources,
     });
   }
   if (input.sourceMessageId) {

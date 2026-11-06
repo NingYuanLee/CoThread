@@ -11,7 +11,7 @@ import { clearPlatformModelSettings, modelConfig } from "../server/model-config.
 import {
   loadPlatformModelSettings,
   savePlatformModelSettings,
-} from "../server/platform-model-settings.js";
+} from "../server/platform-model-settings.ts";
 
 test("database model settings validate real HTTP, encrypt keys, preserve active version on failure and reload", async () => {
   process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString("base64");

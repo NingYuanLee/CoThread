@@ -337,7 +337,7 @@ export function buildMaintenanceTurn({
       name: "ProjectInfo",
       placement: "B",
       trust: "control",
-      source: "server/laoweng-agent.js",
+      source: "server/laoweng-agent.ts",
       version: String(projectId || ""),
       text: `项目 ID：${projectId || ""}\n这是当前项目标识，不是本次任务输入。`,
     }),
@@ -345,7 +345,7 @@ export function buildMaintenanceTurn({
       name: "WorkType",
       placement: "B",
       trust: "control",
-      source: "server/laoweng-agent.js",
+      source: "server/laoweng-agent.ts",
       version: String(workType || ""),
       text:
         resultMode === "file_summary_tool"

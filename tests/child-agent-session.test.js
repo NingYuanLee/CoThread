@@ -9,7 +9,7 @@ import {
   persistChildRunCheckpoint,
   readChildTaskSession,
   checkpointFromHistory,
-} from "../server/child-agent-session.js";
+} from "../server/child-agent-session.ts";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";

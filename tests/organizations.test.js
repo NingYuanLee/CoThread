@@ -11,7 +11,7 @@ import {
   listOrganizations,
   setOrganizationMember,
   updateOrganization,
-} from "../server/organizations.js";
+} from "../server/organizations.ts";
 
 const rejects = (promise, status) => assert.rejects(promise, (error) => error.status === status);
 

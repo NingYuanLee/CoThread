@@ -78,9 +78,17 @@ for (const plan of plans) {
   const manual = [];
   const docRefs = [];
 
-  for (const file of allFiles) {
+  for (const snapshotFile of allFiles) {
+    // 同一批次里前面的文件可能已经改过名：开始时的快照记的是 `a.js`，磁盘上现在只有
+    // `a.ts`。按快照路径 existsSync 会失败，于是 `a.ts` 里指向本批其它文件的说明符
+    // 永远改不到（tsc 查不出、运行期 ERR_MODULE_NOT_FOUND）。这里解析到改名后的孪生
+    // 文件继续扫描，把「同批互相引用」这条路径补上。
+    const twin = snapshotFile.replace(/\.js$/, ".ts");
+    const file =
+      !fs.existsSync(snapshotFile) && snapshotFile.endsWith(".js") && fs.existsSync(twin)
+        ? twin
+        : snapshotFile;
     if (canonical(file) === sourceCanon) continue;
-    // 同一批次里前面的文件可能已经改过名，这里按当前磁盘状态跳过已消失的路径。
     if (!fs.existsSync(file)) continue;
     const text = fs.readFileSync(file, "utf8");
     if (!text.includes(".js")) continue;

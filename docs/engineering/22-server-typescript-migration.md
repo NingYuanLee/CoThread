@@ -88,12 +88,12 @@ npm test            # 集成测试需要测试库
 
 ## 进度
 
-### 当前总览（2026-11-05，第 40 轮结束时）
+### 当前总览（2026-11-06，第三十九批之后）
 
 | 指标                 | 数值                                         |
 | -------------------- | -------------------------------------------- |
-| `server/` 已转 `.ts` | 147 个                                       |
-| `server/` 仍为 `.js` | 52 个（原 199 个）                           |
+| `server/` 已转 `.ts` | 179 个                                       |
+| `server/` 仍为 `.js` | 20 个（原 199 个）                           |
 | 类型检查             | 0 错（`npm run typecheck:server`）           |
 | 失效说明符           | 0（`node scripts/server-ts-specifiers.mjs`） |
 | 完整测试             | 1096/1096 通过                               |
@@ -107,16 +107,14 @@ npm test            # 集成测试需要测试库
 - `server/service.ts` 门面（152 处引用），方法签名从域操作推导
 - **200 行以内的文件全部转换完毕**
 
-**未完成的 52 个文件**按行数分档：
+**未完成的 20 个文件**按行数分档（全部在 751 行以上）：
 
-| 行数     | 数量 | 代表文件                                                                                                                                                                                       |
-| -------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ≤300     | 4    | `task-memory`、`file-index-jobs`、`project-library`、`project-memory-scan`                                                                                                                     |
-| 301–500  | 13   | `memory-history`、`platform-model-settings`、`routes/project-runtime`                                                                                                                          |
-| 501–1000 | 25   | `agent.js`、`wiki-questions`、`cloudbase`、`service-monitor`(1056)                                                                                                                             |
-| >1000    | 10   | `project-memory`(3261)、`coordinator`(1643)、`agent-tools`(1449)、`routes/project-workspace`(1330)、`documents/service`(1275)、`conversation-memory-store`(1195)、`iteration-archive`(1079) 等 |
+| 行数     | 数量 | 文件                                                                                                                                                                                                                                                            |
+| -------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 701–1000 | 10   | `agent`(980)、`project-code-sources`(950)、`agent-participation`(942)、`miniprogram-config`(932)、`local-executors`(910)、`mcp`(838)、`routes/account`(813)、`memory-timeline`(792)、`model-config`(777)、`miniprogram-dev-server`(751)                         |
+| >1000    | 10   | `project-memory`(3262)、`coordinator`(1644)、`agent-tools`(1450)、`routes/project-workspace`(1331)、`documents/service`(1276)、`conversation-memory-store`(1196)、`iteration-archive`(1080)、`service-monitor`(1057)、`cloudbase`(1018)、`wiki-questions`(1011) |
 
-其中 `service-monitor`、`project-memory`、`coordinator`、`documents/service` 是各自领域的中枢，转完之后能进一步降低其余文件的标注成本——**建议按「先中枢、后外围」继续**。
+`service-monitor`、`project-memory`、`coordinator`、`documents/service` 仍是各自领域的中枢，转完之后能进一步降低其余文件的标注成本——**建议按「先中枢、后外围」继续**。
 
 接手的操作步骤见下文「未完成部分与后续做法」。
 
@@ -447,16 +445,27 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 - **递归导出函数必须写返回类型**：`searchProjectMemory` 在池分支里再次调用自己，不写返回类型就是 TS7023/TS7024。
 - **返回类型要按真实结构写**：我先写了 `{ pages: [...] }`，实际返回的是 `{ entries, related, total, purpose }`——猜错会连带一串 TS2741。
 
-剩余 52 个 `.js` 文件（被引用次数实测于 2026-11-05）；入口与 200 行以内的文件均已完成，剩余全部是 270 行以上的中等/大模块。
+第三十九批（2026-11-06，32 个文件并行迁移）：这一轮改变打法——由 Lead 一次性改名并改写全仓说明符，5 个协作者各领一簇并行补标注，Lead 集中修跨簇连带问题、跑门禁、提交。
 
-| 批次 | 范围                                                                                | 文件数 |
-| ---- | ----------------------------------------------------------------------------------- | ------ |
-| 4    | 被 2–4 个文件引用                                                                   | 12     |
-| 5    | 被 5–9 个文件引用                                                                   | 14     |
-| 6    | 被 10+ 个文件引用（含 `project-memory.js`、`service-monitor.js`、`coordinator.js`） | 18     |
-| 其余 | 被 0–1 个文件引用（270 行以上的独立模块）                                           | 8      |
+| 簇             | 文件（行数）                                                                                                                                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 文档/记忆      | `documents/library`(599)、`documents/project-library`(277)、`document-memory`(427)、`memory-jobs`(433)、`memory-history`(359)、`task-memory`(271)、`project-memory-scan`(294)、`conversation-memory-runner`(672)、`conversation-memory-tools`(552) |
+| 小程序/发布    | `miniprogram-build`(579)、`miniprogram-workspace`(491)、`wechat-ci`(632)、`cloudbase-functions`(485)、`platform-model-settings`(363)、`release-requests`(621)                                                                                      |
+| 任务域         | `task-assignments`(678)、`task-child-execution`(599)、`task-commands`(443)、`task-resolution`(480)、`task-draft-brief`(328)                                                                                                                        |
+| 文件索引/老翁  | `file-index-discovery`(524)、`file-index-groups`(507)、`file-index-jobs`(271)、`elder-kernel`(628)、`laoweng-agent`(558)、`child-agent-session`(641)                                                                                               |
+| 组织/消息/沙箱 | `organizations`(518)、`mouthpiece`(492)、`replies`(382)、`local-sandbox`(418)、`routes/project-runtime`(418)、`wiki-session`(551)                                                                                                                  |
 
-`service-monitor.js`（1056 行）本轮试转后**回退**：它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断）。批量替换只会把错误搬来搬去，需要完整读一遍再写，留到单独一轮。
+验证：`npm run lint` 退出码 0；`node scripts/server-ts-specifiers.mjs` 0 处；`npx tsc --noEmit -p tsconfig.server.json` 0 错；全量 `npm test` 在 `127.0.0.1:3307/cothread_test` 上 **1096/1096**、0 失败（`duration_ms` 2078276，约 35 分钟，其中首轮含 152 条迁移重放）。
+
+并行的三条经验：
+
+1. **并行数受内存限制，不是受人数限制。** 5 个协作者同时跑 `tsc -p tsconfig.server.json` 会把机器内存打爆（`FATAL ERROR: Zone Allocation failed`，进程在 100MB 就死）。并行 3–5 个时给每个进程 `NODE_OPTIONS=--max-old-space-size=1536`，并让协作者「改完一批再验」，不要「改一行验一次」。
+2. **改名必须由一个人一次做完，标注才能并行。** 32 个文件一起改名会让仓库在中途整体不可类型检查，但换来说明符改写零并发冲突。若让每个协作者自己改名，两人同时改写同一个 import 它的文件就会互相覆盖。
+3. **连带错误会转移到「已转换文件」里。** 这 32 个文件转完后剩下的 15 个错全在 9 个此前已转换的文件：`ReleaseRequest` 与云函数发布入参不再相容、`DocumentToolService` 缺 `member`/`assertOfficialOrganizing`、`FileIndexPage` 与 `MemoryRevisionPage` 的 `body?: unknown` 冲突等。**转一个模块要预期它的调用方在同一批里出问题**，这些必须由一个人集中修——并行协作者各改一处就会撞在同一个文件上。
+
+另修一处测试夹具：`tests/local-sandbox-admission.test.js` 用 esbuild 把 `server/local-sandbox.ts` 转成 CJS 再在 `vm` 里跑，但没有给 `loader: "ts"`。文件从 `.js` 变 `.ts` 后 `import type` 被当 JS 解析，整份 4 项测试静默不执行——全量从 1096 掉到 1093，却只报「1 个文件失败」。**测试总数变少时先查夹具，别当成偶发。**
+
+剩余 20 个 `.js` 全部在 751 行以上，是各领域的中枢与半中枢；`service-monitor`（1057 行）此前试转后回退，它不只是缺参数标注，还有 8 处结构性类型问题（`rows` 可能未赋值、`delete` 只作用于可选字段、日期相减的类型、`never[]` 推断），需要完整读一遍再写。
 
 ## 领域模块的类型策略
 
@@ -562,6 +571,7 @@ function isPool(db: Db): db is Pool {
 - **测试里的「复制源文件再导入」会把 `.ts` 写坏。** `tests/assets.test.js` 曾把 `server/assets.ts` 复制成临时目录里的 `assets.mjs` 再 import——Node 只对 `.ts` 做类型擦除，改后缀后按纯 JS 解析，遇到类型标注直接 `SyntaxError`。转换某个模块后，若测试里出现 `copyFile(...) + 另一个后缀`，同步改成同样的 `.ts` 后缀。
 - **prettier 只检查改动过的文件**（`scripts/lint.js`），所以历史遗留的格式问题不会自己暴露；`.ts` 同样适用。
 - **`tmp/` 在 `.gitignore` 里，prettier 3 默认跳过它**（默认 `--ignore-path` 含 `.gitignore`），拿 `tmp/` 下的副本做格式化验证等于空跑。
-- **迁移工具按当前磁盘状态扫描**：同一批传多个文件时，前面的文件已改名，后面扫描会跳过已消失的路径。这是刻意处理，不是 bug。
+- **迁移工具在同批文件互相引用时会留下失效说明符**。工具在开始时就固化了磁盘上的文件清单，处理 `b.js` 时想回头改 `a.ts`，但清单里只有 `a.js`、该路径已不存在，于是直接跳过。结果是：一批里 A 引 B、且 A 在参数顺序里排在 B 前面时，`a.ts` 里会留下 `./b.js`。这个坑在 2026-11-06 的 32 文件大批判名里实测留下 6 处（`conversation-memory-runner`→`conversation-memory-tools`、`memory-jobs`→`file-index-jobs`、`miniprogram-build`→`miniprogram-workspace`、`task-assignments`→`task-commands`、`task-draft-brief`→`mouthpiece` 等），全部由 `node scripts/server-ts-specifiers.mjs --fix` 修掉。
+  同日已修根因：扫描时若快照里的 `a.js` 已不存在、而磁盘上有 `a.ts`，就按孪生路径继续扫，批内互相引用一步到位。**但 `--fix` + 一次纯检查仍是每批提交前的兜底**——这个失败模式 `tsc` 看不见（TS 把 `.js` 映射到同名 `.ts`），只有 Node 运行期才炸。
 - **工具不自动改文档**：`docs/engineering/releases/` 是逐字照录的历史记录，路径必须保持当时的写法；其余说明文档里的路径属于文档维护，由人判断后再改，避免重构与文档改动混在一次批量改写里。
 - **`git show HEAD:文件 | Out-File` 恢复文件会写成 CRLF**，仓库要求 LF（`.gitattributes` 的 `*.md text eol=lf` 只覆盖部分后缀，JS 走 `* text=auto`），恢复后要再归一一次行尾。

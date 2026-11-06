@@ -69,7 +69,7 @@ test("老翁默认只允许时间工具，联合分析使用受限只读工具�
     "utf8",
   );
   const laowengAgent = await readFile(
-    new URL("../server/laoweng-agent.js", import.meta.url),
+    new URL("../server/laoweng-agent.ts", import.meta.url),
     "utf8",
   );
   const runtimeConfig = await readFile(

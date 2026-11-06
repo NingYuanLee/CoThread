@@ -1,0 +1,526 @@
+/** 任务域：commands。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
+import {
+  assertIterationWritable,
+  lockTaskIteration,
+  withTaskIterationWrite,
+} from "./iteration-state.ts";
+import { randomUUID } from "node:crypto";
+import { query, transaction } from "./db.ts";
+import { HttpError } from "./http-error.ts";
+import { publishWork } from "./work-events.ts";
+
+import { withChildDispatchGate } from "./task-pool-helpers.ts";
+import { recordTaskStatusChange } from "./task-pool-activity.ts";
+
+import { closeEndedTaskRuns } from "./task-pool-recovery.ts";
+import { ASSIGN_HUMAN_AUTH, TASK_ENDED, TASK_UPDATE_STATUSES } from "./task-policy.ts";
+import {
+  assertDocumentRefs,
+  assertFolderRefs,
+  stripDocumentRefsCoveredByFolders,
+} from "./task-documents.ts";
+import {
+  assertTarget,
+  assertActorCanUpdateTask,
+  currentThreadXiaoxiangSession,
+  assertHumanMemberAuthorization,
+  assertXiaoxiangCanOperateTask,
+} from "./task-access.ts";
+import { getTask } from "./task-queries.ts";
+import { idleChildCount } from "./task-dispatch.ts";
+import { recordTaskCreationDecision } from "./memory-decisions.ts";
+import { DEFAULT_PERSONA_KEY, personaByKey } from "../shared/agent-personas.js";
+import type { Pool } from "mysql2/promise";
+import type { TaskActor } from "./task-access.ts";
+import type { Db } from "./types.ts";
+
+/** 连接池要多包一层事务；事务连接直接复用。 */
+function isPool(db: Db): db is Pool {
+  return typeof (db as Pool).getConnection === "function";
+}
+
+/** 任务行里本文件读到、且需要具体类型的列；其余列原样透传。 */
+type TaskRow = {
+  id: string;
+  status: string;
+  project_id: string;
+  origin_thread_id?: string | null;
+  target_type?: string | null;
+  target_id?: string | null;
+  revision?: unknown;
+  [column: string]: unknown;
+};
+
+/** 任务行里本文件读到的行列。 */
+type TaskQuestionRow = {
+  id: string;
+  [column: string]: unknown;
+};
+
+/** `updateTask` 可改的字段。 */
+type TaskUpdate = {
+  status?: string | null;
+  progress?: string | null;
+  resultSummary?: string | null;
+  artifactRefs?: unknown;
+  body?: string | null;
+  messageId?: string | null;
+};
+
+/** 创建任务的入参：路由、工具与转交复制都会传。 */
+type CreateTaskInput = {
+  id?: string;
+  projectId: string;
+  originThreadId?: string | null;
+  sourceType: string;
+  sourceUserId?: string | null;
+  sourceAgentSessionId?: string | null;
+  sourceMessageId?: string | null;
+  sourceTaskId?: string | null;
+  createdByType: string;
+  createdById?: string | null;
+  taskType: string;
+  title: string;
+  goal: string;
+  constraints?: string | null;
+  documentRefs?: unknown;
+  refs?: unknown;
+  folderRefs?: unknown;
+  targetType?: string | null;
+  targetId?: string | null;
+  persona?: string | null;
+  reason?: string | null;
+  asDraft?: boolean;
+  memoryRevisionIds?: unknown;
+};
+
+export async function createTask(db: Pool, input: CreateTaskInput) {
+  const id = input.id || randomUUID();
+  if (!input.originThreadId) throw new HttpError(400, "任务必须属于一个迭代");
+  if (!input.projectId || !input.title || !input.goal)
+    throw new HttpError(400, "任务缺少项目、标题或目标");
+  if (input.taskType === "assist") {
+    if (input.createdByType !== "xiaoxiang" || input.targetType !== "xiaoxiang")
+      throw new HttpError(403, "辅助任务只能由小祥创建并交给子 Agent");
+  } else if (input.taskType !== "formal") throw new HttpError(400, "任务类型无效");
+  if (!new Set(["human_member", "xiaoxiang", "task"]).has(input.sourceType))
+    throw new HttpError(400, "任务来源无效");
+  const personaInput = input.persona == null ? null : personaByKey(input.persona);
+  if (input.persona != null && !personaInput) throw new HttpError(400, "任务人设无效");
+  const persona = personaInput?.key || DEFAULT_PERSONA_KEY;
+  if (!new Set(["human_member", "xiaoxiang", "system"]).has(input.createdByType))
+    throw new HttpError(400, "任务创建者无效");
+  if (
+    input.createdByType === "human_member" &&
+    input.targetType &&
+    input.targetType !== "human_member"
+  )
+    throw new HttpError(400, "人类成员创建的任务只能指派给人类成员");
+  if (input.targetType) assertTarget(input.targetType, input.targetId);
+  if (input.createdByType === "xiaoxiang" && input.targetType === "human_member")
+    await assertHumanMemberAuthorization(db, input.projectId, input, ASSIGN_HUMAN_AUTH);
+  await transaction(db, async (conn) => {
+    await assertIterationWritable(conn, input.originThreadId, input.projectId);
+    if (input.sourceUserId) {
+      const [member] = await query(
+        conn,
+        "SELECT user_id FROM members WHERE project_id=? AND user_id=?",
+        [input.projectId, input.sourceUserId],
+      );
+      if (!member) throw new HttpError(400, "任务来源人不是项目成员");
+    }
+    if (input.sourceMessageId) {
+      const [message] = await query(
+        conn,
+        "SELECT m.id FROM messages m JOIN threads t ON t.id=m.thread_id WHERE m.id=? AND t.project_id=?",
+        [input.sourceMessageId, input.projectId],
+      );
+      if (!message) throw new HttpError(400, "任务来源消息不属于当前项目");
+    }
+    if (input.sourceTaskId) {
+      const [sourceTask] = await query(
+        conn,
+        "SELECT id FROM agent_tasks WHERE id=? AND project_id=?",
+        [input.sourceTaskId, input.projectId],
+      );
+      if (!sourceTask) throw new HttpError(400, "任务来源任务不属于当前项目");
+    }
+    if (input.targetType === "human_member") {
+      const [target] = await query(
+        conn,
+        "SELECT user_id FROM members WHERE project_id=? AND user_id=? AND role<>'viewer'",
+        [input.projectId, input.targetId],
+      );
+      if (!target) throw new HttpError(400, "任务目标不是当前项目的可执行成员");
+    }
+    const folderRefs = await assertFolderRefs(conn, input.projectId, input.folderRefs);
+    const documentRefs = await stripDocumentRefsCoveredByFolders(
+      conn,
+      input.projectId,
+      await assertDocumentRefs(conn, input.projectId, input.documentRefs ?? input.refs),
+      folderRefs,
+    );
+    let targetId: string | null = input.targetId || null;
+    if (input.targetType === "xiaoxiang") {
+      if (input.originThreadId) {
+        const current = await currentThreadXiaoxiangSession(
+          conn,
+          input.originThreadId,
+          input.projectId,
+        );
+        if (!current) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
+        // Refuse to stamp tasks onto a rotated DB session while the live caller is still the old id.
+        // That mismatch is what produces "已安排" + unbound 子 Agent ghosts.
+        if (
+          input.createdByType === "xiaoxiang" &&
+          input.createdById &&
+          input.createdById !== current.session_id
+        )
+          throw new HttpError(409, "小祥 会话已轮换，请重试本轮调度");
+        targetId = current.session_id as string;
+      } else {
+        const [target] = await query(
+          conn,
+          `SELECT s.session_id FROM agent_sessions s JOIN threads t ON t.id=s.thread_id
+          WHERE s.session_id=? AND t.project_id=?`,
+          [input.targetId, input.projectId],
+        );
+        if (!target) throw new HttpError(400, "任务目标不是当前项目迭代的 小祥");
+      }
+    }
+    if (input.asDraft && input.targetType !== "human_member")
+      throw new HttpError(400, "只有指派给人类成员的任务可以保存为草稿");
+    const idle =
+      input.targetType === "xiaoxiang" ? await idleChildCount(conn, targetId as string) : 0;
+    if (input.taskType === "assist" && idle < 1)
+      throw new HttpError(409, "当前没有空闲子 Agent，不能创建辅助任务，请自行处理");
+    const startChildNow =
+      input.targetType === "xiaoxiang" &&
+      idle >= 1 &&
+      (input.taskType === "assist" || input.taskType === "formal");
+    let threadNumber = null;
+    if (input.originThreadId) {
+      await query(conn, "SELECT id FROM threads WHERE id=? FOR UPDATE", [input.originThreadId]);
+      const [maxRow] = await query(
+        conn,
+        "SELECT COALESCE(MAX(thread_number), 0) AS max_num FROM agent_tasks WHERE origin_thread_id=?",
+        [input.originThreadId],
+      );
+      const next = Number(maxRow?.max_num || 0) + 1;
+      if (next > 9999) throw new HttpError(409, "本迭代任务编号已达上限");
+      threadNumber = next;
+    }
+    const initialStatus = input.asDraft
+      ? "draft"
+      : input.targetType === "human_member"
+        ? "awaiting_acceptance"
+        : startChildNow
+          ? "running"
+          : input.targetType === "xiaoxiang"
+            ? "pending_assignment"
+            : "draft";
+    await query(
+      conn,
+      `INSERT INTO agent_tasks
+      (id,project_id,origin_thread_id,thread_number,source_type,source_user_id,source_agent_session_id,source_message_id,source_task_id,
+       created_by_type,created_by_id,task_type,title,goal,constraints,document_refs,folder_refs,target_type,target_id,status,persona)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        input.projectId,
+        input.originThreadId || null,
+        threadNumber,
+        input.sourceType,
+        input.sourceUserId || null,
+        input.sourceAgentSessionId || null,
+        input.sourceMessageId || null,
+        input.sourceTaskId || null,
+        input.createdByType,
+        input.createdById,
+        input.taskType,
+        input.title,
+        input.goal,
+        input.constraints || null,
+        JSON.stringify(documentRefs),
+        JSON.stringify(folderRefs),
+        input.targetType || null,
+        targetId,
+        initialStatus,
+        persona,
+      ],
+    );
+    await query(conn, "UPDATE agent_tasks SET original_thread_id=? WHERE id=?", [
+      input.originThreadId,
+      id,
+    ]);
+    if (input.targetType === "xiaoxiang") {
+      await query(
+        conn,
+        "UPDATE agent_tasks SET claimed_by_type='xiaoxiang',claimed_by_id=?,execution_mode='child_agent',execution_agent_type='child_agent' WHERE id=?",
+        [targetId, id],
+      );
+      if (startChildNow) {
+        await query(
+          conn,
+          `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
+          SELECT UUID(),id,revision,'child_agent','queued' FROM agent_tasks WHERE id=?`,
+          [id],
+        );
+      }
+    }
+    await query(
+      conn,
+      `INSERT INTO agent_task_assignment_events
+      (task_id,to_target_type,to_target_id,changed_by_type,changed_by_id,reason,message_id)
+      VALUES(?,?,?,?,?,?,?)`,
+      [
+        id,
+        input.targetType || null,
+        targetId,
+        input.createdByType,
+        input.createdById,
+        input.reason || null,
+        input.sourceMessageId || null,
+      ],
+    );
+    await recordTaskCreationDecision(conn, input, id, documentRefs);
+    await recordTaskStatusChange(
+      conn,
+      id,
+      null,
+      { type: input.createdByType, id: input.createdById },
+      input.reason || (input.asDraft ? "保存草稿" : "任务创建"),
+    );
+  });
+  if (input.originThreadId) publishWork(db, input.originThreadId);
+  return withChildDispatchGate(await getTask(db, id));
+}
+
+export async function updateTask(db: Pool, taskId: string, actor: TaskActor, update: TaskUpdate) {
+  const result = await transaction(db, async (conn) => {
+    await lockTaskIteration(conn, taskId);
+    const [task] = await query(conn, "SELECT * FROM agent_tasks WHERE id=? FOR UPDATE", [taskId]);
+    if (!task) throw new HttpError(404, "任务不存在");
+    assertActorCanUpdateTask(task, actor);
+    let nextStatus = update.status || task.status;
+    const inboxKind = update.status === "failed" ? "task_failed" : null;
+    // 任务层取消失败：任何调用方（子 Agent、本地执行器、网页）传 failed 都收敛为已阻塞。
+    if (nextStatus === "failed") nextStatus = "blocked";
+    if (!TASK_UPDATE_STATUSES.includes(nextStatus)) throw new HttpError(400, "任务状态无效");
+    if (TASK_ENDED.includes(task.status)) throw new HttpError(409, "任务已经结束");
+    if (
+      actor?.type === "human_member" &&
+      task.execution_agent_type === "human_self" &&
+      update.status &&
+      !["abandoned", "completed"].includes(update.status)
+    )
+      throw new HttpError(409, "由本人执行的任务只能放弃或完成");
+    if (
+      task.task_type === "assist" &&
+      ["completed", "failed"].includes(nextStatus) &&
+      !task.execution_agent_id
+    ) {
+      nextStatus = "cancelled";
+      if (!update.resultSummary)
+        update = { ...update, resultSummary: "小祥自行处理，未调度子 Agent，已从任务池撤销。" };
+    }
+    const redispatchDsh =
+      ["queued", "pending_assignment"].includes(nextStatus) &&
+      task.target_type === "xiaoxiang" &&
+      (task.task_type === "assist" || task.execution_agent_type === "child_agent");
+    await query(
+      conn,
+      `UPDATE agent_tasks SET status=?,progress=COALESCE(?,progress),result_summary=COALESCE(?,result_summary),
+      artifact_refs=COALESCE(?,artifact_refs),execution_agent_id=IF(?,NULL,execution_agent_id),
+      finished_at=IF(? IN ('completed','failed','cancelled','rejected','abandoned'),UTC_TIMESTAMP(3),IF(?,NULL,finished_at)),revision=revision+1 WHERE id=?`,
+      [
+        nextStatus,
+        update.progress || null,
+        update.resultSummary || null,
+        update.artifactRefs ? JSON.stringify(update.artifactRefs) : null,
+        redispatchDsh,
+        nextStatus,
+        redispatchDsh,
+        taskId,
+      ],
+    );
+    if (redispatchDsh) {
+      await query(
+        conn,
+        `UPDATE agent_task_execution_runs SET status='cancelled',error='任务 revision 已更新',
+        finished_at=UTC_TIMESTAMP(3) WHERE task_id=? AND status IN ('queued','running','waiting')`,
+        [taskId],
+      );
+      if (nextStatus !== "pending_assignment") {
+        await query(
+          conn,
+          `INSERT INTO agent_task_execution_runs(id,task_id,task_revision,executor_type,status)
+          SELECT UUID(),id,revision,'child_agent','queued' FROM agent_tasks WHERE id=?`,
+          [taskId],
+        );
+      }
+    } else if (["running", "waiting", "pending_start"].includes(nextStatus)) {
+      await query(
+        conn,
+        `UPDATE agent_task_execution_runs SET status=?,
+        progress=COALESCE(?,progress),result_summary=COALESCE(?,result_summary),
+        started_at=COALESCE(started_at,UTC_TIMESTAMP(3))
+        WHERE task_id=? AND executor_type<>'child_agent' AND status IN ('queued','running','waiting')`,
+        [nextStatus, update.progress || null, update.resultSummary || null, taskId],
+      );
+    }
+    if (TASK_ENDED.includes(nextStatus) || nextStatus === "blocked")
+      await closeEndedTaskRuns(conn, taskId, nextStatus);
+    if (update.body)
+      await query(
+        conn,
+        "INSERT INTO agent_task_pool_updates(id,task_id,source_type,source_id,message_id,body,revision) SELECT UUID(),?,?,?,?,?,revision FROM agent_tasks WHERE id=?",
+        [taskId, actor.type, actor.id, update.messageId || null, update.body, taskId],
+      );
+    await recordTaskStatusChange(
+      conn,
+      taskId,
+      task.status,
+      actor,
+      nextStatus !== (update.status || task.status)
+        ? update.resultSummary
+        : update.progress || update.resultSummary || null,
+      inboxKind,
+    );
+    return (await getTask(conn, taskId)) as TaskRow;
+  });
+  if (result.origin_thread_id) publishWork(db, result.origin_thread_id);
+  return result;
+}
+
+export async function appendTaskUpdate(
+  db: Db,
+  taskId: string,
+  actor: TaskActor,
+  body: string,
+  messageId: string | null = null,
+): Promise<TaskRow | null> {
+  if (isPool(db))
+    return withTaskIterationWrite(db, taskId, (conn) =>
+      appendTaskUpdate(conn, taskId, actor, body, messageId),
+    );
+  await lockTaskIteration(db, taskId);
+  const task = await getTask(db, taskId);
+  if (!task) throw new HttpError(404, "任务不存在");
+  if (task.target_type !== actor.type || task.target_id !== actor.id)
+    throw new HttpError(403, "只有当前任务目标可以更新任务");
+  await query(
+    db,
+    "INSERT INTO agent_task_pool_updates(id,task_id,source_type,source_id,message_id,body,revision) VALUES(UUID(),?,?,?,?,?,?)",
+    [taskId, actor.type, actor.id, messageId, body, task.revision],
+  );
+  return (await getTask(db, taskId)) as TaskRow;
+}
+
+export async function askTaskQuestion(
+  db: Db,
+  taskId: string,
+  actor: TaskActor,
+  question: string,
+  sourceUserId?: string | null,
+  messageId: string | null = null,
+): Promise<TaskQuestionRow | undefined> {
+  if (isPool(db))
+    return withTaskIterationWrite(db, taskId, (conn) =>
+      askTaskQuestion(conn, taskId, actor, question, sourceUserId, messageId),
+    );
+  await lockTaskIteration(db, taskId);
+  const task = (await getTask(db, taskId)) as TaskRow | null;
+  if (!task) throw new HttpError(404, "任务不存在");
+  await assertXiaoxiangCanOperateTask(db, actor, task);
+  const [open] = await query(
+    db,
+    "SELECT id FROM agent_task_questions WHERE task_id=? AND status='open' LIMIT 1",
+    [taskId],
+  );
+  if (open) throw new HttpError(409, "该任务已有待回答问题");
+  const [latestHumanSource] = await query(
+    db,
+    `SELECT changed_by_id FROM agent_task_assignment_events
+    WHERE task_id=? AND changed_by_type='human_member' ORDER BY id DESC LIMIT 1`,
+    [taskId],
+  );
+  sourceUserId = latestHumanSource?.changed_by_id || task.source_user_id || sourceUserId;
+  if (!sourceUserId) throw new HttpError(409, "任务没有可回答问题的人类来源方");
+  const id = randomUUID();
+  await query(
+    db,
+    "INSERT INTO agent_task_questions(id,task_id,revision,asked_by_type,asked_by_id,source_user_id,question,asked_message_id) VALUES(?,?,?,?,?,?,?,?)",
+    [id, taskId, task.revision, actor.type, actor.id, sourceUserId, question, messageId],
+  );
+  await query(db, "UPDATE agent_tasks SET status='waiting',revision=revision+1 WHERE id=?", [
+    taskId,
+  ]);
+  await recordTaskStatusChange(db, taskId, task.status, actor, "向来源成员提问，等待回答");
+  return (await query(db, "SELECT * FROM agent_task_questions WHERE id=?", [id]))[0];
+}
+
+export async function answerTaskQuestion(
+  db: Pool,
+  questionId: string,
+  actor: TaskActor,
+  answer: string,
+  messageId: string | null = null,
+): Promise<TaskQuestionRow | undefined> {
+  return transaction(db, async (conn) => {
+    const [questionScope] = await query(
+      conn,
+      "SELECT task_id FROM agent_task_questions WHERE id=?",
+      [questionId],
+    );
+    if (!questionScope) throw new HttpError(404, "问题不存在");
+    await lockTaskIteration(conn, questionScope.task_id);
+    const [question] = await query(
+      conn,
+      "SELECT q.*,t.project_id FROM agent_task_questions q JOIN agent_tasks t ON t.id=q.task_id WHERE q.id=? FOR UPDATE",
+      [questionId],
+    );
+    if (!question) throw new HttpError(404, "任务问题不存在");
+    if (question.status !== "open") throw new HttpError(409, "任务问题已经关闭");
+    if (actor.type !== "human_member" || question.source_user_id !== actor.id)
+      throw new HttpError(403, "只有任务最新来源人可以回答问题");
+    await query(
+      conn,
+      "UPDATE agent_task_questions SET answer=?,status='answered',answered_message_id=?,answered_at=UTC_TIMESTAMP(3) WHERE id=?",
+      [answer, messageId, questionId],
+    );
+    const [before] = await query(conn, "SELECT status FROM agent_tasks WHERE id=?", [
+      question.task_id,
+    ]);
+    const [task] = await query(
+      conn,
+      "SELECT target_type,execution_agent_id FROM agent_tasks WHERE id=?",
+      [question.task_id],
+    );
+    const resume =
+      task?.target_type === "xiaoxiang" && !task.execution_agent_id
+        ? "pending_assignment"
+        : "running";
+    await query(
+      conn,
+      "UPDATE agent_tasks SET status=?,revision=revision+1 WHERE id=? AND status='waiting'",
+      [resume, question.task_id],
+    );
+    await recordTaskStatusChange(
+      conn,
+      question.task_id,
+      before?.status,
+      actor,
+      resume === "pending_assignment" ? "问题已回答，等待指派空闲子 Agent" : "问题已回答，继续执行",
+    );
+    const answered = (
+      await query(
+        conn,
+        "SELECT q.*,t.origin_thread_id FROM agent_task_questions q JOIN agent_tasks t ON t.id=q.task_id WHERE q.id=?",
+        [questionId],
+      )
+    )[0];
+    if (answered?.origin_thread_id) publishWork(db, answered.origin_thread_id);
+    return answered;
+  });
+}

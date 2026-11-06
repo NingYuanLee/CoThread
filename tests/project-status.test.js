@@ -10,7 +10,7 @@ import {
   noteProjectMemorySignal,
   processNextProjectMemory,
 } from "../server/project-memory.js";
-import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 
 async function setup() {
   const database = await testDatabase();

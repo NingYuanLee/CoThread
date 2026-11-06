@@ -263,7 +263,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         throw error;
       }
       if (kind === "memory_page") {
-        const { hydrateFileIndexGroups } = await import("./file-index-groups.js");
+        const { hydrateFileIndexGroups } = await import("./file-index-groups.ts");
         rows = await hydrateFileIndexGroups(service.db, projectId, rows);
       }
       return { kind, ...rows[0] };
@@ -279,7 +279,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
       offset: z.number().int().min(0).optional(),
     },
     async ({ projectId, pageId, ...filters }) => {
-      const { listMemoryHistory } = await import("./memory-history.js");
+      const { listMemoryHistory } = await import("./memory-history.ts");
       return listMemoryHistory(service, user, projectId, pageId, filters);
     },
   );
@@ -288,7 +288,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
     "读取决定当时固定引用的记忆修订；返回原内容而非当前最新正文。",
     { revisionId: z.string().uuid() },
     async ({ revisionId }) => {
-      const { readMemoryRevision } = await import("./memory-history.js");
+      const { readMemoryRevision } = await import("./memory-history.ts");
       return readMemoryRevision(service, user, revisionId);
     },
   );
@@ -396,7 +396,7 @@ export function mcpToolDefinitions(service, user, afterMessage) {
         return office || readDocumentContent(meta, { offset, limit });
       }
       const full = await service.version(user, versionId);
-      const { captureDocumentRevision } = await import("./memory-history.js");
+      const { captureDocumentRevision } = await import("./memory-history.ts");
       const contentRevisionId = await captureDocumentRevision(
         service.db,
         full.project_id,

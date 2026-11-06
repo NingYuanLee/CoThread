@@ -1,7 +1,7 @@
 import { query } from "../server/db.ts";
 import { setCloudbaseManagerFactory } from "../server/cloudbase.js";
 import { saveProjectMiniProgramSecret } from "../server/miniprogram-config.js";
-import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.js";
+import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.ts";
 
 setCloudbaseManagerFactory(async () => ({
   env: {

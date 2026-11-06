@@ -12,7 +12,7 @@ import {
 import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,
-} from "../server/miniprogram-workspace.js";
+} from "../server/miniprogram-workspace.ts";
 import {
   buildMiniprogramPreview,
   readMiniprogramPreviewMeta,
@@ -21,7 +21,7 @@ import {
   compilerVersion,
   validateBundlePaths,
   pathExists,
-} from "../server/miniprogram-build.js";
+} from "../server/miniprogram-build.ts";
 
 const VALID_APP_ID = "wx1234567890abcdef";
 

@@ -10,13 +10,13 @@ import { loadConversationContext } from "../server/conversation-memory-context.t
 import {
   processConversationWindow,
   processNextConversationMemory,
-} from "../server/conversation-memory-runner.js";
+} from "../server/conversation-memory-runner.ts";
 import { processNextProjectMemory } from "../server/project-memory.js";
 import { searchProjectMemory } from "../server/memory-search.ts";
 import { readProjectMemory } from "../server/memory-timeline.js";
 import { readMemberUnderstanding } from "../server/memory-cache.ts";
-import { startConversationToolBridge } from "../server/conversation-memory-tools.js";
-import { runLaowengTask } from "../server/laoweng-agent.js";
+import { startConversationToolBridge } from "../server/conversation-memory-tools.ts";
+import { runLaowengTask } from "../server/laoweng-agent.ts";
 import {
   queueConversationMessage,
   createConversationWindow,

@@ -14,7 +14,7 @@ import {
   loadProjectMiniProgramRuntime,
   normalizeAppId,
 } from "../server/miniprogram-config.js";
-import { setWechatCiFactory } from "../server/wechat-ci.js";
+import { setWechatCiFactory } from "../server/wechat-ci.ts";
 import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.js";
 import { TEST_WECHAT_PRIVATE_KEY, seedMinimalMiniprogramApp } from "./miniprogram-ready.js";
 

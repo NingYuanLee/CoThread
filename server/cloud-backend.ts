@@ -46,7 +46,7 @@ export {
   deployDevelopmentCloudbaseFunction,
   listCloudbaseFunctions,
   promoteCloudbaseFunction,
-} from "./cloudbase-functions.js";
+} from "./cloudbase-functions.ts";
 
 export { deployAdminHosting, readAdminProductionUrl } from "./cloudbase-hosting.ts";
 

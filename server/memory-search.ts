@@ -8,7 +8,7 @@ import {
   readableConversationMemorySql,
 } from "./conversation-memory-integrity.ts";
 import { hydrateFileIndexRoots } from "./file-index-roots.ts";
-import { hydrateFileIndexGroups } from "./file-index-groups.js";
+import { hydrateFileIndexGroups } from "./file-index-groups.ts";
 import type { Pool } from "mysql2/promise";
 import type { Db } from "./types.ts";
 
@@ -231,7 +231,7 @@ export async function searchProjectMemory(
     : [];
   const rootIds = new Set(roots.map((row) => row.pageId));
   const sourceMap = await sourcesOf(db, ids);
-  const { captureMemoryRevision } = await import("./memory-history.js");
+  const { captureMemoryRevision } = await import("./memory-history.ts");
   for (const row of rows) row.memoryRevisionId = await captureMemoryRevision(db, row);
   const entries = rows.map((row) => ({
     pageId: row.id,
@@ -326,7 +326,7 @@ async function searchHistoricalRevisions(
     ORDER BY r.recorded_at DESC,r.id DESC LIMIT ?`,
     [...params, params[1], cap],
   );
-  const { canReadHistoricalSources } = await import("./memory-history.js");
+  const { canReadHistoricalSources } = await import("./memory-history.ts");
   const entries = [];
   for (const row of rows) {
     const sources = typeof row.sources === "string" ? JSON.parse(row.sources) : row.sources || [];

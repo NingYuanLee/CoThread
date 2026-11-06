@@ -15,7 +15,7 @@ import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,
   publishMiniprogramSourceFile,
-} from "../server/miniprogram-workspace.js";
+} from "../server/miniprogram-workspace.ts";
 import { setCloudbaseManagerFactory, resetCloudbaseClients } from "../server/cloudbase.js";
 import { markMiniProgramWorkspaceVerified } from "./miniprogram-ready.js";
 import {

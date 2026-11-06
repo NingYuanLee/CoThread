@@ -13,7 +13,7 @@ import { executeRun } from "../server/sandbox-run.ts";
 import { testDatabase } from "./database.js";
 import { createAgentTools } from "../server/agent-tools.js";
 import { relativePath } from "../server/agent-sandbox.ts";
-import { processNextReply, retryReply } from "../server/replies.js";
+import { processNextReply, retryReply } from "../server/replies.ts";
 import { processNextCoordinator } from "../server/coordinator.js";
 import { processNextContextCompression } from "../server/context-compression.ts";
 import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";

@@ -1,4 +1,4 @@
-import { LocalSandbox } from "./local-sandbox.js";
+import { LocalSandbox } from "./local-sandbox.ts";
 
 /** 沙箱工厂：`create` 必须实现，可恢复的还要 `connect`。 */
 export type SandboxProvider = {

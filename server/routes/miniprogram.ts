@@ -33,8 +33,8 @@ import {
   readMiniprogramBuild,
   readMiniprogramPreviewMeta,
   readMiniprogramResource,
-} from "../miniprogram-build.js";
-import { publishMiniprogramSourceFile } from "../miniprogram-workspace.js";
+} from "../miniprogram-build.ts";
+import { publishMiniprogramSourceFile } from "../miniprogram-workspace.ts";
 import {
   listMiniprogramDevServers,
   proxyDevServerRequest,
@@ -50,7 +50,7 @@ import {
   previewMiniprogram,
   readMiniprogramDeployment,
   uploadMiniprogram,
-} from "../wechat-ci.js";
+} from "../wechat-ci.ts";
 import {
   approveReleaseApplication,
   approveReleaseRequest,
@@ -63,7 +63,7 @@ import {
   rejectReleaseRequest,
   submitReleaseApplication,
   submitReleaseRequest,
-} from "../release-requests.js";
+} from "../release-requests.ts";
 import { executeRelease } from "../release-executor.ts";
 
 /** query 里的数字参数：缺省保持 undefined，交给下游默认值；非法值同样交给下游校验报错。 */

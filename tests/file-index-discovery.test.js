@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { consumeFileIndexChange } from "../server/file-index-discovery.js";
+import { consumeFileIndexChange } from "../server/file-index-discovery.ts";
 
 function fakePool(change) {
   const calls = [];
@@ -76,7 +76,7 @@ test("处理失败回滚且不记录消费凭据，无事件时不调用处理�
   );
   assert.deepEqual(empty.calls, ["begin", "select", "commit", "release"]);
 });
-import { decideFileIndexChange } from "../server/file-index-discovery.js";
+import { decideFileIndexChange } from "../server/file-index-discovery.ts";
 
 test("发现按内容指纹和已有摘要区分新增、更新、元数据与删除", () => {
   const first = { available: true, versionId: "v1", sha256: "a", mime: "text/plain" };
@@ -105,9 +105,9 @@ test("日志发现贯穿新增、同版本内容更新与删除，并保护旧�
     await import("../server/documents/index.ts");
   const { visibleFileIndexSql } = await import("../server/file-index-visibility.ts");
   const { listFileIndexIssues, listFileIndexDiscoveryHistory } =
-    await import("../server/file-index-jobs.js");
+    await import("../server/file-index-jobs.ts");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-    await import("../server/file-index-discovery.js");
+    await import("../server/file-index-discovery.ts");
   const database = await testDatabase();
   const db = database.db;
   async function drain() {
@@ -396,7 +396,7 @@ test("中断的文件识别可恢复，仍持锁的任务不会被误重排", as
   const { acquireNamedLock } = await import("../server/named-lock.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-    await import("../server/file-index-discovery.js");
+    await import("../server/file-index-discovery.ts");
   const database = await testDatabase();
   try {
     const db = database.db;
@@ -548,7 +548,7 @@ test("模型必须调用受当前版本约束的保存工具，提交后才发�
   const { Service } = await import("../server/service.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-    await import("../server/file-index-discovery.js");
+    await import("../server/file-index-discovery.ts");
   const database = await testDatabase();
   try {
     const db = database.db;
@@ -667,7 +667,7 @@ test("模型未调用保存工具时不能发布摘要", async () => {
   const { Service } = await import("../server/service.ts");
   const { processNextProjectMemory } = await import("../server/project-memory.js");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-    await import("../server/file-index-discovery.js");
+    await import("../server/file-index-discovery.ts");
   const database = await testDatabase();
   try {
     const db = database.db,
@@ -738,7 +738,7 @@ for (const submittedFirst of [false, true])
     const { processNextProjectMemory } = await import("../server/project-memory.js");
     const { replaceVersionContent } = await import("../server/documents/index.ts");
     const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
-      await import("../server/file-index-discovery.js");
+      await import("../server/file-index-discovery.ts");
     const database = await testDatabase();
     try {
       const db = database.db,

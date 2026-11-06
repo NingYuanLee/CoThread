@@ -42,7 +42,10 @@ type OrganizationJob = {
 type OrganizationOptions = {
   threadId?: string;
   laowengOptions?: Record<string, unknown>;
-  createPlan?: (job: OrganizationJob, documents: OrganizationDocument[]) => Promise<unknown>;
+  createPlan?: (
+    job: OrganizationJob,
+    documents: OrganizationDocument[],
+  ) => Promise<z.infer<typeof planSchema>>;
 };
 
 async function createPlan(
@@ -51,7 +54,7 @@ async function createPlan(
   documents: OrganizationDocument[],
   options: Record<string, unknown> = {},
 ) {
-  const { runLaowengTask } = await import("./laoweng-agent.js");
+  const { runLaowengTask } = await import("./laoweng-agent.ts");
   return runLaowengTask(
     db,
     job.project_id,
@@ -74,7 +77,7 @@ async function verifyOrganization(
   screenshot: Buffer,
   options: Record<string, unknown> = {},
 ) {
-  const { runLaowengTask } = await import("./laoweng-agent.js");
+  const { runLaowengTask } = await import("./laoweng-agent.ts");
   return runLaowengTask(
     db,
     job.project_id,

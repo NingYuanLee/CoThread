@@ -5,8 +5,8 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { acquireNamedLock } from "../server/named-lock.ts";
-import { startReplyWorker } from "../server/replies.js";
-import { LocalSandbox } from "../server/local-sandbox.js";
+import { startReplyWorker } from "../server/replies.ts";
+import { LocalSandbox } from "../server/local-sandbox.ts";
 
 test(
   "a finished external call cannot complete work or start a sandbox after lock loss",

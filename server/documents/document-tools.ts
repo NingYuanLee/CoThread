@@ -1,6 +1,6 @@
 import { z } from "zod/v3";
-import { libraryChange } from "./library.js";
-import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.js";
+import { libraryChange } from "./library.ts";
+import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./project-library.ts";
 import { query } from "../db.ts";
 import { HttpError } from "../http-error.ts";
 import type { Pool } from "mysql2/promise";
@@ -79,6 +79,9 @@ export type DocumentToolService = {
     projectId: string,
     threadId: string | null,
   ): Promise<unknown>;
+  /** 下面两个由 `libraryChange` 的 Service 视图要求：工具面直接复用门面的成员判定。 */
+  member(user: DocumentToolUser, projectId: string, write?: boolean, db?: Db): Promise<unknown>;
+  assertOfficialOrganizing(db: Db, projectId: string): Promise<unknown>;
 };
 
 /** 发起工具调用的人。 */

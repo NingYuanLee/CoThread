@@ -16,7 +16,7 @@ import {
   ensureMiniprogramWorkspace,
   miniprogramWorkspaceFolders,
   publishMiniprogramSourceFile,
-} from "../server/miniprogram-workspace.js";
+} from "../server/miniprogram-workspace.ts";
 import {
   buildReleaseDesc,
   detectImageMime,
@@ -29,9 +29,9 @@ import {
   setWechatCiFactory,
   setWechatCiRunner,
   uploadMiniprogram,
-} from "../server/wechat-ci.js";
+} from "../server/wechat-ci.ts";
 import { executeRelease } from "../server/release-executor.ts";
-import { approveReleaseRequest, submitReleaseRequest } from "../server/release-requests.js";
+import { approveReleaseRequest, submitReleaseRequest } from "../server/release-requests.ts";
 
 const VALID_APP_ID = "wx1234567890abcdef";
 const PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----

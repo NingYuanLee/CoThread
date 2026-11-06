@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { listFileIndexDiscoveryHistory } from "../server/file-index-jobs.js";
+import { listFileIndexDiscoveryHistory } from "../server/file-index-jobs.ts";
 
 test("扫描记录按批次筛选时拒绝非法批次标识", async () => {
   await assert.rejects(

@@ -60,7 +60,7 @@ export {
   settleChildAgentExecution,
   recoverInterruptedChildAgentExecutions,
   recoverStaleChildAgentExecutions,
-} from "./task-child-execution.js";
+} from "./task-child-execution.ts";
 export {
   idleChildCount,
   tasksAwaitingChildLaunch,
@@ -75,7 +75,7 @@ export {
   appendTaskUpdate,
   askTaskQuestion,
   answerTaskQuestion,
-} from "./task-commands.js";
+} from "./task-commands.ts";
 export { getTask, listTasks, listTaskQuestions } from "./task-queries.ts";
 export {
   reassignTask,
@@ -91,14 +91,14 @@ export {
   ignoreTask,
   redirectBlockedTask,
   restoreIgnoredTask,
-} from "./task-assignments.js";
+} from "./task-assignments.ts";
 export {
   taskRejectionReview,
   acknowledgeTaskRejection,
   reopenRejectedTask,
   recoverAbnormalTask,
   inspectIterationTask,
-} from "./task-resolution.js";
+} from "./task-resolution.ts";
 export {
   MAX_Child,
   CHILD_LIVE_RUN,

@@ -206,7 +206,7 @@ test("project members ask the elder privately and new group messages cannot sele
     assert.equal((await query(db, "SELECT id FROM messages")).length, messagesBeforeRead.length);
     assert.equal((await query(db, "SELECT id FROM agent_tasks")).length, tasksBeforeRead.length);
     // 轨迹接口：老翁问答要给出系统提示词与只读工具清单，且不能出现写工具。
-    const { elderAgentLogs } = await import("../server/wiki-session.js");
+    const { elderAgentLogs } = await import("../server/wiki-session.ts");
     await query(
       db,
       "INSERT IGNORE INTO wiki_sessions(id,user_id,scope_key,scope,project_id,session_id) " +

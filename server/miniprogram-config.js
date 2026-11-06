@@ -3,7 +3,7 @@ import { z } from "zod/v3";
 import { query } from "./db.ts";
 import { encryptToken, decryptToken } from "./credential-vault.ts";
 import { HttpError } from "./service.ts";
-import { ensureMiniprogramWorkspace, migrateLegacyAdminDist } from "./miniprogram-workspace.js";
+import { ensureMiniprogramWorkspace, migrateLegacyAdminDist } from "./miniprogram-workspace.ts";
 import { readMiniprogramAuthRuntime } from "./miniprogram-auth-config.ts";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
 
@@ -633,7 +633,7 @@ export async function saveProjectMiniProgramSecret(service, user, projectId, raw
   // 带文件名的是密钥文件上传：先归一化成 miniprogram-ci 能用的 PEM，提示只留文件名。
   if (!data.clear && kind === "wechat_upload_key" && data.fileName) {
     if (!payload) throw new HttpError(400, "请提供代码上传密钥文件");
-    const { normalizeWechatPrivateKey } = await import("./wechat-ci.js");
+    const { normalizeWechatPrivateKey } = await import("./wechat-ci.ts");
     payload = normalizeWechatPrivateKey(payload);
     const fileHint = wechatKeyFileHint(data.fileName);
     if (!fileHint) throw new HttpError(400, "密钥文件名无效");
@@ -811,7 +811,7 @@ export async function verifyProjectMiniProgramConfig(service, user, projectId) {
     push("wechat_credential", "代码上传密钥", "pending", "补齐 AppID 后才能测试微信预览");
   } else {
     try {
-      const { previewMiniprogram } = await import("./wechat-ci.js");
+      const { previewMiniprogram } = await import("./wechat-ci.ts");
       await previewMiniprogram(
         service,
         user,

@@ -9,7 +9,7 @@ import {
   elderSkillsBinding,
   elderToolNames,
   runElderQuestion,
-} from "../server/elder-kernel.js";
+} from "../server/elder-kernel.ts";
 
 test("elder questions use the DSH kernel, say the understanding first, and keep web tools for web scope", async () => {
   const read = MCP_CAPABILITIES.filter((item) => item.access === "read").map((item) => item.name);

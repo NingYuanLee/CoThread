@@ -5,12 +5,12 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { createVersion, setArtifactFolder } from "../server/documents/versions.ts";
-import { emptyLibraryRecycle, libraryChange } from "../server/documents/library.js";
+import { emptyLibraryRecycle, libraryChange } from "../server/documents/library.ts";
 import {
   dropUnavailableDocumentVersionSignals,
   noteProjectMemorySignal,
 } from "../server/project-memory.js";
-import { scanProjectMemorySignals } from "../server/project-memory-scan.js";
+import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 
 async function setup() {
   const database = await testDatabase();

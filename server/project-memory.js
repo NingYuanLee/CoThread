@@ -10,7 +10,7 @@ import { z } from "zod/v3";
 import { archiveJson, archivePlanDraftSchema, archivePlanSchema } from "./iteration-archive.js";
 import { lockIteration } from "./iteration-state.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
-import { executorLabel, formatDuration } from "./task-memory.js";
+import { executorLabel, formatDuration } from "./task-memory.ts";
 import { linkDiscussionParticipants } from "./discussion-memory.ts";
 import { upsertUtteranceMemory } from "./utterance-memory.ts";
 import { MEMORY_JOB_KEYS } from "../shared/memory-jobs.js";
@@ -751,7 +751,7 @@ const memoryDecisionSchema = z.object({
 });
 
 export async function summarizeProjectMembers(db, context, options = {}) {
-  const { runLaowengTask } = await import("./laoweng-agent.js");
+  const { runLaowengTask } = await import("./laoweng-agent.ts");
   const result = await runLaowengTask(
     db,
     context.projectId,
@@ -793,7 +793,7 @@ export const documentSummarySchema = z.object({
 
 export async function summarizeProjectDocument(db, context, options = {}) {
   const { image, contentFingerprint, ...textContext } = context;
-  const { runLaowengTask } = await import("./laoweng-agent.js");
+  const { runLaowengTask } = await import("./laoweng-agent.ts");
   const { startFileIndexSubmissionBridge } = await import("./file-index-submit-tool.ts");
   const bridge = await startFileIndexSubmissionBridge(db, {
     projectId: context.projectId,
@@ -1089,7 +1089,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
     // 尺寸不同。把原图事实随任务输入交给模型，摘要才不会写出与索引冲突的像素尺寸。
     let imageFacts = null;
     if (image) {
-      const { describeContent } = await import("./document-memory.js");
+      const { describeContent } = await import("./document-memory.ts");
       const described = await describeContent({
         mime: current.mime,
         filename: current.filename,
@@ -1119,7 +1119,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
       current.content?.length <= 8 * 1024 * 1024 &&
       (/zip/i.test(String(current.mime || "")) || /\.zip$/i.test(current.filename || ""))
     ) {
-      const { describeContent } = await import("./document-memory.js");
+      const { describeContent } = await import("./document-memory.ts");
       const listing = await describeContent({
         mime: current.mime,
         filename: current.filename,
@@ -1153,7 +1153,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
           [current.artifactId, candidate.version_id],
         );
         if (!oldSummary) {
-          const { syncDocumentMemory } = await import("./document-memory.js");
+          const { syncDocumentMemory } = await import("./document-memory.ts");
           await syncDocumentMemory(conn, {
             projectId: current.project_id,
             artifactId: current.artifactId,
@@ -1239,7 +1239,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
         VALUES(?,?,?) ON DUPLICATE KEY UPDATE summary=VALUES(summary),created_by_message_id=VALUES(created_by_message_id)`,
         [candidate.version_id, current.created_by_message_id, summary],
       );
-      const { syncDocumentMemory } = await import("./document-memory.js");
+      const { syncDocumentMemory } = await import("./document-memory.ts");
       const saved = await syncDocumentMemory(conn, {
         projectId: current.project_id,
         artifactId: current.artifactId,
@@ -1272,7 +1272,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
         });
       }
       if (saved?.pageId && body) {
-        const { discoverReferencedFileGroups } = await import("./file-index-groups.js");
+        const { discoverReferencedFileGroups } = await import("./file-index-groups.ts");
         const references = await discoverReferencedFileGroups(conn, {
           projectId: current.project_id,
           artifactId: current.artifactId,
@@ -1533,7 +1533,7 @@ function archiveMemoryInput(thread, snapshot, previousSummary) {
 }
 
 export async function summarizeIterationArchive(db, context, options = {}) {
-  const { runLaowengTask } = await import("./laoweng-agent.js");
+  const { runLaowengTask } = await import("./laoweng-agent.ts");
   if (context.phase === "draft") {
     const snapshot = context.snapshot;
     return runLaowengTask(
@@ -1989,7 +1989,7 @@ async function candidateTexts(db, rows, projectId) {
        AND ${readableConversationMemorySql("p")} AND ${visibleFileIndexSql("p")} AND p.id IN (${marks(memoryPages)})`,
       [projectId, ...memoryPages],
     );
-    const { hydrateFileIndexGroups } = await import("./file-index-groups.js");
+    const { hydrateFileIndexGroups } = await import("./file-index-groups.ts");
     const hydrated = await hydrateFileIndexGroups(db, projectId, found);
     for (const row of hydrated) {
       fingerprint("memory_page", row);
@@ -2217,8 +2217,8 @@ const projectMemorySchema = z.object({
 });
 
 export async function summarizeProjectMemory(db, context, options = {}) {
-  const { runLaowengTask } = await import("./laoweng-agent.js");
-  const { startConversationToolBridge } = await import("./conversation-memory-tools.js");
+  const { runLaowengTask } = await import("./laoweng-agent.ts");
+  const { startConversationToolBridge } = await import("./conversation-memory-tools.ts");
   const bridge = await startConversationToolBridge(db, {
     window: { projectId: context.projectId, projectOwner: context.projectOwner },
     pages: [],
@@ -2283,7 +2283,7 @@ async function verifyProjectMemorySupport(db, projectId, result, candidates, opt
       .filter(Boolean),
   }));
   if (!evidence.length) return { verdicts: [] };
-  const { runLaowengTask } = await import("./laoweng-agent.js");
+  const { runLaowengTask } = await import("./laoweng-agent.ts");
   return runLaowengTask(
     db,
     projectId,
@@ -2654,7 +2654,7 @@ export async function applyProjectMemoryResult(
         await resolveMemorySourceFamily(conn, projectId, pageId),
         pageId,
       ]);
-      const { captureMemoryRevision, recordMemoryEvidence } = await import("./memory-history.js");
+      const { captureMemoryRevision, recordMemoryEvidence } = await import("./memory-history.ts");
       const [saved] = await query(conn, "SELECT id,title,body,status FROM wiki_pages WHERE id=?", [
         pageId,
       ]);
@@ -3122,7 +3122,7 @@ export async function retryMemoryJob(service, user, projectId, key) {
     return queueLaowengMemoryRun(service, user, { projectId, task: normalizedKey });
   await service.member(user, projectId, true);
   if (normalizedKey === "task_memory") {
-    const { syncTaskMemory } = await import("./task-memory.js");
+    const { syncTaskMemory } = await import("./task-memory.ts");
     return syncTaskMemory(service.db, { projectId, createdBy: user.id });
   }
   throw new HttpError(409, "该记忆作业不能单独重试");
@@ -3246,7 +3246,7 @@ export async function processNextProjectMemory(db, options = {}) {
     if (task === PROJECT_MEMORY_TASK) return false;
   }
   if (!task || task === "member_memory") {
-    const { processNextConversationMemory } = await import("./conversation-memory-runner.js");
+    const { processNextConversationMemory } = await import("./conversation-memory-runner.ts");
     if (await processNextConversationMemory(db, { ...options, projectId })) return true;
     if (task === "member_memory") return false;
   }

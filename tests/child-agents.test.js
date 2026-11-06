@@ -16,7 +16,7 @@ import {
 } from "../server/child-agent-context.ts";
 import { deliverTaskUpdates } from "../server/agent-updates.ts";
 import { pendingMessages } from "../shared/context.js";
-import { processNextCoordinator } from "../server/coordinator.js";
+import { processNextCoordinator } from "../server/coordinator.ts";
 import { subscribeWork } from "../server/work-events.ts";
 
 let database, db, service;

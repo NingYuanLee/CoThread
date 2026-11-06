@@ -761,7 +761,7 @@ export async function saveProjectMiniProgramConfig(
     (cloudbaseEnvs.development || cloudbaseEnvs.production) &&
     secrets.cloudbase_credential?.configured
   ) {
-    const { assertCloudbaseEnvironmentsMatchApp } = await import("./cloudbase.js");
+    const { assertCloudbaseEnvironmentsMatchApp } = await import("./cloudbase.ts");
     await assertCloudbaseEnvironmentsMatchApp(service, projectId, appId, cloudbaseEnvs);
   }
   const adminDeploy = normalizeAdminDeploy(data.adminDeploy);
@@ -915,7 +915,7 @@ export async function saveProjectMiniProgramSecret(
 
   if (!data.clear && kind === "cloudbase_credential" && payload) {
     const boundApp = await readMainApp(service.db, projectId);
-    const { assertCredentialListsEnvironments } = await import("./cloudbase.js");
+    const { assertCredentialListsEnvironments } = await import("./cloudbase.ts");
     await assertCredentialListsEnvironments(
       reattachSecretId(payload, hint),
       boundApp?.app_id || null,

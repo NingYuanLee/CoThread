@@ -39,7 +39,7 @@ import {
   saveCloudbaseAdminAccount,
   invokeCloudbaseFunction,
   searchCloudbaseFunctionLogs,
-} from "../server/cloudbase.js";
+} from "../server/cloudbase.ts";
 
 const VALID_APP_ID = "wx1234567890abcdef";
 

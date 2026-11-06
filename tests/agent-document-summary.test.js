@@ -6,9 +6,9 @@ import JSZip from "jszip";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { createAgentTools } from "../server/agent-tools.js";
-import { dispatchContext } from "../server/coordinator.js";
-import { processNextProjectMemory, queueDocumentMemory } from "../server/project-memory.js";
+import { createAgentTools } from "../server/agent-tools.ts";
+import { dispatchContext } from "../server/coordinator.ts";
+import { processNextProjectMemory, queueDocumentMemory } from "../server/project-memory.ts";
 import { replaceVersionContent } from "../server/documents/versions.ts";
 
 async function discoverDocumentChanges(db) {

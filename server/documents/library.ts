@@ -212,7 +212,7 @@ export async function libraryChange(
       else await query(db, "DELETE FROM version_recycle WHERE version_id=?", [target]);
       if (data.deleted) {
         // 版本进了回收站，指向它的项目进程信号已无法核验，直接清掉。
-        const { dropDocumentVersionSignals } = await import("../project-memory.js");
+        const { dropDocumentVersionSignals } = await import("../project-memory.ts");
         await dropDocumentVersionSignals(db, {
           projectId,
           versionIds: [target],
@@ -287,7 +287,7 @@ export async function libraryChange(
           [path ? JSON.stringify(path) : null, target],
         );
         // 整份文档删除后，它名下的文档信号永久不可核验；不清理就会变成反复失败的死信号。
-        const { dropDocumentVersionSignals } = await import("../project-memory.js");
+        const { dropDocumentVersionSignals } = await import("../project-memory.ts");
         await dropDocumentVersionSignals(db, {
           projectId,
           artifactIds: [target],
@@ -398,7 +398,7 @@ export async function libraryChange(
               }
             }
             if (trashedOfficialArtifacts.length) {
-              const { dropDocumentVersionSignals } = await import("../project-memory.js");
+              const { dropDocumentVersionSignals } = await import("../project-memory.ts");
               await dropDocumentVersionSignals(db, {
                 projectId,
                 artifactIds: trashedOfficialArtifacts,
@@ -643,7 +643,7 @@ export async function emptyLibraryRecycle(
       }
     }
     if (unreachableVersionIds.length) {
-      const { dropDocumentVersionSignals } = await import("../project-memory.js");
+      const { dropDocumentVersionSignals } = await import("../project-memory.ts");
       await dropDocumentVersionSignals(db, {
         projectId,
         versionIds: unreachableVersionIds,

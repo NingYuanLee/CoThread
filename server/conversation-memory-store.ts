@@ -1,23 +1,117 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { Pool } from "mysql2/promise";
 import { query, transaction } from "./db.ts";
 import {
   observationSchema,
   validateConversationMemoryResult,
 } from "./conversation-memory-contract.ts";
 import { intactConversationMemorySql } from "./conversation-memory-integrity.ts";
+import type { Db } from "./types.ts";
 
-export function readConversationCandidatePayload(value) {
-  if (typeof value !== "string") return value;
+/** 写语句的结果头：`query()` 的返回类型按读语句标成数组，写语句实际返回它。 */
+type WriteHeader = { affectedRows?: number };
+
+/** `conversation_memory_candidates.payload` 的 JSON 形状（由本文件写入）。 */
+type ConversationCandidatePayload = {
+  sourceIds?: unknown[];
+  pageId?: string | null;
+  correctsPageId?: string | null;
+  memberId?: string | null;
+  title?: string;
+  body?: string;
+  subtype?: string | null;
+  stage?: string | null;
+  observationId?: string | null;
+  _expectedPageHash?: string | null;
+  _requiresSourceRepair?: boolean;
+  _resolution?: string;
+  discardReason?: string;
+};
+
+/** 候选修复的结果形状：字段由模型给出，本文件只读其中几个。 */
+type CandidateDraft = {
+  pageId?: unknown;
+  observationId?: unknown;
+  discardReason?: unknown;
+  [field: string]: unknown;
+};
+
+/** 记忆页指纹只看这几列。 */
+type PageFingerprintInput = {
+  id: string;
+  subjectType?: unknown;
+  aboutUserId?: unknown;
+  status?: unknown;
+  title?: unknown;
+  body?: unknown;
+  subtype?: unknown;
+};
+
+/** 出处核验器：拿到候选与出处，返回是否支持。 */
+type CandidateVerifier = (input: {
+  candidate: unknown;
+  kind: string;
+  messages: unknown[];
+  observationQuestion?: unknown;
+}) => unknown;
+
+/** 候选写入结果。 */
+type CandidateApplyOutcome = {
+  alreadyApplied: boolean;
+  pageId?: string | null;
+  observationCreated?: boolean;
+};
+
+/** 新切出的联合分析窗口。 */
+type ConversationWindow = {
+  id: string;
+  projectId: string;
+  threadId: string;
+  firstSequence: string;
+  lastSequence: string;
+};
+
+/** `conversation_memory_candidates` 的投影行。 */
+type CandidateRow = {
+  id: string;
+  kind: string;
+  status: string;
+  payload: unknown;
+  projectId: string;
+  threadId: string;
+};
+
+/** 核验与结束候选用到的消息行。 */
+type EvidenceMessage = { id: string; body: string; authorId?: string | null };
+
+/** 联合分析的原始结果：三组候选，条目形状由契约校验负责。 */
+type ConversationSaveResult = {
+  statements: unknown[];
+  discussions: unknown[];
+  observations?: unknown[];
+};
+
+/** 只有池能开事务；事务连接进来时要先转成池（调用方传的本来就是池）。 */
+function isPool(db: Db): db is Pool {
+  return typeof (db as Pool).getConnection === "function";
+}
+
+export function readConversationCandidatePayload(value: unknown): ConversationCandidatePayload {
+  if (typeof value !== "string") return value as ConversationCandidatePayload;
   try {
     return JSON.parse(value);
   } catch {
-    return value;
+    return value as ConversationCandidatePayload;
   }
 }
 
 /** Never change an old frozen snapshot or replay its unverified response. */
-export async function replaceInvalidConversationWindow(db, windowId, error) {
-  return transaction(db, async (conn) => {
+export async function replaceInvalidConversationWindow(
+  db: Db,
+  windowId: string,
+  error: unknown,
+): Promise<string | null> {
+  return transaction<string | null>(db as Pool, async (conn) => {
     const [old] = await query(
       conn,
       "SELECT * FROM conversation_memory_windows WHERE id=? FOR UPDATE",
@@ -43,7 +137,7 @@ export async function replaceInvalidConversationWindow(db, windowId, error) {
       attempts=attempts+1,last_attempt_at=UTC_TIMESTAMP(3),
       statement_status=IF(statement_status='completed','completed','failed'),
       discussion_status=IF(discussion_status='completed','completed','failed'),error=? WHERE id=?`,
-      [String(error?.message || error).slice(0, 1000), windowId],
+      [String((error as { message?: unknown } | null)?.message || error).slice(0, 1000), windowId],
     );
     if (!messages.length) return null;
     const candidates = await query(
@@ -164,8 +258,13 @@ export async function replaceInvalidConversationWindow(db, windowId, error) {
 }
 
 /** Called in the message transaction so committed messages cannot lose their signal. */
-export async function queueConversationMessage(db, projectId, threadId, sequence) {
-  if (typeof db.getConnection === "function")
+export async function queueConversationMessage(
+  db: Db,
+  projectId: string,
+  threadId: string,
+  sequence: string | number,
+): Promise<void> {
+  if (isPool(db))
     return transaction(db, (conn) => queueConversationMessage(conn, projectId, threadId, sequence));
   const [message] = await query(
     db,
@@ -203,11 +302,15 @@ export async function queueConversationMessage(db, projectId, threadId, sequence
 /** Atomically split the oldest due queue into a bounded durable window. A
  * thread has at most one unfinished window so updates cannot race ahead. */
 export async function createConversationWindow(
-  db,
-  { projectId = null, force = false, limit = 40 } = {},
-) {
+  db: Db,
+  {
+    projectId = null,
+    force = false,
+    limit = 40,
+  }: { projectId?: string | null; force?: boolean; limit?: number } = {},
+): Promise<ConversationWindow | null> {
   const batchLimit = Math.max(1, Math.min(40, Math.trunc(limit) || 40));
-  return transaction(db, async (conn) => {
+  return transaction<ConversationWindow | null>(db as Pool, async (conn) => {
     const [row] = await query(
       conn,
       `SELECT q.thread_id threadId,q.project_id projectId,q.first_sequence firstSequence,q.last_sequence lastSequence
@@ -296,8 +399,13 @@ export async function createConversationWindow(
 
 /** Expedite queued work and optionally backfill messages not present in any
  * durable window. Existing windows are not re-run or duplicated. */
-export async function queueConversationThread(db, projectId, threadId, { backfill = false } = {}) {
-  if (typeof db.getConnection === "function")
+export async function queueConversationThread(
+  db: Db,
+  projectId: string,
+  threadId: string,
+  { backfill = false }: { backfill?: boolean } = {},
+): Promise<{ queued: boolean; pendingWindows: number }> {
+  if (isPool(db))
     return transaction(db, (conn) =>
       queueConversationThread(conn, projectId, threadId, { backfill }),
     );
@@ -334,18 +442,18 @@ export async function queueConversationThread(db, projectId, threadId, { backfil
         [threadId],
       );
   }
-  const changed = await query(
+  const changed = (await query(
     db,
     `UPDATE conversation_memory_queue SET last_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 10 MINUTE)
     WHERE thread_id=? AND project_id=?`,
     [threadId, projectId],
-  );
-  const windows = await query(
+  )) as unknown as WriteHeader;
+  const windows = (await query(
     db,
     `UPDATE conversation_memory_windows SET available_at=UTC_TIMESTAMP(3)
     WHERE thread_id=? AND project_id=? AND invalidated_at IS NULL AND (statement_status<>'completed' OR discussion_status<>'completed')`,
     [threadId, projectId],
-  );
+  )) as unknown as WriteHeader;
   return { queued: Number(changed.affectedRows) > 0, pendingWindows: Number(windows.affectedRows) };
 }
 
@@ -354,7 +462,10 @@ export async function queueConversationThread(db, projectId, threadId, { backfil
  * 不限制迭代数：漏掉哪个迭代就会一直显示“未入队”。
  * 单个迭代体量由窗口分批兜底（每窗最多 40 条、3 万字符），不会一次生成超大窗口。
  */
-export async function queueUnwindowedConversationThreads(db, projectId) {
+export async function queueUnwindowedConversationThreads(
+  db: Db,
+  projectId: string,
+): Promise<number> {
   const rows = await query(
     db,
     `SELECT t.id FROM threads t
@@ -370,8 +481,12 @@ export async function queueUnwindowedConversationThreads(db, projectId) {
 }
 
 /** Scan an archive once per archive version; enqueue and checkpoint atomically. */
-export async function scanArchivedConversation(db, projectId, threadId) {
-  if (typeof db.getConnection === "function")
+export async function scanArchivedConversation(
+  db: Db,
+  projectId: string,
+  threadId: string,
+): Promise<boolean> {
+  if (isPool(db))
     return transaction(db, (conn) => scanArchivedConversation(conn, projectId, threadId));
   const [thread] = await query(
     db,
@@ -398,7 +513,11 @@ export async function scanArchivedConversation(db, projectId, threadId) {
 }
 
 /** Completion is separate from scanning, and unresolved lost sources block it. */
-export async function completeArchivedConversationCheck(db, projectId, threadId) {
+export async function completeArchivedConversationCheck(
+  db: Db,
+  projectId: string,
+  threadId: string,
+): Promise<void> {
   await query(
     db,
     `UPDATE conversation_archive_checks a JOIN threads t ON t.id=a.thread_id AND t.project_id=a.project_id
@@ -420,7 +539,7 @@ export async function completeArchivedConversationCheck(db, projectId, threadId)
   );
 }
 
-export async function scanProjectArchivedConversations(db, projectId) {
+export async function scanProjectArchivedConversations(db: Db, projectId: string): Promise<number> {
   const threads = await query(
     db,
     `SELECT t.id FROM threads t LEFT JOIN conversation_archive_checks a
@@ -434,8 +553,13 @@ export async function scanProjectArchivedConversations(db, projectId) {
 
 /** Explicitly re-analyse the recorded sources of a stale page. Deleted sources
  * cannot be reconstructed and remain flagged for human review. */
-export async function queueConversationRecheck(db, projectId, pageId, actorId) {
-  return transaction(db, async (conn) => {
+export async function queueConversationRecheck(
+  db: Db,
+  projectId: string,
+  pageId: string,
+  actorId: string,
+): Promise<{ queued: number }> {
+  return transaction<{ queued: number }>(db as Pool, async (conn) => {
     const [page] = await query(
       conn,
       "SELECT id FROM wiki_pages WHERE id=? AND project_id=? FOR UPDATE",
@@ -481,7 +605,7 @@ export async function queueConversationRecheck(db, projectId, pageId, actorId) {
 
 /** Persist the full model response before processing any item. Never replace a
  * previously persisted response: candidate identity must survive a retry. */
-function pageFingerprint(page) {
+function pageFingerprint(page: PageFingerprintInput): string {
   return createHash("sha256")
     .update(
       JSON.stringify([
@@ -497,7 +621,12 @@ function pageFingerprint(page) {
     .digest("hex");
 }
 
-export async function saveConversationCandidates(db, windowId, result, { pages = [] } = {}) {
+export async function saveConversationCandidates(
+  db: Db,
+  windowId: string,
+  result: ConversationSaveResult,
+  { pages = [] }: { pages?: PageFingerprintInput[] } = {},
+): Promise<boolean> {
   if (!Array.isArray(result?.statements) || !Array.isArray(result?.discussions))
     throw new Error("联合分析结果缺少关键发言或核心议题数组");
   const observations = result.observations || [];
@@ -508,7 +637,7 @@ export async function saveConversationCandidates(db, windowId, result, { pages =
     result.discussions.length > 50
   )
     throw new Error("联合分析候选超过单次上限");
-  return transaction(db, async (conn) => {
+  return transaction<boolean>(db as Pool, async (conn) => {
     const [window] = await query(
       conn,
       "SELECT id,response_saved FROM conversation_memory_windows WHERE id=? FOR UPDATE",
@@ -520,7 +649,7 @@ export async function saveConversationCandidates(db, windowId, result, { pages =
       ["statement", result.statements],
       ["discussion", result.discussions],
       ["observation", observations],
-    ]) {
+    ] as Array<[string, ConversationCandidatePayload[]]>) {
       for (const [ordinal, item] of items.entries()) {
         // This snapshot comes from server-prepared input, never from the model.
         // A changed page must be reanalysed rather than silently overwritten.
@@ -556,7 +685,11 @@ export async function saveConversationCandidates(db, windowId, result, { pages =
 
 /** The verifier must check whether the actual source text supports the claims.
  * Identifiers and authorship alone are necessary but not sufficient evidence. */
-export async function applyConversationCandidate(db, candidateId, { actorId, verifySupport }) {
+export async function applyConversationCandidate(
+  db: Db,
+  candidateId: string,
+  { actorId, verifySupport }: { actorId?: string | null; verifySupport: CandidateVerifier },
+): Promise<CandidateApplyOutcome> {
   if (!actorId || typeof verifySupport !== "function") throw new Error("缺少写入身份或出处核验器");
   const [candidate] = await query(
     db,
@@ -628,7 +761,7 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
     }))
   )
     throw new Error("候选内容未通过出处核验");
-  const labels = {
+  const labels: Record<string, string> = {
     pending: "待讨论 / 未形成结论",
     discussing: "讨论中",
     concluded: "已有结论",
@@ -636,9 +769,10 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
   };
   const body =
     candidate.kind === "discussion"
-      ? `## 议题状态\n${labels[payload.stage]}\n\n${payload.body.replace(/^## 议题状态[^\n]*\n[\s\S]*?(?=\n## |$)/m, "").trim()}`
+      ? // 契约校验已在前面拦下缺正文的候选，这里按已校验处理。
+        `## 议题状态\n${labels[String(payload.stage)]}\n\n${payload.body!.replace(/^## 议题状态[^\n]*\n[\s\S]*?(?=\n## |$)/m, "").trim()}`
       : payload.body;
-  return transaction(db, async (conn) => {
+  return transaction<CandidateApplyOutcome>(db as Pool, async (conn) => {
     const [locked] = await query(
       conn,
       "SELECT status,page_id pageId FROM conversation_memory_candidates WHERE id=? FOR UPDATE",
@@ -902,10 +1036,11 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
     );
     if (subject === "utterance") {
       const { refreshMemberSummaryCache } = await import("./memory-cache.ts");
-      await refreshMemberSummaryCache(conn, candidate.projectId, payload.memberId);
+      // 契约要求关键发言必须有 memberId，缺了会在上面的校验里被判不合格。
+      await refreshMemberSummaryCache(conn, candidate.projectId, payload.memberId!);
     }
     if (subject === "discussion") {
-      const { noteProjectMemorySignal } = await import("./project-memory.js");
+      const { noteProjectMemorySignal } = await import("./project-memory.ts");
       await noteProjectMemorySignal(
         conn,
         candidate.projectId,
@@ -916,19 +1051,23 @@ export async function applyConversationCandidate(db, candidateId, { actorId, ver
       );
     }
     if (subject === "discussion" && payload.observationId) {
-      const changed = await query(
+      const changed = (await query(
         conn,
         `UPDATE conversation_memory_observations SET status='resolved',promoted_page_id=?,
         last_review_at=UTC_TIMESTAMP(3),review_note='已形成核心议题' WHERE id=? AND project_id=? AND status IN ('pending','promoting')`,
         [pageId, payload.observationId, candidate.projectId],
-      );
+      )) as unknown as WriteHeader;
       if (!Number(changed.affectedRows)) throw new Error("待观察问题不存在或已处理");
     }
     return { pageId, alreadyApplied: false };
   });
 }
 
-async function applyObservationCandidate(db, candidate, verifySupport) {
+async function applyObservationCandidate(
+  db: Db,
+  candidate: CandidateRow,
+  verifySupport: CandidateVerifier,
+): Promise<CandidateApplyOutcome> {
   const raw = readConversationCandidatePayload(candidate.payload);
   const parsed = observationSchema.safeParse(raw);
   if (!parsed.success) throw new Error("待观察问题格式不合格");
@@ -950,7 +1089,7 @@ async function applyObservationCandidate(db, candidate, verifySupport) {
     throw new Error("候选出处过长，请缩小范围后重新分析");
   if (!(await verifySupport({ candidate: item, kind: "observation", messages })))
     throw new Error("待观察问题未通过出处核验");
-  return transaction(db, async (conn) => {
+  return transaction<CandidateApplyOutcome>(db as Pool, async (conn) => {
     const [locked] = await query(
       conn,
       "SELECT status,page_id pageId,window_id windowId FROM conversation_memory_candidates WHERE id=? FOR UPDATE",
@@ -1016,8 +1155,13 @@ async function applyObservationCandidate(db, candidate, verifySupport) {
 
 /** Turn a reviewed observation into an ordinary, independently verified
  * discussion candidate. The observation is resolved only after that write. */
-export async function promoteConversationObservation(db, observationId, discussion, pages = []) {
-  return transaction(db, async (conn) => {
+export async function promoteConversationObservation(
+  db: Db,
+  observationId: string,
+  discussion: unknown,
+  pages: PageFingerprintInput[] = [],
+): Promise<boolean> {
+  return transaction<boolean>(db as Pool, async (conn) => {
     const [observation] = await query(
       conn,
       `SELECT o.id,o.project_id projectId,c.window_id windowId
@@ -1037,11 +1181,15 @@ export async function promoteConversationObservation(db, observationId, discussi
       "SELECT COALESCE(MAX(ordinal),-1)+1 nextOrdinal FROM conversation_memory_candidates WHERE window_id=? AND kind='discussion'",
       [observation.windowId],
     );
-    const target = pages.find((page) => page.id === discussion?.pageId);
+    // 议题候选是模型给的 JSON 对象；不是对象时按空对象处理，与原先的可选链接字一致。
+    const proposal = (
+      discussion && typeof discussion === "object" ? discussion : {}
+    ) as ConversationCandidatePayload;
+    const target = pages.find((page) => page.id === proposal.pageId);
     const payload = {
-      ...discussion,
+      ...proposal,
       observationId,
-      ...(discussion?.pageId ? { _expectedPageHash: target ? pageFingerprint(target) : null } : {}),
+      ...(proposal.pageId ? { _expectedPageHash: target ? pageFingerprint(target) : null } : {}),
     };
     await query(
       conn,
@@ -1065,10 +1213,15 @@ export async function promoteConversationObservation(db, observationId, discussi
 }
 
 /** A verified zero-output recovery has an audit record, never a phantom page. */
-export async function discardRecoveredConversationCandidate(db, candidateId, reason, messages) {
+export async function discardRecoveredConversationCandidate(
+  db: Db,
+  candidateId: string,
+  reason: unknown,
+  messages: EvidenceMessage[],
+): Promise<boolean> {
   const detail = String(reason || "").trim();
   if (!detail || detail.length > 500) throw new Error("结束候选需要明确原因");
-  return transaction(db, async (conn) => {
+  return transaction<boolean>(db as Pool, async (conn) => {
     const [candidate] = await query(
       conn,
       `SELECT c.status,c.payload,c.kind,c.window_id windowId,
@@ -1122,10 +1275,16 @@ export async function discardRecoveredConversationCandidate(db, candidateId, rea
 }
 
 /** Replace only an unsuccessful candidate and preserve the original response. */
-export async function repairConversationCandidate(db, candidateId, replacement, pages, reason) {
+export async function repairConversationCandidate(
+  db: Db,
+  candidateId: string,
+  replacement: CandidateDraft | undefined,
+  pages: PageFingerprintInput[],
+  reason: unknown,
+): Promise<boolean> {
   if (!replacement || typeof replacement !== "object" || Array.isArray(replacement))
     throw new Error("修复结果不是候选对象");
-  return transaction(db, async (conn) => {
+  return transaction<boolean>(db as Pool, async (conn) => {
     const [candidate] = await query(
       conn,
       "SELECT status,payload FROM conversation_memory_candidates WHERE id=? FOR UPDATE",
@@ -1166,17 +1325,24 @@ export async function repairConversationCandidate(db, candidateId, replacement, 
 }
 
 /** A failed candidate stays durable and blocks only its own output class. */
-export async function failConversationCandidate(db, candidateId, error, delaySeconds = 60) {
+export async function failConversationCandidate(
+  db: Db,
+  candidateId: string,
+  error: unknown,
+  delaySeconds: number = 60,
+): Promise<boolean> {
   // 允许把停止自动重试后的队列推到远期（最多 30 天），避免同一份内容继续被调度。
   const delay = Math.max(1, Math.min(30 * 24 * 3600, Math.trunc(delaySeconds) || 60));
-  return transaction(db, async (conn) => {
+  return transaction<boolean>(db as Pool, async (conn) => {
     const [candidate] = await query(
       conn,
       "SELECT window_id windowId,kind,status FROM conversation_memory_candidates WHERE id=? FOR UPDATE",
       [candidateId],
     );
     if (!candidate || candidate.status === "completed") return false;
-    const detail = String(error?.message || error || "候选处理失败").slice(0, 1000);
+    const detail = String(
+      (error as { message?: unknown } | null)?.message || error || "候选处理失败",
+    ).slice(0, 1000);
     await query(
       conn,
       "UPDATE conversation_memory_candidates SET status='failed',error=? WHERE id=?",

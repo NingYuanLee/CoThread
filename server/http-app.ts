@@ -4,7 +4,7 @@ import { createAccountSurface } from "./routes/account.ts";
 import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerCredentialRoutes } from "./routes/credentials.ts";
 import { registerProjectRuntimeRoutes } from "./routes/project-runtime.ts";
-import { registerProjectWorkspaceRoutes } from "./routes/project-workspace.js";
+import { registerProjectWorkspaceRoutes } from "./routes/project-workspace.ts";
 import { ZodError } from "zod/v3";
 import { authenticate, authenticatePreviewTicket } from "./auth.ts";
 import { query } from "./db.ts";

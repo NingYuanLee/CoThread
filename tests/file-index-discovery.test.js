@@ -100,7 +100,7 @@ test("日志发现贯穿新增、同版本内容更新与删除，并保护旧�
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
   const { Service } = await import("../server/service.ts");
-  const { processNextProjectMemory } = await import("../server/project-memory.js");
+  const { processNextProjectMemory } = await import("../server/project-memory.ts");
   const { replaceVersionContent, recordDocumentChange } =
     await import("../server/documents/index.ts");
   const { visibleFileIndexSql } = await import("../server/file-index-visibility.ts");
@@ -394,7 +394,7 @@ test("中断的文件识别可恢复，仍持锁的任务不会被误重排", as
   const { query } = await import("../server/db.ts");
   const { Service } = await import("../server/service.ts");
   const { acquireNamedLock } = await import("../server/named-lock.ts");
-  const { processNextProjectMemory } = await import("../server/project-memory.js");
+  const { processNextProjectMemory } = await import("../server/project-memory.ts");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
     await import("../server/file-index-discovery.ts");
   const database = await testDatabase();
@@ -546,7 +546,7 @@ test("模型必须调用受当前版本约束的保存工具，提交后才发�
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
   const { Service } = await import("../server/service.ts");
-  const { processNextProjectMemory } = await import("../server/project-memory.js");
+  const { processNextProjectMemory } = await import("../server/project-memory.ts");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
     await import("../server/file-index-discovery.ts");
   const database = await testDatabase();
@@ -665,7 +665,7 @@ test("模型未调用保存工具时不能发布摘要", async () => {
   const { testDatabase } = await import("./database.js");
   const { query } = await import("../server/db.ts");
   const { Service } = await import("../server/service.ts");
-  const { processNextProjectMemory } = await import("../server/project-memory.js");
+  const { processNextProjectMemory } = await import("../server/project-memory.ts");
   const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
     await import("../server/file-index-discovery.ts");
   const database = await testDatabase();
@@ -735,7 +735,7 @@ for (const submittedFirst of [false, true])
     const { testDatabase } = await import("./database.js");
     const { query } = await import("../server/db.ts");
     const { Service } = await import("../server/service.ts");
-    const { processNextProjectMemory } = await import("../server/project-memory.js");
+    const { processNextProjectMemory } = await import("../server/project-memory.ts");
     const { replaceVersionContent } = await import("../server/documents/index.ts");
     const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
       await import("../server/file-index-discovery.ts");

@@ -209,7 +209,7 @@ export async function saveFileIndexGroup(
       createdBy,
     });
   }
-  const { noteProjectMemorySignal } = await import("./project-memory.js");
+  const { noteProjectMemorySignal } = await import("./project-memory.ts");
   await noteProjectMemorySignal(
     db,
     projectId,

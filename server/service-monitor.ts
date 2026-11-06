@@ -14,10 +14,119 @@ import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.ts";
 import { capabilityProfile, SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { fail, id, preferredLocalExecutorJoin } from "./service-support.ts";
+import type { Db } from "./types.ts";
 
-export async function agentMonitorOperation(service, user, projectId) {
+/** 监控接口的调用者：只用到成员判定与令牌 scope。 */
+type MonitorUser = { id: string; kind?: string | null; scope?: string | null };
+
+/** 本模块用到的 Service 门面视图；门面在 `service.ts`，这里只声明调用点用到的成员。 */
+type MonitorService = {
+  db: Db;
+  member(user: MonitorUser, projectId: string, write?: boolean, db?: Db): Promise<unknown>;
+  project(user: MonitorUser, projectId: string): Promise<{ name?: unknown }>;
+  thread(
+    user: MonitorUser,
+    threadId: string,
+    write?: boolean,
+    db?: Db,
+    options?: { display?: boolean },
+  ): Promise<Record<string, unknown>>;
+};
+
+/** 轨迹作用域：老翁维护任务、迭代里的小祥、子 Agent。 */
+type AgentLogScope = "project" | "thread" | "task";
+
+/** `agent_project_sessions` 的一行；只声明本模块读到的列。 */
+type LaowengSessionRow = {
+  id: string;
+  task: string;
+  thread_id: string | null;
+  thread_title: string | null;
+  session_id: string | null;
+  status: string | null;
+  last_error: string | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  [column: string]: unknown;
+};
+
+/** `agent_laoweng_runs` 的一行；只声明本模块读到的列。 */
+type LaowengRunRow = {
+  id: string;
+  task: string;
+  thread_id: string | null;
+  trigger_source: string | null;
+  status: string | null;
+  agent_called?: unknown;
+  had_updates?: unknown;
+  item_count?: unknown;
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  [column: string]: unknown;
+};
+
+/**
+ * 一条轨迹行。
+ *
+ * 三个作用域各查自己那批列，这里收成一份并集：查询结果按行透出，
+ * 只在真正读到的字段上收窄，避免给整行编一个假形状。
+ */
+type AgentLogRow = {
+  id: string | number;
+  tool: string;
+  agent_type?: string;
+  agent_session_id?: string | null;
+  task_id?: string | null;
+  task?: string | null;
+  status?: string | null;
+  input?: unknown;
+  summary?: string | null;
+  error?: string | null;
+  output_preview?: string | null;
+  notice_input?: string | null;
+  notice_output?: string | null;
+  created_at: string;
+  finished_at?: string | null;
+  message_id?: string | null;
+  thread_id?: string | null;
+  turn_id?: string | null;
+  turn_key?: string | null;
+  turn_no?: number | null;
+  user_preview?: string | null;
+  user_body?: unknown;
+  user_refs?: unknown;
+  user_created_at?: string | null;
+  dialogue_mode?: string | null;
+  trigger_source?: string | null;
+  visual_artifact_id?: string | null;
+  usage?: unknown;
+};
+
+/** 轨迹「输入」行里的附件。 */
+type AgentLogFile = { id: string; name: string; mime: string | null; size: number | null };
+
+/** 轨迹「输入」行：用户消息，或小祥派活时落下的任务书。 */
+type AgentLogInput = {
+  id: string;
+  messageId: string | null;
+  createdAt: string | null;
+  preview: string;
+  body: string;
+  dialogueMode: string | null;
+  files: AgentLogFile[];
+  from?: string;
+  refIds?: string[];
+};
+
+export async function agentMonitorOperation(
+  service: MonitorService,
+  user: MonitorUser,
+  projectId: string,
+) {
   await service.member(user, projectId);
-  const modelSummary = (scope) => {
+  const modelSummary = (scope: string) => {
     const config = modelConfig(scope);
     return { model: config.model, reasoningEffort: config.reasoningEffort };
   };
@@ -197,8 +306,10 @@ export async function agentMonitorOperation(service, user, projectId) {
     ready: Number(documentMemoryRow.ready || 0),
     next_at: documentMemoryRow.next_at || null,
   };
-  const latest = (...values) =>
-    values.filter(Boolean).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+  const latest = (...values: (string | number | Date | null | undefined)[]) =>
+    values
+      .filter(Boolean)
+      .sort((a, b) => new Date(b ?? 0).getTime() - new Date(a ?? 0).getTime())[0] || null;
   const memberRunLast = laowengRunLast.find((row) => row.task === "member_memory")?.last_at || null;
   const documentRunLast = latest(
     ...laowengRunLast
@@ -209,7 +320,7 @@ export async function agentMonitorOperation(service, user, projectId) {
       )
       .map((row) => row.last_at),
   );
-  const mapLaowengRun = (row) => ({
+  const mapLaowengRun = (row: LaowengRunRow) => ({
     id: row.id,
     task: row.task,
     thread_id: row.thread_id || null,
@@ -223,7 +334,7 @@ export async function agentMonitorOperation(service, user, projectId) {
     started_at: row.started_at,
     finished_at: row.finished_at,
   });
-  const mapSession = (row) => ({
+  const mapSession = (row: LaowengSessionRow) => ({
     id: row.id,
     task: row.task,
     threadId: row.thread_id || null,
@@ -236,7 +347,7 @@ export async function agentMonitorOperation(service, user, projectId) {
     contextUsage: contextUsage(row, [], []),
   });
   const headingSession = [...laowengSessions].sort((left, right) => {
-    const running = (value) => (value.status === "running" ? 1 : 0);
+    const running = (value: LaowengSessionRow) => (value.status === "running" ? 1 : 0);
     if (running(right) !== running(left)) return running(right) - running(left);
     return (
       new Date(right.last_finished_at || right.last_started_at || 0).getTime() -
@@ -348,7 +459,10 @@ export async function agentMonitorOperation(service, user, projectId) {
           status: "archived",
           error: null,
         })),
-      ].sort((left, right) => new Date(right.occurredAt || 0) - new Date(left.occurredAt || 0)),
+      ].sort(
+        (left, right) =>
+          new Date(right.occurredAt || 0).getTime() - new Date(left.occurredAt || 0).getTime(),
+      ),
     },
     coordinators: coordinators.map((row) => {
       const session = xiaoxiangSessions.find((item) => item.thread_id === row.id) || {};
@@ -422,7 +536,8 @@ export async function agentMonitorOperation(service, user, projectId) {
         run_status: row.run_status,
         progress: row.progress,
         agent_slot: null,
-        execution_active: !!row.executor_id && ["running", "waiting"].includes(row.run_status),
+        execution_active:
+          !!row.executor_id && ["running", "waiting"].includes(String(row.run_status)),
         started_at: row.started_at,
         finished_at: row.finished_at,
         last_action: null,
@@ -456,11 +571,13 @@ export async function agentMonitorOperation(service, user, projectId) {
  */
 /** context_notice 的 output 是 JSON：取出 kind 供轨迹行标来源。 */
 /** 上下文行预览：有块名就列块名，没有就退回注入原文。 */
-function contextPreview(input, output) {
+function contextPreview(input: unknown, output: unknown) {
   try {
-    const meta = JSON.parse(output || "{}");
+    const meta = JSON.parse(String(output || "{}"));
     const names = Array.isArray(meta?.blocks)
-      ? meta.blocks.map((block) => String(block?.name || "")).filter(Boolean)
+      ? meta.blocks
+          .map((block: { name?: unknown } | null | undefined) => String(block?.name || ""))
+          .filter(Boolean)
       : [];
     // 增量轮次只补变化的资料：行首标出来，免得和全量注入混淆。
     const prefix = meta?.delta ? "增量注入" : "";
@@ -474,16 +591,19 @@ function contextPreview(input, output) {
     .trim();
 }
 
-function noticeKindOf(value) {
+function noticeKindOf(value: unknown) {
   try {
-    const parsed = JSON.parse(value || "{}");
+    const parsed = JSON.parse(String(value || "{}"));
     return typeof parsed.kind === "string" && parsed.kind ? parsed.kind : null;
   } catch {
     return null;
   }
 }
 
-function scopeAgentContext(level) {
+/** 插件注册表里定义提示词的 Agent 层级。 */
+type AgentLevel = keyof typeof SYSTEM_PROMPTS;
+
+function scopeAgentContext(level: AgentLevel) {
   const rolePrompt = SYSTEM_PROMPTS[level]?.prompt;
   // 和 DSH 一样按「段」交代系统提示词是怎么拼起来的：名称、顺序、来源、正文。
   const systemSections = [
@@ -516,8 +636,8 @@ function scopeAgentContext(level) {
  * 因此只把整轮用量挂到该轮收尾的 assistant_final 上，其余事件不挂：
  * 前端按事件累加 tokens，重复挂载会把同一轮算多次。关联不上就省略。
  */
-function eventUsageFromReply(stats) {
-  let value = stats;
+function eventUsageFromReply(stats: unknown) {
+  let value: unknown = stats;
   if (typeof value === "string") {
     try {
       value = JSON.parse(value);
@@ -526,7 +646,8 @@ function eventUsageFromReply(stats) {
     }
   }
   if (!value || typeof value !== "object") return null;
-  const usage = {};
+  const record = value as Record<string, unknown>;
+  const usage: Record<string, number | string> = {};
   for (const key of [
     "inputTokens",
     "outputTokens",
@@ -541,63 +662,76 @@ function eventUsageFromReply(stats) {
     "decodeMs",
     "settingsVersion",
     "calls",
-  ])
-    if (Number.isFinite(value[key]) && value[key] >= 0) usage[key] = value[key];
-  if (typeof value.model === "string" && value.model) usage.model = value.model.slice(0, 60);
-  if (typeof value.reasoningEffort === "string" && value.reasoningEffort)
-    usage.reasoningEffort = value.reasoningEffort.slice(0, 20);
+  ]) {
+    const candidate = record[key];
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0)
+      usage[key] = candidate;
+  }
+  const model = record.model;
+  if (typeof model === "string" && model) usage.model = model.slice(0, 60);
+  const reasoningEffort = record.reasoningEffort;
+  if (typeof reasoningEffort === "string" && reasoningEffort)
+    usage.reasoningEffort = reasoningEffort.slice(0, 20);
   // usage_stats 里没有 modelMs，宁缺勿造。
   return Object.keys(usage).length ? usage : null;
 }
 
-async function replyUsageByMessage(db, messageIds) {
+async function replyUsageByMessage(db: Db, messageIds: unknown[]) {
   const ids = [...new Set(messageIds.filter(Boolean))];
-  if (!ids.length) return new Map();
+  if (!ids.length) return new Map<string, unknown>();
   const rows = await query(
     db,
     `SELECT message_id,usage_stats FROM assistant_replies
       WHERE message_id IN (${ids.map(() => "?").join(",")})`,
     ids,
   );
-  return new Map(
-    rows.filter((row) => row.usage_stats).map((row) => [row.message_id, row.usage_stats]),
+  return new Map<string, unknown>(
+    rows
+      .filter((row) => row.usage_stats)
+      .map((row): [string, unknown] => [row.message_id, row.usage_stats]),
   );
 }
 
 export async function agentLogsOperation(
-  service,
-  user,
-  scopeType,
-  scopeId,
-  { task, before = null, limit = 60 } = {},
+  service: MonitorService,
+  user: MonitorUser,
+  scopeType: AgentLogScope,
+  scopeId: string,
+  {
+    task,
+    before = null,
+    limit = 60,
+  }: { task?: string | null; before?: string | null; limit?: number | string } = {},
 ) {
   // 轨迹分页：默认最近一页；before 是最老一条事件的 id，继续往前取历史。
   const pageSize = Math.min(Math.max(Number(limit) || 60, 10), 200);
   const cursor = before ? Number(before) : null;
-  const hasCursor = Number.isSafeInteger(cursor) && cursor > 0;
+  const hasCursor = typeof cursor === "number" && Number.isSafeInteger(cursor) && cursor > 0;
   let hasMore = false;
-  const duration = (row) =>
+  const duration = (row: AgentLogRow) =>
     row.finished_at
       ? Math.max(0, new Date(row.finished_at).getTime() - new Date(row.created_at).getTime())
       : null;
   // 任务类工具（派发子 Agent、追问进度、转交、重安排）入参只有任务 id；
   // 直接显示 UUID 看不懂，这里批量取任务标题，标签用标题代替 id。
-  let taskTitles = new Map();
-  const labelFor = (row) => {
+  let taskTitles = new Map<string, string>();
+  const labelFor = (row: AgentLogRow) => {
     if (row.agent_type === "laoweng")
       return {
         action:
-          {
-            prepare_context: "准备项目上下文",
-            start_harness: "启动 DSH 会话",
-            compact_context: "压缩维护上下文",
-            model_run: "执行维护任务",
-            validate_result: "校验结构化结果",
-            save_checkpoint: "保存会话检查点",
-          }[row.tool] || row.tool,
+          (
+            {
+              prepare_context: "准备项目上下文",
+              start_harness: "启动 DSH 会话",
+              compact_context: "压缩维护上下文",
+              model_run: "执行维护任务",
+              validate_result: "校验结构化结果",
+              save_checkpoint: "保存会话检查点",
+            } as Record<string, string>
+          )[row.tool] || row.tool,
         target: "",
       };
-    let args = {};
+    let args: Record<string, unknown> = {};
     try {
       args = typeof row.input === "string" ? JSON.parse(row.input) : row.input || {};
     } catch {}
@@ -617,13 +751,13 @@ export async function agentLogsOperation(
       : describeAgentAction(row.tool, args);
     return { action: labeled.action, target: title || labeled.target || "" };
   };
-  const collectInputs = async (rows) => {
-    const seen = new Set();
-    const inputs = [];
+  const collectInputs = async (rows: AgentLogRow[]) => {
+    const seen = new Set<string>();
+    const inputs: AgentLogInput[] = [];
     for (const row of [...rows].reverse()) {
       if (!row.message_id || !row.user_created_at || seen.has(row.message_id)) continue;
       seen.add(row.message_id);
-      let refs = row.user_refs;
+      let refs: unknown = row.user_refs;
       if (typeof refs === "string") {
         try {
           refs = JSON.parse(refs);
@@ -650,26 +784,31 @@ export async function agentLogsOperation(
       });
     }
     // 附件是按版本 id 引用的，批量取回名字与类型，预览里才能列出文件。
-    const refIds = [...new Set(inputs.flatMap((input) => input.refIds))];
+    const refIds = [...new Set(inputs.flatMap((input) => input.refIds || []))];
     if (refIds.length) {
       const files = await query(
         service.db,
         `SELECT id, filename, mime, byte_size FROM versions WHERE id IN (${refIds.map(() => "?").join(",")})`,
         refIds,
       );
-      const byId = new Map(
-        files.map((file) => [
-          String(file.id),
-          {
-            id: String(file.id),
-            name: String(file.filename || ""),
-            mime: file.mime ? String(file.mime) : null,
-            size: file.byte_size == null ? null : Number(file.byte_size),
-          },
-        ]),
+      const byId = new Map<string, AgentLogFile>(
+        files.map(
+          (file) =>
+            [
+              String(file.id),
+              {
+                id: String(file.id),
+                name: String(file.filename || ""),
+                mime: file.mime ? String(file.mime) : null,
+                size: file.byte_size == null ? null : Number(file.byte_size),
+              },
+            ] as const,
+        ),
       );
       for (const input of inputs)
-        input.files = input.refIds.map((id) => byId.get(id)).filter(Boolean);
+        input.files = (input.refIds || [])
+          .map((id) => byId.get(id))
+          .filter((file): file is AgentLogFile => Boolean(file));
     }
     for (const input of inputs) delete input.refIds;
     return inputs;
@@ -678,7 +817,7 @@ export async function agentLogsOperation(
    * 子 Agent 的输入是小祥写的任务书（TASK_ID + TaskBrief），不是群里的用户消息。
    * 派活时把任务书落成了 context_notice 事件，这里取最近一条作为「输入」行。
    */
-  const collectTaskInputs = async (taskId) => {
+  const collectTaskInputs = async (taskId: string): Promise<AgentLogInput[]> => {
     const candidates = await query(
       service.db,
       `SELECT id,message_id,input,output,created_at FROM agent_events
@@ -717,9 +856,9 @@ export async function agentLogsOperation(
               AND e.created_at>=COALESCE(timed_run.started_at,timed_run.created_at)
               AND e.created_at<=COALESCE(timed_run.finished_at,UTC_TIMESTAMP(3)))))`;
   let titleText;
-  let rows;
+  let rows: AgentLogRow[] = [];
   // 只有 thread 作用域能按触发消息关联到小祥那一轮的整轮用量。
-  let replyUsage = new Map();
+  let replyUsage: Map<string, unknown> = new Map();
   if (scopeType === "project") {
     const project = await service.project(user, scopeId);
     const scopedTask = normalizeLaowengTask(task);
@@ -733,9 +872,9 @@ export async function agentLogsOperation(
         WHERE e.project_id=? AND e.task=? ORDER BY e.id DESC LIMIT 300`,
       [scopeId, scopedTask],
     );
-    const laowengRunOf = new Map();
-    const laowengFirstIds = new Set();
-    const laowengSeenRuns = new Set();
+    const laowengRunOf = new Map<string, string>();
+    const laowengFirstIds = new Set<string>();
+    const laowengSeenRuns = new Set<string>();
     let laowengRun = 0;
     for (const row of [...rows].sort((left, right) => Number(left.id) - Number(right.id))) {
       if (row.tool === "prepare_context") laowengRun += 1;
@@ -767,7 +906,7 @@ export async function agentLogsOperation(
       [scopeId, scopedTask],
     );
     if (turnRows.length) {
-      const timeOf = (value) => {
+      const timeOf = (value: unknown) => {
         if (!value) return null;
         const text = String(value);
         const stamp = Date.parse(text.includes("T") ? text : text.replace(" ", "T") + "Z");
@@ -777,7 +916,7 @@ export async function agentLogsOperation(
         .map((row) => {
           const start = timeOf(row.started_at);
           const finish = timeOf(row.finished_at);
-          let usage = row.usage_stats;
+          let usage: unknown = row.usage_stats;
           if (typeof usage === "string") {
             try {
               usage = JSON.parse(usage);
@@ -792,7 +931,13 @@ export async function agentLogsOperation(
         if (!["model_run", "understanding"].includes(row.tool)) continue;
         const at = timeOf(row.created_at);
         if (at === null) continue;
-        const match = turns.find((turn) => at >= turn.start - 2000 && at <= turn.finish + 2000);
+        const match = turns.find(
+          (turn) =>
+            turn.start !== null &&
+            turn.finish !== null &&
+            at >= turn.start - 2000 &&
+            at <= turn.finish + 2000,
+        );
         if (match) row.usage = match.usage;
       }
     }
@@ -845,7 +990,9 @@ export async function agentLogsOperation(
         GROUP BY anchor ORDER BY seq, at`,
       [scopeId],
     );
-    const turnOfAnchor = new Map(anchorRows.map((row, index) => [String(row.anchor), index + 1]));
+    const turnOfAnchor = new Map(
+      anchorRows.map((row, index) => [String(row.anchor), index + 1] as const),
+    );
     rows = rows.map((row) => {
       const anchor = String(row.turn_id || row.message_id);
       return {
@@ -895,7 +1042,7 @@ export async function agentLogsOperation(
       const { nativeHistoryFromLiveHome } = await import("./child-agent-session.ts");
       const history = await nativeHistoryFromLiveHome(task.origin_thread_id, childRun.executor_id);
       const answers = history.filter((message) => message.role === "assistant" && message.usage);
-      const normalize = (value) =>
+      const normalize = (value: unknown) =>
         String(value || "")
           .replace(/\s+/g, " ")
           .trim();
@@ -929,10 +1076,10 @@ export async function agentLogsOperation(
       `SELECT id,title FROM agent_tasks WHERE id IN (${taskIds.map(() => "?").join(",")})`,
       taskIds,
     );
-    taskTitles = new Map(tasks.map((item) => [String(item.id), String(item.title || "")]));
+    taskTitles = new Map(tasks.map((item) => [String(item.id), String(item.title || "")] as const));
   }
   // 作用域决定层次：老翁维护任务、小祥、子 Agent 各自取自己那份提示词与工具名单。
-  const agentLevel =
+  const agentLevel: AgentLevel =
     scopeType === "project" ? "laoweng" : scopeType === "thread" ? "xiaoxiang" : "child_agent";
   return {
     scopeType,
@@ -947,7 +1094,7 @@ export async function agentLogsOperation(
       const usage =
         row.usage ||
         (row.tool === "assistant_final"
-          ? eventUsageFromReply(replyUsage.get(row.message_id))
+          ? eventUsageFromReply(replyUsage.get(String(row.message_id)))
           : null);
       const preview =
         row.agent_type === "laoweng"
@@ -990,7 +1137,13 @@ export async function agentLogsOperation(
   };
 }
 
-export async function agentLogEventOperation(service, user, scopeType, scopeId, eventId) {
+export async function agentLogEventOperation(
+  service: MonitorService,
+  user: MonitorUser,
+  scopeType: AgentLogScope,
+  scopeId: string,
+  eventId: unknown,
+) {
   const id = z.string().regex(/^\d+$/).parse(String(eventId));
   if (scopeType === "project") {
     await service.project(user, scopeId);

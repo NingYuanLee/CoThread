@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { processNextCoordinator, dispatchContext } from "../server/coordinator.js";
+import { processNextCoordinator, dispatchContext } from "../server/coordinator.ts";
 import { createTask } from "../server/task-pool.ts";
 
 let database, db, service;

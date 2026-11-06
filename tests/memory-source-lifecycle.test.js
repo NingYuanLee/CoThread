@@ -7,7 +7,7 @@ import { Service } from "../server/service.ts";
 import {
   queueConversationMessage,
   createConversationWindow,
-} from "../server/conversation-memory-store.js";
+} from "../server/conversation-memory-store.ts";
 import { processConversationWindow } from "../server/conversation-memory-runner.ts";
 import { searchProjectMemory } from "../server/memory-search.ts";
 import { supersedeMemoryEntry, confirmMemoryEntry } from "../server/memory-timeline.ts";
@@ -28,7 +28,7 @@ import { createTask } from "../server/task-commands.ts";
 import { readTaskDecisionEvidence } from "../server/memory-decisions.ts";
 import { createArtifact } from "../server/documents/versions.ts";
 import { transaction } from "../server/db.ts";
-import { askWikiQuestion } from "../server/wiki-questions.js";
+import { askWikiQuestion } from "../server/wiki-questions.ts";
 
 async function setup() {
   const database = await testDatabase();

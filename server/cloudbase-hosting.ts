@@ -8,7 +8,7 @@ import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
 import { miniprogramSnapshot } from "./miniprogram-workspace.ts";
-import { getCloudbaseManager } from "./cloudbase.js";
+import { getCloudbaseManager } from "./cloudbase.ts";
 import {
   injectAdminRuntimeHtml,
   resolveMiniprogramRuntime,

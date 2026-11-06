@@ -14,7 +14,10 @@ import {
 } from "../shared/request-control.js";
 import { digest } from "./auth.ts";
 import { storedContentType } from "./documents/index.ts";
-import { HttpError } from "./service.ts";
+import { HttpError, type Service } from "./service.ts";
+import type { AgentSessionScope } from "./agent-session.ts";
+import type { Db } from "./types.ts";
+import type { Pool } from "mysql2/promise";
 import { messageTurnIdForJob } from "./coordinator-turn.ts";
 import { modelDiscussion, modelProject } from "./model-context.ts";
 import { agentSession } from "./agent-session.ts";
@@ -24,7 +27,7 @@ import {
   loadMemberUnderstanding,
   loadProjectWikiIndexes,
   queueDocumentMemory,
-} from "./project-memory.js";
+} from "./project-memory.ts";
 import { localExecutorTool } from "./local-executors.ts";
 import {
   acknowledgeTaskRejection,
@@ -50,6 +53,7 @@ import {
   agentReadCodeFile,
 } from "./project-code-sources.ts";
 import { filterProjectLibraryFolders, filterProjectLibraryVersions } from "./documents/index.ts";
+import type { LibraryFolderRow, LibraryVersionRow } from "./documents/index.ts";
 import {
   MINIPROGRAM_FIXED_FOLDERS,
   miniprogramSnapshot,
@@ -93,9 +97,50 @@ import {
   captureSandboxPreview,
 } from "./preview-screenshot.ts";
 import { saveVisualArtifact } from "./visual-artifacts.ts";
+import type { ProjectFactsOptions } from "./project-facts.ts";
 import { visualVerificationEnabled, visualVerificationSkip } from "./visual-capability.ts";
 
-function xiaoxiangActor(job, xiaoxiangSessionId) {
+/**
+ * 一次 Agent 任务的标识字段，与 `agent.ts` 的 `AgentJob` 同形：
+ * 迭代 scope 的字段 + 事件类型 + 触发来源与授权人。
+ */
+type AgentToolJob = Extract<AgentSessionScope, object> & {
+  kind?: string | null;
+  author_id?: string | null;
+  interaction_source?: string | null;
+};
+
+/** 发起任务的人；`agent.ts` 传来的 actor 还带 scope 等字段。 */
+type AgentToolUser = { id: string } & Record<string, unknown>;
+
+/** 桥接工具调用的调用方信息（子会话 id 决定工具层级）。 */
+type ToolCaller = { sessionId?: string | null; [field: string]: unknown };
+
+/** 工具运行时可注入的实现。 */
+type AgentToolOptions = {
+  getSandbox?: typeof acquireSandbox;
+  role?: string;
+  xiaoxiangSessionId?: string;
+};
+
+/**
+ * 项目上下文里的版本行：文档树投影（`modelProject` 的输出）里带 `id`，
+ * 可见性过滤只要 `LibraryVersionRow` 的那几列，两者取交集。
+ */
+type AgentProjectVersion = LibraryVersionRow & { id: string; [column: string]: unknown };
+
+/** 文档内核要求的调用者形状：`kind` 必填，从门面方法推导，避免手抄。 */
+type AgentDocumentUser = Parameters<Service["version"]>[0];
+
+/** `threads` 行：只声明本模块读到的列。 */
+type AgentThreadRow = {
+  id: string;
+  project_id: string;
+  status: string;
+  [column: string]: unknown;
+};
+
+function xiaoxiangActor(job: AgentToolJob, xiaoxiangSessionId: string) {
   const authorizedByUserId =
     job.kind !== "child_result" && job.author_id && job.author_id !== AGENT_MEMBER.id
       ? job.author_id
@@ -115,7 +160,7 @@ function xiaoxiangActor(job, xiaoxiangSessionId) {
   };
 }
 
-const titles = {
+const titles: Record<string, string> = {
   list_documents: "查看",
   manage_document: "整理",
   manage_folder: "整理",
@@ -187,7 +232,11 @@ const CLOUDBASE_TOOL_NAMES = [
 ];
 
 /** Parse a JSON-string tool argument, keeping the error message actionable. */
-function parseJsonArgument(value, label, { required = false } = {}) {
+function parseJsonArgument(
+  value: unknown,
+  label: string,
+  { required = false }: { required?: boolean } = {},
+) {
   const text = String(value ?? "").trim();
   if (!text) {
     if (required) throw new HttpError(400, `${label} 不能为空`);
@@ -250,7 +299,7 @@ const CHAT_DIALOGUE_BLOCKED_TOOLS = new Set([
 ]);
 
 /** Chat 只读和仅小程序的工具拒绝。读工具不在这里。 */
-export function dialogueToolDenyReason(dialogueMode, name) {
+export function dialogueToolDenyReason(dialogueMode: unknown, name: string) {
   if (
     (name === "web_search" || name === "web_fetch") &&
     dialogueMode &&
@@ -267,7 +316,7 @@ export function dialogueToolDenyReason(dialogueMode, name) {
 }
 
 /** Reject miniprogram tool use until the project has enabled the workspace. */
-async function requireMiniprogramWorkspace(service, projectId) {
+async function requireMiniprogramWorkspace(service: Service, projectId: string) {
   const runtime = await loadProjectMiniProgramRuntime(service, projectId);
   if (!runtime.enabled) {
     throw new HttpError(
@@ -278,8 +327,8 @@ async function requireMiniprogramWorkspace(service, projectId) {
   return runtime;
 }
 
-function miniprogramToolSummary(snapshot) {
-  const areas = {};
+function miniprogramToolSummary(snapshot: Awaited<ReturnType<typeof miniprogramSnapshot>>) {
+  const areas: Record<string, string[]> = {};
   for (const file of snapshot.files) {
     const area = areas[file.area] || (areas[file.area] = []);
     area.push(file.path);
@@ -287,7 +336,7 @@ function miniprogramToolSummary(snapshot) {
   return {
     areas: Object.entries(areas).map(([kind, paths]) => ({
       area: kind,
-      label: MINIPROGRAM_AREA_LABELS[kind] || kind,
+      label: (MINIPROGRAM_AREA_LABELS as Record<string, string>)[kind] || kind,
       fileCount: paths.length,
       paths: paths.slice(0, 200),
     })),
@@ -296,7 +345,10 @@ function miniprogramToolSummary(snapshot) {
   };
 }
 
-export async function liveChildAgentRun(db, { sessionId, threadId } = {}) {
+export async function liveChildAgentRun(
+  db: Db,
+  { sessionId, threadId }: { sessionId?: string | null; threadId?: string | null } = {},
+) {
   if (sessionId) {
     const [owned] = await query(
       db,
@@ -320,8 +372,13 @@ export async function liveChildAgentRun(db, { sessionId, threadId } = {}) {
   return null;
 }
 
-export async function assertJob(service, user, job, { role, sessionId } = {}) {
-  const thread = await service.thread(user, job.thread_id);
+export async function assertJob(
+  service: Service,
+  user: AgentToolUser,
+  job: AgentToolJob,
+  { role, sessionId }: { role?: string; sessionId?: string | null } = {},
+): Promise<AgentThreadRow> {
+  const thread = (await service.thread(user, job.thread_id)) as unknown as AgentThreadRow;
   await service.member(user, thread.project_id, true);
   if (thread.status !== "active") throw new HttpError(409, "任务已停止或迭代已归档");
   const live = await liveChildAgentRun(service.db, { sessionId, threadId: job.thread_id });
@@ -347,13 +404,15 @@ export async function assertJob(service, user, job, { role, sessionId } = {}) {
   return thread;
 }
 export function createAgentTools(
-  service,
-  user,
-  job,
-  { getSandbox, role = "executor", xiaoxiangSessionId } = {},
+  service: Service,
+  user: AgentToolUser,
+  job: AgentToolJob,
+  options: AgentToolOptions = {},
 ) {
-  getSandbox ||= acquireSandbox;
-  const progress = (text) =>
+  const { role = "executor" } = options;
+  const xiaoxiangSessionId = options.xiaoxiangSessionId!;
+  const getSandbox = options.getSandbox || acquireSandbox;
+  const progress = (text: string) =>
     query(
       service.db,
       "UPDATE assistant_replies SET progress=? WHERE message_id=? AND status='running'",
@@ -361,9 +420,11 @@ export function createAgentTools(
     );
   const root = `/home/user/cothread/${agentSession(job).workspaceId}`;
   const sandboxScope = job.parent_message_id ? job : job.thread_id;
-  return async (name, args, caller = {}) => {
+  return async (name: string, toolArgs: unknown, caller: ToolCaller = {}) => {
+    // 工具入参由调用方（模型桥接）给出，按普通对象读取；各工具自己用 zod 逐字段校验。
+    const args = toolArgs as Record<string, unknown>;
     let callerSessionId = caller.sessionId || null;
-    let effectiveRole =
+    let effectiveRole: string =
       role === "coordinator" && callerSessionId && callerSessionId !== xiaoxiangSessionId
         ? "executor"
         : role;
@@ -395,14 +456,14 @@ export function createAgentTools(
     const denied = dialogueToolDenyReason(dialogueMode, name);
     if (denied) throw new HttpError(403, denied);
     // Shared plugins retain the caller's task scope and never inherit a human authorization.
-    const taskActor = async (taskId) => {
+    const taskActor = async (taskId?: unknown) => {
       if (effectiveRole !== "executor") return xiaoxiangActor(job, xiaoxiangSessionId);
       if (!callerSessionId || !agentTaskId) throw new HttpError(403, "请先绑定当前执行任务");
       await ensureChildAgentCanUpdate(
-        service.db,
+        service.db as Pool,
         xiaoxiangSessionId,
         callerSessionId,
-        taskId || agentTaskId,
+        (taskId as string) || agentTaskId,
       );
       return {
         ...xiaoxiangActor(job, xiaoxiangSessionId),
@@ -411,7 +472,7 @@ export function createAgentTools(
         statusActorId: undefined,
       };
     };
-    const event = await query(
+    const event = (await query(
       service.db,
       "INSERT INTO agent_events(message_id,agent_session_id,agent_task_id,tool,status,input) VALUES(?,?,?,?,'running',?)",
       [
@@ -421,7 +482,7 @@ export function createAgentTools(
         name,
         JSON.stringify(args).slice(0, 16000),
       ],
-    );
+    )) as unknown as { insertId: string };
     const label = formatAgentAction(name, args);
     await progress(label);
     if (effectiveRole === "executor" && callerSessionId)
@@ -483,10 +544,15 @@ export function createAgentTools(
       } else if (name === "update_task") {
         const taskId = z.string().uuid().parse(args.taskId);
         if (effectiveRole === "executor") {
-          await ensureChildAgentCanUpdate(service.db, xiaoxiangSessionId, callerSessionId, taskId);
+          await ensureChildAgentCanUpdate(
+            service.db as Pool,
+            xiaoxiangSessionId,
+            callerSessionId as string,
+            taskId,
+          );
         }
         result = await updateTask(
-          service.db,
+          service.db as Pool,
           taskId,
           effectiveRole === "executor"
             ? { type: "child_agent", id: callerSessionId }
@@ -499,13 +565,18 @@ export function createAgentTools(
           .string()
           .uuid()
           .parse(args.taskId || agentTaskId);
-        await ensureChildAgentCanUpdate(service.db, xiaoxiangSessionId, callerSessionId, taskId);
+        await ensureChildAgentCanUpdate(
+          service.db as Pool,
+          xiaoxiangSessionId,
+          callerSessionId as string,
+          taskId,
+        );
         // 任务层只有「已完成」与「已阻塞」：子 Agent 上报 failed 一律收敛成 blocked，原因保留在进度里。
         const reported = z.enum(["completed", "failed", "blocked"]).parse(args.status);
         const status = reported === "failed" ? "blocked" : reported;
         const reason = z.string().max(500).optional().parse(args.reason);
         result = await updateTask(
-          service.db,
+          service.db as Pool,
           taskId,
           { type: "child_agent", id: callerSessionId },
           {
@@ -522,7 +593,7 @@ export function createAgentTools(
         );
       } else if (name === "reassign_task") {
         result = await reassignTask(
-          service.db,
+          service.db as Pool,
           z.string().uuid().parse(args.taskId),
           await taskActor(args.taskId),
           {
@@ -537,8 +608,8 @@ export function createAgentTools(
         const action = z.enum(["acknowledge", "reopen"]).parse(args.action);
         result =
           action === "acknowledge"
-            ? await acknowledgeTaskRejection(service.db, taskId, actor)
-            : await reopenRejectedTask(service.db, taskId, actor, {
+            ? await acknowledgeTaskRejection(service.db as Pool, taskId, actor)
+            : await reopenRejectedTask(service.db as Pool, taskId, actor, {
                 title: z.string().trim().min(1).max(240).optional().parse(args.title),
                 goal: z.string().trim().min(1).max(20000).optional().parse(args.goal),
                 constraints: z.string().max(20000).optional().parse(args.constraints),
@@ -546,7 +617,7 @@ export function createAgentTools(
               });
       } else if (name === "recover_task") {
         result = await recoverAbnormalTask(
-          service.db,
+          service.db as Pool,
           z.string().uuid().parse(args.taskId),
           await taskActor(args.taskId),
           {
@@ -572,14 +643,14 @@ export function createAgentTools(
           taskId,
           await taskActor(taskId),
           z.string().trim().min(1).max(4000).parse(args.question),
-          target.source_user_id,
+          target.source_user_id as string | null,
           job.message_id,
         );
         await service.insertMessage(
           service.db,
           user,
           job.thread_id,
-          "任务问题：" + result.question,
+          "任务问题：" + result!.question,
           [],
           "assistant",
           job.message_id,
@@ -598,40 +669,55 @@ export function createAgentTools(
             : z.enum(["human_member", "xiaoxiang"]).parse(args.targetType);
         const targetId =
           taskType === "assist" ? xiaoxiangSessionId : z.string().uuid().parse(args.targetId);
-        result = await createTask(service.db, {
-          projectId: thread.project_id,
-          originThreadId: job.thread_id,
-          sourceType: effectiveRole === "executor" ? "task" : args.sourceType || "human_member",
-          sourceUserId: effectiveRole === "executor" ? null : args.sourceUserId || job.author_id,
-          sourceMessageId: args.sourceMessageId || job.message_id,
-          sourceTaskId: effectiveRole === "executor" ? agentTaskId : args.sourceTaskId || null,
-          createdByType: "xiaoxiang",
-          createdById: xiaoxiangSessionId || job.message_id,
-          authorizedByUserId: actor.authorizedByUserId,
-          taskType,
-          persona: args.persona == null ? undefined : z.string().trim().max(16).parse(args.persona),
-          title: z.string().trim().min(1).max(240).parse(args.title),
-          goal: z.string().trim().min(1).max(20000).parse(args.goal),
-          constraints: args.constraints,
-          memoryRevisionIds: args.memoryRevisionIds,
-          documentRefs:
-            args.documentRefs == null && args.refs == null
-              ? []
-              : z
-                  .array(z.string().uuid())
-                  .max(30)
-                  .parse(args.documentRefs || args.refs),
-          folderRefs:
-            args.folderRefs == null
-              ? []
-              : z.array(z.string().uuid()).max(30).parse(args.folderRefs),
-          targetType,
-          targetId,
-        });
+        // `authorizedByUserId` 是工具面的授权字段：`CreateTaskInput` 没声明它（运行期多传属性无副作用），
+        // 这里按入参类型整体断言，保持原调用形状不变。
+        result = await createTask(
+          service.db as Pool,
+          {
+            projectId: thread.project_id,
+            originThreadId: job.thread_id,
+            sourceType:
+              effectiveRole === "executor"
+                ? "task"
+                : (args.sourceType as string | undefined) || "human_member",
+            sourceUserId:
+              effectiveRole === "executor"
+                ? null
+                : (args.sourceUserId as string | null | undefined) || job.author_id,
+            sourceMessageId: (args.sourceMessageId as string | null | undefined) || job.message_id,
+            sourceTaskId:
+              effectiveRole === "executor"
+                ? agentTaskId
+                : (args.sourceTaskId as string | null | undefined) || null,
+            createdByType: "xiaoxiang",
+            createdById: xiaoxiangSessionId || job.message_id,
+            authorizedByUserId: actor.authorizedByUserId,
+            taskType,
+            persona:
+              args.persona == null ? undefined : z.string().trim().max(16).parse(args.persona),
+            title: z.string().trim().min(1).max(240).parse(args.title),
+            goal: z.string().trim().min(1).max(20000).parse(args.goal),
+            constraints: args.constraints as string | null | undefined,
+            memoryRevisionIds: args.memoryRevisionIds,
+            documentRefs:
+              args.documentRefs == null && args.refs == null
+                ? []
+                : z
+                    .array(z.string().uuid())
+                    .max(30)
+                    .parse(args.documentRefs || args.refs),
+            folderRefs:
+              args.folderRefs == null
+                ? []
+                : z.array(z.string().uuid()).max(30).parse(args.folderRefs),
+            targetType,
+            targetId,
+          } as Parameters<typeof createTask>[1],
+        );
         // Harness create_task auto-spawns 子 Agent in-process (same window as child_agent).
         // Attach the launch prompt so the tool can startActivation without another round-trip.
-        if (result?.needsDispatch && result.id) {
-          const launch = await childLaunchPrompt(service.db, result.id);
+        if (result?.needsDispatch && result?.id) {
+          const launch = await childLaunchPrompt(service.db, result.id as string);
           if (launch?.prompt) {
             result = {
               ...result,
@@ -646,7 +732,7 @@ export function createAgentTools(
         const taskId = z.string().uuid().parse(args.taskId);
         const childSessionId = z.string().uuid().parse(args.childSessionId);
         result = await bindChildAgentExecution(
-          service.db,
+          service.db as Pool,
           xiaoxiangSessionId,
           childSessionId,
           taskId,
@@ -657,12 +743,18 @@ export function createAgentTools(
         if (boundBrief)
           await recordChildLaunchTrace(service.db, {
             taskId,
-            messageId: job.message_id,
+            messageId: job.message_id ?? null,
             childSessionId,
             brief: boundBrief,
           });
       } else if (["list_documents", "manage_document", "manage_folder"].includes(name)) {
-        result = await documentTool(service, user, name, args, job);
+        result = await documentTool(
+          service as unknown as Parameters<typeof documentTool>[0],
+          user,
+          name,
+          args,
+          job as unknown as Parameters<typeof documentTool>[4],
+        );
       } else if (name === "list_local_executors") {
         result = await localExecutorTool(service, user, name, args, job, thread);
       } else if (name === "list_project_code_sources") {
@@ -695,9 +787,13 @@ export function createAgentTools(
         );
       } else if (name === "project_context") {
         result = modelProject(await service.project(user, thread.project_id));
-        result.versions = filterProjectLibraryVersions(result.versions || []);
-        result.folders = filterProjectLibraryFolders(result.folders || []);
-        const allowedVersions = new Set(result.versions.map((version) => version.id));
+        const projectContext = result as {
+          versions?: AgentProjectVersion[];
+          folders?: LibraryFolderRow[];
+        };
+        projectContext.versions = filterProjectLibraryVersions(projectContext.versions || []);
+        projectContext.folders = filterProjectLibraryFolders(projectContext.folders || []);
+        const allowedVersions = new Set(projectContext.versions.map((version) => version.id));
         const wiki = await loadProjectWikiIndexes(service.db, thread.project_id);
         wiki.documentSummaries = (wiki.documentSummaries || []).filter((item) =>
           allowedVersions.has(item.versionId),
@@ -705,7 +801,7 @@ export function createAgentTools(
         wiki.pendingDocumentVersionIds = (wiki.pendingDocumentVersionIds || []).filter(
           (versionId) => allowedVersions.has(versionId),
         );
-        Object.assign(result, wiki);
+        Object.assign(result as object, wiki);
       } else if (name === "read_project_facts") {
         const { readProjectFacts } = await import("./project-facts.ts");
         result = await readProjectFacts(service.db, thread.project_id, {
@@ -713,7 +809,7 @@ export function createAgentTools(
           offset: args.offset,
           limit: args.limit,
           beforeEventId: args.beforeEventId,
-        });
+        } as ProjectFactsOptions);
       } else if (name === "read_memory_history") {
         const { listMemoryHistory } = await import("./memory-history.ts");
         result = await listMemoryHistory(
@@ -755,8 +851,13 @@ export function createAgentTools(
           thread.project_id,
           name === "read_member" ? z.string().min(1).parse(args.memberId) : undefined,
         );
-        if (name === "read_member" && result.kind === "human") {
-          const memory = await loadMemberUnderstanding(service.db, thread.project_id, result.id);
+        const memberView = result as { kind?: string; id?: string };
+        if (name === "read_member" && memberView.kind === "human") {
+          const memory = await loadMemberUnderstanding(
+            service.db,
+            thread.project_id,
+            memberView.id as string,
+          );
           result = {
             ...result,
             understanding: memory?.understanding || null,
@@ -775,7 +876,7 @@ export function createAgentTools(
                 user,
                 targetId,
                 z.string().uuid().parse(args.messageId),
-                args.before,
+                args.before as number | undefined,
               );
       } else if (name === "update_iteration_context") {
         if (effectiveRole === "executor") await taskActor();
@@ -801,8 +902,8 @@ export function createAgentTools(
         result = modelDiscussion(
           await service.context(user, id, service.db, {
             display: true,
-            limit: args.limit ?? 50,
-            before: args.before,
+            limit: (args.limit as number | undefined) ?? 50,
+            before: args.before as string | null | undefined,
           }),
         );
       } else if (name === "branch_artifact") {
@@ -826,51 +927,77 @@ export function createAgentTools(
             .enum(["document_tree", "document_preview", "sandbox_html"])
             .parse(args.source);
           if (source === "document_tree") {
-            result = await captureDocumentTree(service, user, thread.project_id);
+            result = await captureDocumentTree(
+              service as unknown as Parameters<typeof captureDocumentTree>[0],
+              user,
+              thread.project_id,
+            );
           } else if (source === "document_preview") {
             const versionId = z.string().uuid().parse(args.versionId);
-            const version = await service.version(user, versionId);
+            const version = await service.version(user as AgentDocumentUser, versionId);
             if (version.project_id !== thread.project_id)
               throw new HttpError(403, "文档不属于当前项目");
-            result = await captureDocumentPreview(service, user, versionId);
+            result = await captureDocumentPreview(
+              service as unknown as Parameters<typeof captureDocumentPreview>[0],
+              user,
+              versionId,
+            );
           } else {
             const sandbox = await getSandbox(service.db, sandboxScope, progress);
             const relative = z.string().min(1).max(240).parse(args.path);
             await safeRemotePath(sandbox, root, relative);
-            result = await captureSandboxPreview(sandbox, root, relative);
+            result = await captureSandboxPreview(
+              sandbox as unknown as Parameters<typeof captureSandboxPreview>[0],
+              root,
+              relative,
+            );
           }
           const visual = await saveVisualArtifact(service.db, {
             projectId: thread.project_id,
             agentEventId: event.insertId,
             content: result.content,
-            mime: result.mimeType,
+            mime: (result as { mimeType?: string }).mimeType,
             source,
           });
-          result = { ...result, contentBase64: result.content.toString("base64") };
+          result = {
+            ...result,
+            contentBase64: result.content.toString("base64"),
+          } as {
+            contentBase64: string;
+            content?: Buffer;
+            screenshotUrl?: string;
+            screenshotArtifactId?: string;
+          };
           delete result.content;
           result.screenshotUrl = visual.url;
           result.screenshotArtifactId = visual.id;
         }
       } else if (name === "read_document") {
         await service.assertDocumentScopeAvailable(service.db, thread.project_id, job.thread_id);
-        const version = await service.version(user, z.string().uuid().parse(args.versionId));
+        const version = await service.version(
+          user as AgentDocumentUser,
+          z.string().uuid().parse(args.versionId),
+        );
         if (version.project_id !== thread.project_id)
           throw new HttpError(403, "文档不属于当前项目");
         const { captureDocumentRevision } = await import("./memory-history.ts");
         const contentRevisionId = await captureDocumentRevision(
           service.db,
           thread.project_id,
-          version.id,
-          version,
+          version.id as string,
+          version as unknown as Parameters<typeof captureDocumentRevision>[3],
         );
         const sandbox = await getSandbox(service.db, sandboxScope, progress);
         await progress(formatAgentAction(name, args, version));
         const path = `documents/${version.id}/${version.filename}`;
         await sandbox.files.makeDir(`${root}/documents/${version.id}`);
-        await sandbox.files.write(`${root}/${path}`, new Uint8Array(version.content).buffer);
+        await sandbox.files.write(
+          `${root}/${path}`,
+          new Uint8Array(version.content as Buffer).buffer,
+        );
         const text =
-          /^text\//.test(version.mime) ||
-          /\.(md|txt|json|csv|js|ts|py|html|css|yaml|yml|sql)$/i.test(version.filename);
+          /^text\//.test(String(version.mime)) ||
+          /\.(md|txt|json|csv|js|ts|py|html|css|yaml|yml|sql)$/i.test(String(version.filename));
         const [existing] = await query(
           service.db,
           `SELECT s.summary,s.updated_at FROM agent_document_summaries s JOIN versions v ON v.id=s.version_id WHERE s.version_id=? AND ${validDocumentSummarySql("v")}`,
@@ -893,7 +1020,7 @@ export function createAgentTools(
         await service.assertDocumentScopeAvailable(service.db, thread.project_id, job.thread_id);
         const versionId = z.string().uuid().parse(args.versionId);
         const summary = z.string().trim().min(1).max(4000).parse(args.summary);
-        const version = await service.version(user, versionId);
+        const version = await service.version(user as AgentDocumentUser, versionId);
         if (version.project_id !== thread.project_id)
           throw new HttpError(403, "文档不属于当前项目");
         const [sharedBefore] = await query(
@@ -1148,7 +1275,9 @@ export function createAgentTools(
           };
         }
       } else if (CLOUDBASE_TOOL_NAMES.includes(name)) {
-        await requireMiniprogramWorkspace(service, thread.project_id);
+        // 原先这里只 await 不取返回值，下面的 cloudbase_auth_config 分支却引用 `runtime`
+        // （作用域外，运行期 ReferenceError）。标注时为消除 TS2304 绑定返回值，行为与原意一致。
+        const runtime = await requireMiniprogramWorkspace(service, thread.project_id);
         // Agents are confined to the development environment.
         const environment = assertAgentEnvironment(args.environment);
         await progress(label);
@@ -1209,7 +1338,7 @@ export function createAgentTools(
               enabled,
               AGENT_MEMBER.id,
             );
-            result.hint =
+            (result as { hint?: string }).hint =
               "小程序手机号授权策略已更新；子 Agent 应据此决定是否生成 signInWithPhoneAuth 入口。";
           } else {
             const enabled = z.boolean().parse(args.enabled);
@@ -1217,7 +1346,8 @@ export function createAgentTools(
               environment,
               anonymousLogin: enabled,
             });
-            result.hint = "CloudBase 匿名登录策略已同步；小程序 Web 预览可据此执行静默登录验收。";
+            (result as { hint?: string }).hint =
+              "CloudBase 匿名登录策略已同步；小程序 Web 预览可据此执行静默登录验收。";
           }
         } else if (name === "cloudbase_db_query") {
           result = await queryCloudbaseDocuments(service, user, thread.project_id, {
@@ -1330,21 +1460,22 @@ export function createAgentTools(
           const command = z.string().min(1).max(12000).parse(args.command);
           await progress(label);
           try {
-            const output = await sandbox.commands.run(command, {
+            const output = (await sandbox.commands.run(command, {
               cwd: root,
               timeoutMs: 90000,
-            });
+            })) as { exitCode: number; stdout: string; stderr: string };
             result = {
               exitCode: output.exitCode,
               stdout: output.stdout.slice(-20000),
               stderr: output.stderr.slice(-10000),
             };
           } catch (error) {
-            if (typeof error.exitCode !== "number") throw error;
+            const failure = error as { exitCode?: unknown; stdout?: unknown; stderr?: unknown };
+            if (typeof failure.exitCode !== "number") throw error;
             result = {
-              exitCode: error.exitCode,
-              stdout: String(error.stdout || "").slice(-20000),
-              stderr: String(error.stderr || "").slice(-10000),
+              exitCode: failure.exitCode,
+              stdout: String(failure.stdout || "").slice(-20000),
+              stderr: String(failure.stderr || "").slice(-10000),
             };
           }
         } else {
@@ -1360,8 +1491,11 @@ export function createAgentTools(
             };
           } else {
             // Bound before transfer, and recheck during read to avoid unbounded SDK downloads.
-            const content = sandbox.readFile
-              ? await sandbox.readFile(path)
+            const sandboxReader = sandbox as unknown as {
+              readFile?: (path: string) => Promise<Buffer>;
+            };
+            const content = sandboxReader.readFile
+              ? await sandboxReader.readFile(path)
               : Buffer.from(
                   (
                     await sandbox.commands.run(
@@ -1436,14 +1570,19 @@ export function createAgentTools(
         );
       return result;
     } catch (error) {
+      const failure = error as {
+        status?: unknown;
+        stderr?: unknown;
+        message?: unknown;
+      };
       let message =
         error instanceof HttpError || error instanceof z.ZodError
           ? error.message
-          : String(error.stderr || error.message || "工具失败");
+          : String(failure.stderr || failure.message || "工具失败");
       message = redactSecrets(message);
       message = message.slice(-2000);
       await finishAgentEvent(service.db, event.insertId, { status: "failed", output: message });
-      throw new HttpError(error.status || 400, message);
+      throw new HttpError((failure.status as number) || 400, message);
     }
   };
 }

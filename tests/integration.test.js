@@ -11,10 +11,10 @@ import { hashPassword } from "../server/auth.ts";
 import { Service } from "../server/service.ts";
 import { executeRun } from "../server/sandbox-run.ts";
 import { testDatabase } from "./database.js";
-import { createAgentTools } from "../server/agent-tools.js";
+import { createAgentTools } from "../server/agent-tools.ts";
 import { relativePath } from "../server/agent-sandbox.ts";
 import { processNextReply, retryReply } from "../server/replies.ts";
-import { processNextCoordinator } from "../server/coordinator.js";
+import { processNextCoordinator } from "../server/coordinator.ts";
 import { processNextContextCompression } from "../server/context-compression.ts";
 import { MCP_TOOL_NAMES } from "../shared/mcp-capabilities.js";
 
@@ -1380,7 +1380,7 @@ test("project memory job routes: settings, retry, discussion and permissions", a
   );
   assert.equal(discussion.status, 202);
   assert.equal(discussion.body.queued, true);
-  const { processNextProjectMemory } = await import("../server/project-memory.js");
+  const { processNextProjectMemory } = await import("../server/project-memory.ts");
   await processNextProjectMemory(db, {
     projectId,
     task: "member_memory",

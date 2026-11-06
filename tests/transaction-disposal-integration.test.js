@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query, transaction } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { beginIterationArchive } from "../server/iteration-archive.js";
+import { beginIterationArchive } from "../server/iteration-archive.ts";
 import { sessionLockName } from "../server/session-lock.ts";
 import { acquireNamedLock } from "../server/named-lock.ts";
 

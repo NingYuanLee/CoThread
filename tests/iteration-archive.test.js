@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { createTask, acceptTask, updateTask, cancelTask } from "../server/task-pool.ts";
-import { processNextProjectMemory } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.ts";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 import { claimReply } from "../server/reply-dispatch.ts";
 import { lockIteration } from "../server/iteration-state.ts";
@@ -15,9 +15,9 @@ import {
   reviseArchiveSummary,
   suggestArchiveContinuation,
   suggestArchivePriorities,
-} from "../server/iteration-archive.js";
+} from "../server/iteration-archive.ts";
 import { issueCredential } from "../server/auth.ts";
-import { createAgentTools } from "../server/agent-tools.js";
+import { createAgentTools } from "../server/agent-tools.ts";
 
 let database, db, service, leader, creator, admin, project, thread;
 before(async () => {

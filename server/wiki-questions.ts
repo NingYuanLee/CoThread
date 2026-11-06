@@ -12,9 +12,226 @@ import { runMiaowenChat } from "./miaowen-skill.ts";
 import { injectEnvironmentVariables } from "./environment-variables.ts";
 import { MCP_CAPABILITIES } from "../shared/mcp-capabilities.js";
 import { inferCitationKind } from "../shared/citations.js";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+import type { Service } from "./service.ts";
+import type { AccessUser } from "./service-access.ts";
+import type { UsageStats } from "./agent-usage.ts";
 
-function responseReasoning(response) {
-  const parts = [];
+/** 询问范围：项目 / 组织 / 所属全部 / 全网检索。 */
+type QuestionScope = "project" | "org" | "company" | "web";
+
+/** 范围归属：项目或组织的 id；`organization` 是「所属全部」这一档的开关。 */
+type ScopeIds = {
+  projectId?: string | null;
+  orgId?: string | null;
+  organization?: boolean | null;
+};
+
+/** 一条材料的页面本体。正文字段来自不同检索入口，保持 `unknown`，由使用处收口。 */
+type MaterialPage = {
+  id?: string | null;
+  title?: string | null;
+  body?: string | null;
+  kind: string;
+  memoryRevisionId?: unknown;
+  contentRevisionId?: unknown;
+  [field: string]: unknown;
+};
+
+/** 材料的出处。 */
+type MaterialSource = { label?: string | null; [field: string]: unknown };
+
+/** 材料的引用点，最终写进 `wiki_answer_citations`。 */
+type MaterialCitation = {
+  pageId?: string | null;
+  label?: string | null;
+  kind?: string | null;
+  target?: unknown;
+  [field: string]: unknown;
+};
+
+/** 一条材料：页面 + 出处 + 引用点。 */
+type Material = {
+  page: MaterialPage;
+  sources?: MaterialSource[];
+  citation?: MaterialCitation;
+  contentRevisionId?: unknown;
+  [field: string]: unknown;
+};
+
+/** 轨迹里的一步；工具步骤带输入输出，「理解 / 说明」段只带正文。
+ *  字段来自材料、行与模型返回，保持 `unknown` 由使用处收口。 */
+type ElderTraceStep = {
+  tool?: unknown;
+  label?: unknown;
+  status?: unknown;
+  input?: unknown;
+  output?: unknown;
+  text?: unknown;
+};
+
+/** 进度回调：路由层只透传，字段都可选；内核给的完整结构也满足它。 */
+type ProgressSink = (progress?: {
+  text?: unknown;
+  trace?: unknown;
+  usage?: unknown;
+  contextUsage?: unknown;
+}) => void;
+
+/** 内核问答的入参，用来推导各可选项的类型。 */
+type ElderQuestionOptions = Parameters<typeof runElderQuestion>[0];
+
+/** `recordElderRun` 收的产出形状（`wiki-session` 的 `ElderProduced`）。 */
+type ElderRunRecord = Parameters<typeof recordElderRun>[4];
+
+/** 一轮问答的产出：文本、材料、轨迹与用量。 */
+type AnswerProduced = {
+  text: string;
+  materials?: Material[];
+  trace?: ElderTraceStep[] | null;
+  usage?: ElderRunRecord["usage"];
+};
+
+/** 页面抓取与模型请求的实现；路由与测试只传 fetch 形状。 */
+type RequestImpl = typeof fetch;
+
+/** 一次问答的可选项。`answer` / `search` 是测试与路由的注入点。 */
+type AskOptions = {
+  answer?: (input: { question: string; pages: Material[] }) => unknown;
+  search?: (question: string) => Promise<unknown>;
+  request?: RequestImpl;
+  focus?: ElderQuestionOptions["focus"];
+  createHarness?: ElderQuestionOptions["createHarness"];
+  model?: ElderQuestionOptions["model"];
+  onProgress?: ProgressSink;
+};
+
+/** 存一轮问答时要落库的字段。 */
+type SavedAnswer = {
+  question: string;
+  materials: Material[];
+  trace?: ElderTraceStep[] | null;
+  usage?: UsageStats | null;
+};
+
+/** MCP 只读工具返回负载里的一条记忆检索结果。 */
+type McpEntry = {
+  pageId?: string | null;
+  title?: string | null;
+  excerpt?: string | null;
+  memoryRevisionId?: unknown;
+  sources?: MaterialSource[] | null;
+  [field: string]: unknown;
+};
+
+/** MCP 只读工具返回负载里的一行迭代。 */
+type McpThreadRow = {
+  id?: string | null;
+  title?: string | null;
+  status?: string | null;
+  [field: string]: unknown;
+};
+
+/** MCP 只读工具返回的负载，只声明老翁这边真正读到的字段。 */
+type McpPayload = {
+  id?: string | null;
+  pageId?: string | null;
+  title?: string | null;
+  filename?: string | null;
+  body?: string | null;
+  note?: string | null;
+  text?: string | null;
+  content?: string | null;
+  mime?: string | null;
+  version?: unknown;
+  byteSize?: unknown;
+  sha256?: string | null;
+  offset?: unknown;
+  returned?: unknown;
+  totalChars?: unknown;
+  nextOffset?: unknown;
+  truncated?: unknown;
+  contentBase64?: string | null;
+  contentRevisionId?: unknown;
+  sources?: MaterialSource[] | null;
+  entries?: McpEntry[] | null;
+  threads?: McpThreadRow[] | null;
+  [field: string]: unknown;
+};
+
+/** 模型返回体里推理段的结构；`summary` 不在 `model-config` 的共享类型里。 */
+type ReasoningResponse = {
+  output?: Array<{
+    type?: string;
+    summary?: Array<string | { text?: unknown }>;
+    content?: Array<string | { text?: unknown }>;
+  }>;
+};
+
+/** 说话内容检索表的行（`roomSql` 的投影）。 */
+type RoomRow = {
+  questionId: unknown;
+  questionBody: unknown;
+  createdAt: unknown;
+  answerId: string | null;
+  answerBody: unknown;
+  answerTrace: unknown;
+  answerUsage: unknown;
+  citationId: string | null;
+  pageId: string | null;
+  citationKind: string | null;
+  citationTarget: unknown;
+  citationLabel: string | null;
+  memoryRevisionId: unknown;
+  citationEvidence: string | Record<string, unknown> | null;
+};
+
+/** 一轮问答里的一条引用。 */
+type RoomCitation = {
+  id: string;
+  pageId: unknown;
+  label: unknown;
+  kind: unknown;
+  target: unknown;
+  memoryRevisionId: unknown;
+  contentRevisionId: unknown;
+};
+
+/** 一条助手回复。 */
+type RoomAnswer = {
+  id: unknown;
+  body: unknown;
+  trace: unknown[];
+  usage: Record<string, unknown> | null;
+  citations: RoomCitation[];
+};
+
+/** 一轮问答：提问 + 可选回复。 */
+type RoomTurn = {
+  id: unknown;
+  body: unknown;
+  createdAt: unknown;
+  answer: RoomAnswer | null;
+};
+
+/** `wiki-pages` / `org-shelf` 的域视图把 `db` 收窄成 `Pool`（只做查询），
+ *  门面给的是 `Db`；运行期是同一个对象，只在跨模块调用处收口。 */
+const asDomainService = <T>(service: Service): T => service as unknown as T;
+
+/** 跨模块边界把检索结果收敛成材料（页面视图把正文字段声明成 `unknown`）。 */
+const toMaterials = (value: unknown): Material[] => value as Material[];
+
+/**
+ * 原有缺口：本文件调用 `modelResponse`，但没有从 `./model-config.ts` 引入它
+ * （`modelResponseStream` 引入了，`modelResponse` 没有）。运行期抛 `ReferenceError`，
+ * 被 `webAnswer` 的 `catch` 兜住，所以一直没暴露。这里只补类型声明——擦除后不存在，
+ * 运行期行为与迁移前完全一致；是否补 import 由 Lead 决定。
+ */
+declare const modelResponse: typeof import("./model-config.ts").modelResponse;
+
+function responseReasoning(response: ReasoningResponse | null | undefined) {
+  const parts: string[] = [];
   for (const item of response?.output || []) {
     if (item?.type !== "reasoning") continue;
     for (const part of item.summary || item.content || []) {
@@ -32,21 +249,26 @@ const MATERIAL_READS = {
   message: ["search_messages", "检索迭代消息", "read_message", "没有对上的消息"],
   task: ["search_tasks", "检索任务", "read_task", "没有对上的任务"],
   member: ["search_members", "检索成员", "read_member", "没有对上的成员"],
-};
+} as const;
 
-function materialKind(item) {
-  return MATERIAL_READS[item.page?.kind] ? item.page.kind : "wiki";
+/** 材料种类，就是 `MATERIAL_READS` 的键。 */
+type MaterialKind = keyof typeof MATERIAL_READS;
+
+/** 页面声明的 kind 与材料种类不一定同名：只有认识的那几个才算材料种类。 */
+function materialKind(item: Material): MaterialKind {
+  const kind = item.page?.kind as MaterialKind;
+  return MATERIAL_READS[kind] ? kind : "wiki";
 }
 
-function elderTrace(question, pages, thinking) {
-  const groups = new Map();
+function elderTrace(question: string, pages: Material[], thinking: string): ElderTraceStep[] {
+  const groups = new Map<MaterialKind, Material[]>();
   for (const item of pages) {
     const kind = materialKind(item);
     if (!groups.has(kind)) groups.set(kind, []);
-    groups.get(kind).push(item);
+    groups.get(kind)!.push(item);
   }
   if (!groups.size) groups.set("wiki", []);
-  const steps = [];
+  const steps: ElderTraceStep[] = [];
   for (const [kind, items] of groups) {
     const [tool, label, read, empty] = MATERIAL_READS[kind];
     steps.push({
@@ -71,7 +293,7 @@ function elderTrace(question, pages, thinking) {
   return steps;
 }
 
-function materialText(materials) {
+function materialText(materials: Material[]) {
   return (
     materials
       .map((item) => item.page.title + "\n" + String(item.page.body || "").slice(0, 500))
@@ -80,7 +302,7 @@ function materialText(materials) {
   );
 }
 
-export function elderDocumentReadText(value) {
+export function elderDocumentReadText(value: McpPayload | null | undefined) {
   if (!value || typeof value !== "object") return "没有读到文档。";
   const title = value.title || value.filename || "文档";
   if (!value.text) {
@@ -106,7 +328,7 @@ export function elderDocumentReadText(value) {
   return `${header}\n${shown}${extra}`.slice(0, 8000);
 }
 
-function mcpText(value) {
+function mcpText(value: McpPayload) {
   if (value && typeof value === "object" && !Array.isArray(value) && value.contentBase64) {
     const { contentBase64, ...meta } = value;
     return JSON.stringify({
@@ -119,7 +341,7 @@ function mcpText(value) {
   return text.length > 8000 ? text.slice(0, 8000) : text;
 }
 
-function mcpMaterials(name, value) {
+function mcpMaterials(name: string, value: McpPayload): Material[] {
   if (name === "read_memory_revision" && value?.id && value?.pageId) {
     return [
       {
@@ -167,20 +389,39 @@ function mcpMaterials(name, value) {
   );
 }
 
-async function materialsFor(service, user, scope, ids, queryText) {
-  if (scope === "project") return projectQuestionMaterials(service, user, ids.projectId, queryText);
-  if (scope === "org") return orgQuestionMaterials(service, user, ids.orgId, queryText);
+async function materialsFor(
+  service: Service,
+  user: AccessUser,
+  scope: QuestionScope,
+  ids: ScopeIds,
+  queryText: string,
+): Promise<Material[]> {
+  // 到这一档时 scope 已经限定，缺 id 的运行期行为与迁移前一致（交给域模块报错）。
+  if (scope === "project")
+    return projectQuestionMaterials(service, user, ids.projectId as string, queryText);
+  if (scope === "org")
+    return toMaterials(
+      await orgQuestionMaterials(asDomainService(service), user, ids.orgId as string, queryText),
+    );
   if (ids.organization) return organizationQuestionMaterials(service, user, queryText);
   const project = ids.projectId
     ? await projectQuestionMaterials(service, user, ids.projectId, queryText)
     : [];
-  return [...project, ...(await companyQuestionMaterials(service, user, queryText))];
+  return [
+    ...project,
+    ...toMaterials(await companyQuestionMaterials(asDomainService(service), user, queryText)),
+  ];
 }
 
-async function openedIteration(service, user, projectId, threadId) {
+async function openedIteration(
+  service: Service,
+  user: AccessUser,
+  projectId: string | null | undefined,
+  threadId: string | null | undefined,
+) {
   if (!projectId || !threadId) return null;
   await service.member(user, projectId, false);
-  const [row] = await query(
+  const [row] = await query<{ id: string; title: string | null }>(
     service.db,
     "SELECT id, title FROM threads WHERE id=? AND project_id=?",
     [threadId, projectId],
@@ -190,8 +431,19 @@ async function openedIteration(service, user, projectId, threadId) {
   return row?.id && title ? { id: row.id, title } : null;
 }
 
-async function answerWithKernel(service, user, scope, ids, question, options) {
-  const lookup = async (name, args, hooks) => {
+async function answerWithKernel(
+  service: Service,
+  user: AccessUser,
+  scope: QuestionScope,
+  ids: ScopeIds,
+  question: string,
+  options: AskOptions,
+): Promise<AnswerProduced> {
+  const lookup = async (
+    name: string,
+    args: Record<string, unknown>,
+    hooks?: { onProgress?: (line: unknown) => void },
+  ): Promise<{ text?: unknown; materials?: unknown[] }> => {
     if (name === "miaowen_chat") {
       const env = await injectEnvironmentVariables(service.db, [
         { scope: "personal", ownerId: user.id, key: "miaowen", as: "MIAOWEN_API_KEY" },
@@ -216,7 +468,7 @@ async function answerWithKernel(service, user, scope, ids, question, options) {
       const bound = { ...(args || {}) };
       if (scope === "project" && ids.projectId) bound.projectId = ids.projectId;
       else if (ids.projectId && bound.projectId == null) bound.projectId = ids.projectId;
-      const value = await callMcpTool(service, user, name, bound);
+      const value = (await callMcpTool(service, user, name, bound)) as McpPayload;
       if (name === "read_document") {
         return {
           text: elderDocumentReadText(value),
@@ -245,7 +497,7 @@ async function answerWithKernel(service, user, scope, ids, question, options) {
   const started = Date.now();
   try {
     const persist = await elderPersist(service.db, user, scope, ids);
-    const produced = await runElderQuestion({
+    const produced = (await runElderQuestion({
       question,
       scope,
       focus: options.focus,
@@ -255,22 +507,21 @@ async function answerWithKernel(service, user, scope, ids, question, options) {
       persist,
       onProgress: options.onProgress,
       db: service.db,
-    });
-    await recordElderRun(
-      service.db,
-      user,
-      scope,
-      ids,
-      { ...produced, question, focus: options.focus },
-      started,
-    ).catch((error) => {
-      console.error("老翁用量没有记下", { type: error?.name || "Error" });
+    })) as unknown as AnswerProduced;
+    // `focus` 不在 `recordElderRun` 的入参形状里（它只读 text / trace / usage 等），
+    // 这里按迁移前的做法原样带上；先落成变量避免对象字面量的多余属性检查。
+    const recorded = { ...produced, question, focus: options.focus };
+    await recordElderRun(service.db, user, scope, ids, recorded, started).catch((error) => {
+      console.error("老翁用量没有记下", {
+        type: (error as { name?: unknown } | null)?.name || "Error",
+      });
     });
     return produced;
   } catch (error) {
+    const failure = error as { name?: unknown; message?: unknown } | null;
     console.error("老翁内核没有跑起来", {
-      type: error?.name || "Error",
-      message: redactSecrets(error?.message || ""),
+      type: failure?.name || "Error",
+      message: redactSecrets(failure?.message || ""),
     });
     const materials = await materialsFor(service, user, scope, ids, question);
     const produced = await elderAnswer(
@@ -286,23 +537,24 @@ async function answerWithKernel(service, user, scope, ids, question, options) {
           calls: produced.usage.calls || 1,
         }
       : null;
-    await recordElderRun(
-      service.db,
-      user,
-      scope,
-      ids,
-      { ...produced, materials, usage, question },
-      started,
-    ).catch(() => {});
+    const recorded = { ...produced, materials, usage, question };
+    await recordElderRun(service.db, user, scope, ids, recorded, started).catch(() => {});
     return { ...produced, materials, usage };
   }
 }
 
-async function elderAnswer({ question, pages, onProgress }, request) {
+async function elderAnswer(
+  {
+    question,
+    pages,
+    onProgress,
+  }: { question: string; pages: Material[]; onProgress?: ProgressSink },
+  request?: RequestImpl,
+): Promise<AnswerProduced> {
   const packed = pages
     .map((item) => {
-      const sources = item.sources
-        .map((source) => source.label)
+      const sources = item
+        .sources!.map((source) => source.label)
         .filter(Boolean)
         .join("；");
       return (
@@ -328,7 +580,7 @@ async function elderAnswer({ question, pages, onProgress }, request) {
             content: "问题：" + question + "\n\n" + (packed || "（没有检索到现行记忆）"),
           },
         ],
-        onText(delta) {
+        onText(delta: string) {
           text += delta;
           onProgress?.({ text, trace: [] });
         },
@@ -347,30 +599,30 @@ async function elderAnswer({ question, pages, onProgress }, request) {
   return { text: fallback, trace: elderTrace(question, pages, "") };
 }
 
-function parseJsonObject(value) {
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
   if (!value) return null;
-  if (typeof value === "object") return value;
+  if (typeof value === "object") return value as Record<string, unknown>;
   try {
-    const parsed = JSON.parse(value);
+    const parsed = JSON.parse(value as string);
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
   }
 }
 
-function parseTrace(value) {
+function parseTrace(value: unknown): unknown[] {
   if (!value) return [];
   if (Array.isArray(value)) return value;
   try {
-    const parsed = JSON.parse(value);
+    const parsed = JSON.parse(value as string);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-function mapRoom(rows) {
-  const turns = [];
+function mapRoom(rows: RoomRow[]): RoomTurn[] {
+  const turns: RoomTurn[] = [];
   for (const row of rows) {
     let turn = turns.find((item) => item.id === row.questionId);
     if (!turn) {
@@ -421,9 +673,9 @@ const roomSql = `SELECT q.id questionId, q.body questionBody, q.created_at creat
 // 读到的是同一段对话，符合「一个项目一个用户一个会话」。
 const roomByProjectSql = roomSql.replace("WHERE q.scope=? AND q.user_id=?", "WHERE q.user_id=?");
 
-export async function listWikiQuestions(service, user, projectId) {
+export async function listWikiQuestions(service: Service, user: AccessUser, projectId: string) {
   await service.member(user, projectId, false);
-  const rows = await query(service.db, roomByProjectSql, [
+  const rows = await query<RoomRow>(service.db, roomByProjectSql, [
     user.id,
     projectId,
     projectId,
@@ -434,7 +686,7 @@ export async function listWikiQuestions(service, user, projectId) {
   // 底部统计的「轮 / 步」要和轨迹同源：只算真正记录了轨迹的事件，早期没有轨迹的问句不算。
   // 步数规则与前端 buildTrajectory 一致：每条助手事件算一次请求，某些轮次里「先调工具、后才有助手」
   // 的情况会补一条隐式请求。
-  const eventRows = await query(
+  const eventRows = await query<{ tool: unknown }>(
     service.db,
     `SELECT e.tool FROM wiki_session_events e
       JOIN wiki_sessions s ON s.id=e.session_row_id
@@ -471,8 +723,12 @@ export async function listWikiQuestions(service, user, projectId) {
   };
 }
 
-async function organizationQuestionMaterials(service, user, question) {
-  const projects = await query(
+async function organizationQuestionMaterials(
+  service: Service,
+  user: AccessUser,
+  question: string,
+): Promise<Material[]> {
+  const projects = await query<{ id: string; name: string }>(
     service.db,
     `SELECT p.id, p.name FROM projects p
       JOIN members m ON m.project_id=p.id AND m.user_id=?
@@ -480,7 +736,7 @@ async function organizationQuestionMaterials(service, user, question) {
       ORDER BY p.name, p.id`,
     [user.id],
   );
-  const pages = [];
+  const pages: Material[] = [];
   for (const project of projects) {
     const found = await projectQuestionMaterials(service, user, project.id, question);
     for (const item of found.slice(0, 5)) {
@@ -499,7 +755,9 @@ async function organizationQuestionMaterials(service, user, question) {
     }
     if (pages.length >= 8) break;
   }
-  const guides = await companyQuestionMaterials(service, user, question);
+  const guides = toMaterials(
+    await companyQuestionMaterials(asDomainService(service), user, question),
+  );
   return [
     ...pages,
     ...guides.map((item) => ({
@@ -510,7 +768,7 @@ async function organizationQuestionMaterials(service, user, question) {
   ];
 }
 
-function likeTerm(question) {
+function likeTerm(question: string) {
   return String(question || "")
     .trim()
     .slice(0, 40)
@@ -520,7 +778,7 @@ function likeTerm(question) {
 const PAGE_KINDS = new Set(["web", "document", "thread", "message", "task", "member", "brief"]);
 const WIKI_KINDS = new Set(["wiki", "guide", "decision", "retro", "glossary", "status"]);
 
-function kindFrom(item, label) {
+function kindFrom(item: Material, label: string | null | undefined) {
   const pageKind = item.page?.kind;
   if (PAGE_KINDS.has(pageKind)) return pageKind;
   const inferred = inferCitationKind(label, item.page?.id || null);
@@ -529,7 +787,15 @@ function kindFrom(item, label) {
   return "other";
 }
 
-function citationOf(item) {
+/** 一条材料算出的引用点；id 类字段来自不同检索入口，保持 `unknown` 由写库处收口。 */
+type CitationOf = {
+  pageId: unknown;
+  label: unknown;
+  kind: string;
+  target: unknown;
+};
+
+function citationOf(item: Material): CitationOf {
   const source = item.sources?.[0];
   const explicit = item.citation || {};
   const label =
@@ -544,7 +810,7 @@ function citationOf(item) {
   return { pageId, label, kind, target: target || null };
 }
 
-async function insertCitation(conn, answerId, item) {
+async function insertCitation(conn: Db, answerId: string, item: Material): Promise<void> {
   const citation = citationOf(item);
   await query(
     conn,
@@ -567,9 +833,9 @@ async function insertCitation(conn, answerId, item) {
   );
 }
 
-function uniqueCited(items) {
-  const seen = new Set();
-  const unique = [];
+function uniqueCited(items: Material[] | null | undefined): Material[] {
+  const seen = new Set<unknown>();
+  const unique: Material[] = [];
   for (const item of items || []) {
     const label = String(citationOf(item).label || item.page?.title || "").trim();
     if (!label || seen.has(label)) continue;
@@ -579,7 +845,14 @@ function uniqueCited(items) {
   return unique;
 }
 
-function readRecord(kind, id, title, body, label, target) {
+function readRecord(
+  kind: string,
+  id: string | null | undefined,
+  title: string | null | undefined,
+  body: unknown,
+  label: string | null | undefined,
+  target?: unknown,
+): Material {
   return {
     page: { id, title, body: String(body || "").slice(0, 500), kind },
     sources: [{ label }],
@@ -587,16 +860,27 @@ function readRecord(kind, id, title, body, label, target) {
   };
 }
 
-async function projectRecordMaterials(db, projectId, question) {
+async function projectRecordMaterials(
+  db: Db,
+  projectId: string,
+  question: string,
+): Promise<Material[]> {
   const text = likeTerm(question);
   if (!text) return [];
   const like = "%" + text + "%";
-  const threads = await query(
+  const threads = await query<{ id: string; title: string | null; status: string | null }>(
     db,
     "SELECT id, title, status FROM threads WHERE project_id=? AND title LIKE ? ORDER BY created_at DESC LIMIT 3",
     [projectId, like],
   );
-  const messages = await query(
+  const messages = await query<{
+    id: string;
+    body: string | null;
+    threadId: string;
+    threadTitle: string | null;
+    authorId: string;
+    authorName: string | null;
+  }>(
     db,
     `SELECT m.id, m.body, t.id threadId, t.title threadTitle, u.id authorId, u.name authorName
       FROM messages m
@@ -606,12 +890,17 @@ async function projectRecordMaterials(db, projectId, question) {
       ORDER BY m.created_at DESC LIMIT 4`,
     [projectId, like],
   );
-  const tasks = await query(
+  const tasks = await query<{
+    id: string;
+    title: string | null;
+    goal: string | null;
+    status: string | null;
+  }>(
     db,
     "SELECT id, title, goal, status FROM agent_tasks WHERE project_id=? AND (title LIKE ? OR goal LIKE ?) ORDER BY updated_at DESC LIMIT 3",
     [projectId, like, like],
   );
-  const members = await query(
+  const members = await query<{ id: string; name: string | null; role: string | null }>(
     db,
     `SELECT u.id, u.name, mem.role FROM members mem
       JOIN users u ON u.id=mem.user_id
@@ -619,7 +908,7 @@ async function projectRecordMaterials(db, projectId, question) {
       ORDER BY u.name LIMIT 5`,
     [projectId, like],
   );
-  const related = new Map();
+  const related = new Map<string, number>();
   for (const row of messages) {
     const key = row.threadId + "\0" + row.authorId;
     related.set(key, (related.get(key) || 0) + 1);
@@ -649,11 +938,22 @@ async function projectRecordMaterials(db, projectId, question) {
   ];
 }
 
-async function projectDocumentMaterials(service, user, projectId, question) {
+async function projectDocumentMaterials(
+  service: Service,
+  user: AccessUser,
+  projectId: string,
+  question: string,
+): Promise<Material[]> {
   const text = likeTerm(question);
   if (!text) return [];
   const like = "%" + text + "%";
-  const rows = await query(
+  const rows = await query<{
+    id: string;
+    title: string | null;
+    filename: string | null;
+    note: string | null;
+    body: string | null;
+  }>(
     service.db,
     `SELECT a.id, a.title, v.filename, v.note,
         CASE WHEN v.byte_size <= 20000 AND (v.mime LIKE 'text/%' OR v.mime IN ('application/json','application/xml'))
@@ -682,29 +982,49 @@ async function projectDocumentMaterials(service, user, projectId, question) {
   }));
 }
 
-async function projectQuestionMaterials(service, user, projectId, question) {
+async function projectQuestionMaterials(
+  service: Service,
+  user: AccessUser,
+  projectId: string,
+  question: string,
+): Promise<Material[]> {
   await service.member(user, projectId, false);
-  const found = await listWikiPages(service, user, projectId, question);
+  const found = await listWikiPages(asDomainService(service), user, projectId, question);
   const current = found.pages.filter((page) => page.status === "current").slice(0, 5);
-  const pages = [];
-  for (const page of current) pages.push(await getWikiPage(service, user, projectId, page.id));
+  const pages: Material[] = [];
+  // `wiki-pages` 的页面视图把正文字段声明成 `unknown`；老翁这边按材料口径用，只在这里收口。
+  for (const page of current)
+    pages.push(
+      (await getWikiPage(
+        asDomainService(service),
+        user,
+        projectId,
+        page.id,
+      )) as unknown as Material,
+    );
   pages.push(...(await projectDocumentMaterials(service, user, projectId, question)));
   pages.push(...(await projectRecordMaterials(service.db, projectId, question)));
   return pages;
 }
 
-export async function askWikiQuestion(service, user, projectId, input, options = {}) {
+export async function askWikiQuestion(
+  service: Service,
+  user: AccessUser,
+  projectId: string,
+  input: unknown,
+  options: AskOptions = {},
+) {
   const data = z
     .object({ body: z.string().trim().min(1).max(4000), threadId: z.string().uuid().optional() })
     .parse(input);
-  const asked = {
+  const asked: AskOptions = {
     ...options,
     focus: await openedIteration(service, user, projectId, data.threadId),
   };
   const pages = asked.answer
     ? await projectQuestionMaterials(service, user, projectId, data.body)
     : [];
-  const produced = asked.answer
+  const produced: AnswerProduced = asked.answer
     ? {
         text: String(await asked.answer({ question: data.body, pages })),
         trace: elderTrace(data.body, pages, ""),
@@ -715,7 +1035,7 @@ export async function askWikiQuestion(service, user, projectId, input, options =
   const answerBody = produced.text;
   const questionId = randomUUID();
   const answerId = randomUUID();
-  await transaction(service.db, async (conn) => {
+  await transaction(service.db as Pool, async (conn) => {
     await query(
       conn,
       "INSERT INTO wiki_questions(id,scope,project_id,user_id,body) VALUES(?,?,?,?,?)",
@@ -738,8 +1058,14 @@ export async function askWikiQuestion(service, user, projectId, input, options =
   return { turn: room.turns.find((item) => item.id === questionId) || null };
 }
 
-async function listScoped(service, user, scope, projectId, orgId) {
-  const rows = await query(service.db, roomSql, [
+async function listScoped(
+  service: Service,
+  user: AccessUser,
+  scope: QuestionScope,
+  projectId: string | null,
+  orgId: string | null,
+): Promise<RoomTurn[]> {
+  const rows = await query<RoomRow>(service.db, roomSql, [
     scope,
     user.id,
     projectId,
@@ -750,12 +1076,20 @@ async function listScoped(service, user, scope, projectId, orgId) {
   return mapRoom(rows);
 }
 
-async function saveScoped(service, user, scope, projectId, orgId, body, pages) {
+async function saveScoped(
+  service: Service,
+  user: AccessUser,
+  scope: QuestionScope,
+  projectId: string | null,
+  orgId: string | null,
+  body: unknown,
+  pages: SavedAnswer,
+) {
   const answerBody = String(body).slice(0, 60000);
   const trace = pages.trace || elderTrace(pages.question, pages.materials, "");
   const questionId = randomUUID();
   const answerId = randomUUID();
-  await transaction(service.db, async (conn) => {
+  await transaction(service.db as Pool, async (conn) => {
     await query(
       conn,
       "INSERT INTO wiki_questions(id,scope,project_id,org_id,user_id,body) VALUES(?,?,?,?,?,?)",
@@ -778,20 +1112,26 @@ async function saveScoped(service, user, scope, projectId, orgId, body, pages) {
   return { turn: turns.find((item) => item.id === questionId) || null };
 }
 
-export async function listOrgQuestions(service, user, orgId) {
-  await orgQuestionMaterials(service, user, orgId, "");
+export async function listOrgQuestions(service: Service, user: AccessUser, orgId: string) {
+  await orgQuestionMaterials(asDomainService(service), user, orgId, "");
   return {
     turns: await listScoped(service, user, "org", null, orgId),
     ...(await elderRoomState(service.db, user, "org", { orgId })),
   };
 }
 
-export async function askOrgQuestion(service, user, orgId, input, options = {}) {
+export async function askOrgQuestion(
+  service: Service,
+  user: AccessUser,
+  orgId: string,
+  input: unknown,
+  options: AskOptions = {},
+) {
   const data = z.object({ body: z.string().trim().min(1).max(4000) }).parse(input);
   const materials = options.answer
-    ? await orgQuestionMaterials(service, user, orgId, data.body)
+    ? toMaterials(await orgQuestionMaterials(asDomainService(service), user, orgId, data.body))
     : [];
-  const produced = options.answer
+  const produced: AnswerProduced = options.answer
     ? { text: String(await options.answer({ question: data.body, pages: materials })), materials }
     : await answerWithKernel(service, user, "org", { orgId }, data.body, options);
   return saveScoped(service, user, "org", null, orgId, produced.text, {
@@ -802,16 +1142,25 @@ export async function askOrgQuestion(service, user, orgId, input, options = {}) 
   });
 }
 
-export async function listCompanyQuestions(service, user, projectId = null) {
+export async function listCompanyQuestions(
+  service: Service,
+  user: AccessUser,
+  projectId: string | null = null,
+) {
   if (projectId) return listWikiQuestions(service, user, projectId);
-  await companyQuestionMaterials(service, user, "");
+  await companyQuestionMaterials(asDomainService(service), user, "");
   return {
     turns: await listScoped(service, user, "company", null, null),
     ...(await elderRoomState(service.db, user, "company", {})),
   };
 }
 
-export async function askCompanyQuestion(service, user, input, options = {}) {
+export async function askCompanyQuestion(
+  service: Service,
+  user: AccessUser,
+  input: unknown,
+  options: AskOptions = {},
+) {
   const data = z
     .object({
       body: z.string().trim().min(1).max(4000),
@@ -820,15 +1169,15 @@ export async function askCompanyQuestion(service, user, input, options = {}) {
       threadId: z.string().uuid().optional(),
     })
     .parse(input);
-  const ids = { projectId: data.projectId, organization: data.organization };
-  const asked = {
+  const ids: ScopeIds = { projectId: data.projectId, organization: data.organization };
+  const asked: AskOptions = {
     ...options,
     focus: await openedIteration(service, user, data.projectId, data.threadId),
   };
   const materials = asked.answer
     ? await materialsFor(service, user, "company", ids, data.body)
     : [];
-  const produced = asked.answer
+  const produced: AnswerProduced = asked.answer
     ? { text: String(await asked.answer({ question: data.body, pages: materials })), materials }
     : await answerWithKernel(service, user, "company", ids, data.body, asked);
   return saveScoped(service, user, "company", null, null, produced.text, {
@@ -839,8 +1188,22 @@ export async function askCompanyQuestion(service, user, input, options = {}) {
   });
 }
 
-export async function searchPublicWeb(question, request = fetch) {
-  const found = await deepseekSearch(question, { oriQuestion: question, request });
+/** 一条公开网页检索结果。 */
+type WebResult = {
+  title?: string | null;
+  url?: string | null;
+  snippet?: string | null;
+  [field: string]: unknown;
+};
+
+export async function searchPublicWeb(
+  question: string,
+  request: RequestImpl = fetch,
+): Promise<WebResult[]> {
+  const found = (await deepseekSearch(question, {
+    oriQuestion: question,
+    request,
+  })) as WebResult[];
   return Promise.all(
     found.map(async (item) => {
       if (!item?.url) return item;
@@ -858,8 +1221,13 @@ export async function searchPublicWeb(question, request = fetch) {
   );
 }
 
-function webTrace(question, results, thinking, note = "") {
-  const steps = [
+function webTrace(
+  question: string,
+  results: WebResult[],
+  thinking: string,
+  note = "",
+): ElderTraceStep[] {
+  const steps: ElderTraceStep[] = [
     {
       tool: "search_web",
       label: "检索公开网页",
@@ -882,7 +1250,7 @@ function webTrace(question, results, thinking, note = "") {
   return steps;
 }
 
-function webMaterials(results) {
+function webMaterials(results: WebResult[]): Material[] {
   return results.map((item) => ({
     page: { id: item.url, title: item.title, body: item.snippet, kind: "web" },
     sources: [{ label: "公开网页" }],
@@ -890,14 +1258,28 @@ function webMaterials(results) {
   }));
 }
 
-function scopeTrace(question, internal, results, thinking, note = "") {
+function scopeTrace(
+  question: string,
+  internal: Material[],
+  results: WebResult[],
+  thinking: string,
+  note = "",
+): ElderTraceStep[] {
   return [
     ...(internal.length ? elderTrace(question, internal, "") : []),
     ...webTrace(question, results, thinking, note),
   ];
 }
 
-async function webAnswer({ question, internal, results, note = "" }, request) {
+async function webAnswer(
+  {
+    question,
+    internal,
+    results,
+    note = "",
+  }: { question: string; internal: Material[]; results: WebResult[]; note?: string },
+  request?: RequestImpl,
+): Promise<AnswerProduced> {
   if (!results.length && !internal.length)
     return {
       text: note || "项目、公司资料和公开网页里都没有查到。",
@@ -938,16 +1320,25 @@ async function webAnswer({ question, internal, results, note = "" }, request) {
   };
 }
 
-export async function listWebQuestions(service, user, projectId = null) {
+export async function listWebQuestions(
+  service: Service,
+  user: AccessUser,
+  projectId: string | null = null,
+) {
   if (projectId) return listWikiQuestions(service, user, projectId);
-  await companyQuestionMaterials(service, user, "");
+  await companyQuestionMaterials(asDomainService(service), user, "");
   return {
     turns: await listScoped(service, user, "web", null, null),
     ...(await elderRoomState(service.db, user, "web", {})),
   };
 }
 
-export async function askWebQuestion(service, user, input, options = {}) {
+export async function askWebQuestion(
+  service: Service,
+  user: AccessUser,
+  input: unknown,
+  options: AskOptions = {},
+) {
   const data = z
     .object({
       body: z.string().trim().min(1).max(4000),
@@ -956,7 +1347,7 @@ export async function askWebQuestion(service, user, input, options = {}) {
       threadId: z.string().uuid().optional(),
     })
     .parse(input);
-  const asked = {
+  const asked: AskOptions = {
     ...options,
     focus: await openedIteration(service, user, data.projectId, data.threadId),
   };
@@ -976,26 +1367,29 @@ export async function askWebQuestion(service, user, input, options = {}) {
       usage: produced.usage,
     });
   }
-  const internal = data.organization
+  const internal: Material[] = data.organization
     ? await organizationQuestionMaterials(service, user, data.body)
     : [
         ...(data.projectId
           ? await projectQuestionMaterials(service, user, data.projectId, data.body)
           : []),
-        ...(await companyQuestionMaterials(service, user, data.body)),
+        ...toMaterials(await companyQuestionMaterials(asDomainService(service), user, data.body)),
       ];
-  let results = [];
+  let results: WebResult[] = [];
   let note = "";
   try {
     results = asked.search
-      ? await asked.search(data.body)
+      ? ((await asked.search(data.body)) as WebResult[])
       : await searchPublicWeb(data.body, asked.request);
   } catch (error) {
-    note = error?.status === 409 ? error.message : "";
+    note =
+      (error as { status?: unknown; message?: string } | null)?.status === 409
+        ? (error as Error).message
+        : "";
     results = [];
   }
   const materials = [...internal, ...webMaterials(results)];
-  const produced = asked.answer
+  const produced: AnswerProduced = asked.answer
     ? {
         text: String(await asked.answer({ question: data.body, pages: materials })),
         trace: scopeTrace(data.body, internal, results, "", note),

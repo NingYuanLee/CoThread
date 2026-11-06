@@ -15,7 +15,7 @@ import {
   isImportantTask,
   isTaskMilestoneTransition,
 } from "./memory-signal-filter.ts";
-import { maybeQueueProjectMemoryRun, noteProjectMemorySignal } from "./project-memory.js";
+import { maybeQueueProjectMemoryRun, noteProjectMemorySignal } from "./project-memory.ts";
 
 /** 单个来源的扫描游标：扫到哪一条（时间 + 同时间的 id 断点）。 */
 type ScanCursor = { at: string; id: string };

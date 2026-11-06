@@ -11,7 +11,7 @@ import {
   noteProjectMemorySignal,
   processNextProjectMemory,
   resetProjectMemoryRetryBudget,
-} from "../server/project-memory.js";
+} from "../server/project-memory.ts";
 import { isImportantIteration, isImportantTask } from "../server/memory-signal-filter.ts";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 import {
@@ -22,7 +22,7 @@ import {
   readProjectMemoryCounts,
   settleIterationMemory,
 } from "../server/memory-timeline.ts";
-import { readArchiveWorkflow } from "../server/iteration-archive.js";
+import { readArchiveWorkflow } from "../server/iteration-archive.ts";
 
 async function setup() {
   const database = await testDatabase();

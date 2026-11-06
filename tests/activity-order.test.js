@@ -5,7 +5,7 @@ import { testDatabase } from "./database.js";
 import { Service } from "../server/service.ts";
 import { query } from "../server/db.ts";
 import { trackThinking } from "../server/agent-thinking.ts";
-import { createAgentTools } from "../server/agent-tools.js";
+import { createAgentTools } from "../server/agent-tools.ts";
 test("thinking, intermediate text and tools retain actual order; final text is marked separately", async () => {
   const database = await testDatabase(),
     db = database.db;

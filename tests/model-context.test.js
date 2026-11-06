@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../server/mcp.ts";
-import { createAgentTools } from "../server/agent-tools.js";
+import { createAgentTools } from "../server/agent-tools.ts";
 import { modelDiscussion } from "../server/model-context.ts";
 
 const threadId = "ede432bd-69c1-4a65-924d-c50aec6999dc";

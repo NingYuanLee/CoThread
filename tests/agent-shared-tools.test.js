@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { createAgentTools } from "../server/agent-tools.js";
+import { createAgentTools } from "../server/agent-tools.ts";
 import { createTask, bindChildAgentExecution } from "../server/task-pool.ts";
 
 test("小祥 can execute shared sandbox tools while member and Chat permissions remain enforced", async () => {

@@ -2,7 +2,7 @@ import { query } from "./db.ts";
 import { upsertUtteranceMemory } from "./utterance-memory.ts";
 import { syncTaskMemory } from "./task-memory.ts";
 import { syncDocumentMemory } from "./document-memory.ts";
-import { queueConversationThread } from "./conversation-memory-store.js";
+import { queueConversationThread } from "./conversation-memory-store.ts";
 import { folderRootKind } from "./documents/index.ts";
 import { ensureFileIndexRoots } from "./file-index-roots.ts";
 import type { Db } from "./types.ts";
@@ -127,7 +127,7 @@ export async function backfillProjectMemory(
       versionId: latest.id,
       createdBy: createdBy || artifact.createdBy,
     });
-    const { queueDocumentMemory } = await import("./project-memory.js");
+    const { queueDocumentMemory } = await import("./project-memory.ts");
     await queueDocumentMemory(db, latest.id);
     result.documentPages += 1;
   }

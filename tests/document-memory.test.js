@@ -12,7 +12,7 @@ import { searchProjectMemory } from "../server/memory-search.ts";
 import { getWikiPage, listWikiPages } from "../server/wiki-pages.ts";
 import { readProjectMemory } from "../server/memory-timeline.ts";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
-import { loadProjectWikiIndexes, loadProjectMemoryEntryIndex } from "../server/project-memory.js";
+import { loadProjectWikiIndexes, loadProjectMemoryEntryIndex } from "../server/project-memory.ts";
 import { libraryChange as libraryChangeRaw } from "../server/documents/library.ts";
 import {
   saveFileIndexGroup,

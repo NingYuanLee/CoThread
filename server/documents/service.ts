@@ -18,6 +18,8 @@ import { AGENT_MEMBER } from "../../shared/agent-member.js";
 import { decodeUploadedBytes, verifyBytes } from "./file-bytes.ts";
 import { INLINE_FILE_MAX_BYTES } from "../../shared/upload-limits.js";
 import { publishWork } from "../work-events.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "../types.ts";
 import {
   DOCUMENT_LIBRARY_FOLDER_SQL,
   OUTPUT_LIBRARY_FOLDER_SQL,
@@ -33,6 +35,7 @@ import {
   uniqueVersionFilename,
   utcDateKey,
 } from "./project-library.ts";
+import type { LibraryFolderRow } from "./project-library.ts";
 import { libraryChange } from "./library.ts";
 import { previewContentType, resolveStoredMime } from "./preview-mime.ts";
 import { recordDocumentChange } from "./document-audit.ts";
@@ -50,21 +53,95 @@ import {
   touchArtifact,
 } from "./versions.ts";
 
-const fail = (status, message) => {
-  throw new HttpError(status, message);
+/**
+ * 调用文档内核的身份。
+ *
+ * 业务门面（`Service`）在构造后提供 `member` / `thread` / `insertMessage` /
+ * `postMessage` / `beginIterationArchive` 这些协作者；内核不 import 业务模块，
+ * 所以它们声明成抽象方法，由子类实现。
+ */
+export type DocumentUser = {
+  id: string;
+  kind?: string | null;
+  scope?: string | null;
 };
-const json = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+
+/** 审计日志的 `actor_type`：内核的调用方都带 kind，保留原值、不做兜底改写。 */
+function actorKind(user: DocumentUser): string {
+  return user.kind as string;
+}
+
+/** 上传/提交文档时的可选参数。 */
+type SubmitOptions = {
+  bytes?: Buffer;
+  db?: Db;
+  silent?: boolean;
+  executorSessionId?: string | null;
+  archive?: boolean;
+  agent?: boolean;
+};
+
+/** 文档树里的文件夹行（本文件用到的列）。 */
+type FolderRow = LibraryFolderRow & {
+  project_id?: string | null;
+  updated_at?: unknown;
+};
+
+/** 文档版本行：`select v.*` 与投影列（列定义见 migrations/001_initial.sql）。 */
+type VersionRow = {
+  id: string;
+  artifact_id: string;
+  project_id: string;
+  folder_id: string | null;
+  thread_id: string | null;
+  folder_thread_id?: string | null;
+  folder_kind?: string | null;
+  version: number;
+  title: string;
+  filename: string;
+  mime: string;
+  content: Buffer;
+  sha256: string;
+  byte_size: number;
+  note: string;
+  created_by: string;
+  [field: string]: unknown;
+};
+
+/** 一次版本提交的摘要。 */
+type SubmittedVersion = {
+  id: string;
+  artifactId: string;
+  version: number;
+  sha256: string;
+  byteSize: number;
+  title: string;
+  filename: string;
+  mime: string | undefined;
+};
+
+function fail(status: number, message: string): never {
+  throw new HttpError(status, message);
+}
+const json = (value: unknown): unknown => (typeof value === "string" ? JSON.parse(value) : value);
 const id = z.string().uuid();
 const title = z.string().trim().min(1).max(160);
 const body = z.string().trim().min(1).max(20000);
 
-export function officialTitleWithVersion(name, versionNumber) {
+export function officialTitleWithVersion(name: unknown, versionNumber: unknown): string {
   const raw = String(name || "").trim() || "文档";
   const base = raw.replace(/\s+v\d+$/i, "").trim() || raw;
   return `${base} v${versionNumber}`.slice(0, 160);
 }
 
-function submittedVersion(id, artifactId, version, sha256, data, byteSize) {
+function submittedVersion(
+  id: string,
+  artifactId: string,
+  version: number,
+  sha256: string,
+  data: { title: string; filename: string; mime?: string | undefined },
+  byteSize: number,
+): SubmittedVersion {
   return {
     id,
     artifactId,
@@ -77,11 +154,56 @@ function submittedVersion(id, artifactId, version, sha256, data, byteSize) {
   };
 }
 
-export class DocumentsService {
-  constructor(db) {
+export abstract class DocumentsService {
+  db: Db;
+  constructor(db: Db) {
     this.db = db;
   }
-  async documentFolder(db, projectId, kind, threadId = null) {
+
+  /** 访问判定（由业务门面实现）。 */
+  abstract member(
+    user: DocumentUser,
+    projectId: string,
+    write?: boolean,
+    db?: Db,
+    owner?: boolean,
+  ): Promise<unknown>;
+  /** 迭代读取（由业务门面实现）。 */
+  abstract thread(
+    user: DocumentUser,
+    threadId: string,
+    write?: boolean,
+    db?: Db,
+    options?: { display?: boolean },
+  ): Promise<Record<string, unknown>>;
+  /** 发系统消息（由业务门面实现）。 */
+  abstract insertMessage(
+    db: Db,
+    user: DocumentUser,
+    threadId: string,
+    text: string,
+    refs?: string[],
+    source?: string,
+    agentTaskId?: string | null,
+  ): Promise<unknown>;
+  /** 以用户身份发消息（由业务门面实现）。 */
+  abstract postMessage(
+    user: DocumentUser,
+    threadId: string,
+    input: Record<string, unknown>,
+  ): Promise<{ id: string }>;
+  /** 发起迭代归档（由业务门面实现）。 */
+  abstract beginIterationArchive(
+    user: DocumentUser,
+    threadId: string,
+    input?: Record<string, unknown>,
+  ): Promise<unknown>;
+  async documentFolder(
+    db: Db,
+    projectId: string,
+    kind: string,
+    threadId: string | null = null,
+  ): Promise<FolderRow> {
     if (
       threadId &&
       (kind === "iteration_cache" || kind === "iteration_outputs" || kind === "iteration_root")
@@ -115,7 +237,12 @@ export class DocumentsService {
     }
     return folder;
   }
-  async dailyProjectFolder(db, projectId, area, now = new Date()) {
+  async dailyProjectFolder(
+    db: Db,
+    projectId: string,
+    area: string,
+    now: Date = new Date(),
+  ): Promise<FolderRow> {
     const kind = area === "outputs" ? "project_outputs" : "project_cache";
     const root = await this.documentFolder(db, projectId, kind, null);
     const date = utcDateKey(now);
@@ -139,11 +266,15 @@ export class DocumentsService {
     return folder;
   }
   async resolveVersionFolderId(
-    db,
-    projectId,
-    folderId,
-    { chatUpload, sourceFile, generatedByTask },
-  ) {
+    db: Db,
+    projectId: string,
+    folderId: string | null | undefined,
+    {
+      chatUpload,
+      sourceFile,
+      generatedByTask,
+    }: { chatUpload?: boolean; sourceFile?: boolean; generatedByTask?: boolean },
+  ): Promise<string> {
     if (chatUpload || sourceFile) return (await this.dailyProjectFolder(db, projectId, "cache")).id;
     if (folderId == null)
       return (await this.dailyProjectFolder(db, projectId, generatedByTask ? "outputs" : "cache"))
@@ -166,7 +297,7 @@ export class DocumentsService {
       return (await this.dailyProjectFolder(db, projectId, "outputs")).id;
     return folder.id;
   }
-  async assertOfficialOrganizing(db, projectId) {
+  async assertOfficialOrganizing(db: Db, projectId: string): Promise<void> {
     const [job] = await query(
       db,
       `SELECT id FROM document_organization_jobs
@@ -175,7 +306,11 @@ export class DocumentsService {
     );
     if (job) fail(409, "老翁正在整理正式文件，正式文件区暂时不可操作");
   }
-  async assertDocumentScopeAvailable(db, projectId, folderId = null) {
+  async assertDocumentScopeAvailable(
+    db: Db,
+    projectId: string,
+    folderId: string | null = null,
+  ): Promise<void> {
     if (!folderId) {
       await this.assertOfficialOrganizing(db, projectId);
       return;
@@ -183,7 +318,7 @@ export class DocumentsService {
     if (await isOfficialLibraryFolder(db, folderId))
       await this.assertOfficialOrganizing(db, projectId);
   }
-  libraryQueries(projectId) {
+  libraryQueries(projectId: string) {
     return {
       versions: query(
         this.db,
@@ -206,7 +341,7 @@ export class DocumentsService {
       ),
     };
   }
-  async libraryRevision(projectId) {
+  async libraryRevision(projectId: string): Promise<string> {
     const [row] = await query(
       this.db,
       `SELECT
@@ -232,7 +367,7 @@ export class DocumentsService {
       row.job_at,
     ].join("|");
   }
-  mapLibraryVersions(versions, folders) {
+  mapLibraryVersions(versions: VersionRow[], folders: LibraryFolderRow[]): VersionRow[] {
     return versions.map((version) => {
       const root = folderRootKindInList(version.folder_id, folders);
       if (root === "project_official") return { ...version, review: "confirmed" };
@@ -240,7 +375,7 @@ export class DocumentsService {
       return version;
     });
   }
-  async projectLibrary(user, projectId) {
+  async projectLibrary(user: DocumentUser, projectId: string) {
     await this.member(user, projectId);
     await ensureProjectLibraryRoots(this.db, projectId);
     const queries = this.libraryQueries(projectId);
@@ -256,7 +391,7 @@ export class DocumentsService {
       libraryRevision: await this.libraryRevision(projectId),
     };
   }
-  async refs(db, projectId, refs) {
+  async refs(db: Db, projectId: string, refs: string[]): Promise<void> {
     for (const ref of refs) {
       const [version] = await query(
         db,
@@ -270,7 +405,7 @@ export class DocumentsService {
       if (!version) fail(400, "只能引用本项目文档库中的有效文档版本");
     }
   }
-  async folderRefs(db, projectId, folderIds) {
+  async folderRefs(db: Db, projectId: string, folderIds: string[]): Promise<void> {
     for (const folderId of folderIds) {
       const [folder] = await query(
         db,
@@ -281,8 +416,13 @@ export class DocumentsService {
         fail(400, "只能引用本项目文档库中的文件夹");
     }
   }
-  async uploadOfficialDocument(user, projectId, input, options = {}) {
-    if (!["session", "api"].includes(user.kind))
+  async uploadOfficialDocument(
+    user: DocumentUser,
+    projectId: string,
+    input: unknown,
+    options: { bytes?: Buffer; db?: Db } = {},
+  ) {
+    if (!["session", "api"].includes(String(user.kind)))
       fail(403, "上传正式文件需要人工或已授权的 MCP 账号");
     id.parse(projectId);
     const data = z
@@ -307,7 +447,7 @@ export class DocumentsService {
           sha256: data.sha256,
           maxBytes: INLINE_FILE_MAX_BYTES,
         });
-    const save = async (db) => {
+    const save = async (db: Db) => {
       await this.member(user, projectId, true, db);
       await this.assertOfficialOrganizing(db, projectId);
       await query(db, "SELECT id FROM projects WHERE id=? FOR UPDATE", [projectId]);
@@ -355,28 +495,33 @@ export class DocumentsService {
         folderId: data.folderId,
         action: "document_uploaded",
         source: user.kind === "api" ? "mcp" : "ui",
-        actorType: user.kind,
+        actorType: actorKind(user),
         actorId: user.id,
         details: { title: data.title, filename: data.filename, version: 1 },
       });
       return submittedVersion(versionId, artifactId, 1, sha256, data, bytes.length);
     };
-    return options.db ? save(options.db) : transaction(this.db, save);
+    return options.db ? save(options.db) : transaction(this.db as Pool, save);
   }
-  async uploadCacheDraft(user, threadId, input, options = {}) {
+  async uploadCacheDraft(
+    user: DocumentUser,
+    threadId: string,
+    input: unknown,
+    options: SubmitOptions = {},
+  ) {
     return this.submitVersion(user, threadId, input, undefined, undefined, false, {
       ...options,
       silent: true,
     });
   }
   async submitVersion(
-    user,
-    threadId,
-    input,
-    exportKey,
-    agentMessageId,
+    user: DocumentUser,
+    threadId: string,
+    input: unknown,
+    exportKey: string | null | undefined,
+    agentMessageId: string | null | undefined,
     chatUpload = false,
-    options = {},
+    options: SubmitOptions = {},
   ) {
     if (chatUpload && user.kind !== "session") fail(403, "对话上传需要人工登录");
     if (user.kind === "session" && !chatUpload && !options.silent)
@@ -404,8 +549,8 @@ export class DocumentsService {
           sha256: data.sha256,
           maxBytes: INLINE_FILE_MAX_BYTES,
         });
-    const save = async (db) => {
-      const thread = await this.thread(user, threadId, true, db);
+    const save = async (db: Db) => {
+      const thread = (await this.thread(user, threadId, true, db)) as { project_id: string };
       if (agentMessageId) {
         const [reply] = await query(
           db,
@@ -568,7 +713,7 @@ export class DocumentsService {
         folderId: data.folderId,
         action: sourceFile ? "cache_uploaded" : "artifact_published",
         source: user.kind === "agent" ? "agent" : user.kind === "api" ? "mcp" : "ui",
-        actorType: user.kind,
+        actorType: actorKind(user),
         actorId: user.id,
         threadId,
         messageId: agentMessageId || null,
@@ -591,9 +736,17 @@ export class DocumentsService {
         ]);
       return submittedVersion(versionId, artifactId, version, sha256, data, bytes.length);
     };
-    return options.db ? save(options.db) : transaction(this.db, save);
+    return options.db ? save(options.db) : transaction(this.db as Pool, save);
   }
-  async version(user, versionId, { includeContent = true, maxBytes = 0, byteOffset = 0 } = {}) {
+  async version(
+    user: DocumentUser,
+    versionId: string,
+    {
+      includeContent = true,
+      maxBytes = 0,
+      byteOffset = 0,
+    }: { includeContent?: boolean; maxBytes?: unknown; byteOffset?: unknown } = {},
+  ): Promise<VersionRow> {
     id.parse(versionId);
     const limit = Math.min(Math.max(0, Math.trunc(Number(maxBytes) || 0)), 1_048_576);
     const offset = Math.max(0, Math.trunc(Number(byteOffset) || 0));
@@ -604,7 +757,7 @@ export class DocumentsService {
       : limit
         ? `${metaColumns},SUBSTRING(v.content, ?, ?) AS content`
         : "v.*";
-    const [version] = await query(
+    const [version] = await query<VersionRow>(
       this.db,
       `SELECT ${versionColumns},a.project_id,a.title,a.folder_id,f.thread_id folder_thread_id,f.folder_kind
        FROM versions v JOIN artifacts a ON a.id=v.artifact_id LEFT JOIN document_folders f ON f.id=a.folder_id WHERE v.id=?`,
@@ -614,7 +767,7 @@ export class DocumentsService {
     await this.member(user, version.project_id);
     return version;
   }
-  async folderArchive(user, projectId, folderId) {
+  async folderArchive(user: DocumentUser, projectId: string, folderId: string) {
     id.parse(projectId);
     id.parse(folderId);
     await this.member(user, projectId);
@@ -631,7 +784,7 @@ export class DocumentsService {
     const relativeFolders = new Map([[folderId, ""]]);
     const pending = [folderId];
     while (pending.length) {
-      const parentId = pending.shift();
+      const parentId = pending.shift() as string;
       for (const folder of folders) {
         if (folder.parent_id !== parentId) continue;
         folderIds.add(folder.id);
@@ -678,7 +831,11 @@ export class DocumentsService {
       folder: folderById.get(folderId),
     };
   }
-  async versionSource(user, versionId, { maxBytes = 0 } = {}) {
+  async versionSource(
+    user: DocumentUser,
+    versionId: string,
+    { maxBytes = 0 }: { maxBytes?: unknown } = {},
+  ) {
     const version = await this.version(user, versionId, {
       includeContent: true,
       maxBytes,
@@ -695,7 +852,13 @@ export class DocumentsService {
       filename,
     };
   }
-  async versionPreview(user, versionId, assetPath = "", ticket = "", nonce = "") {
+  async versionPreview(
+    user: DocumentUser,
+    versionId: string,
+    assetPath = "",
+    ticket = "",
+    nonce = "",
+  ) {
     const root = await this.version(user, versionId, { includeContent: !assetPath });
     const rootName = String(root.filename || "").replace(/\\/g, "/");
     if (!/\.html?$/i.test(rootName)) fail(404, "该版本不是 HTML 文档");
@@ -723,7 +886,7 @@ export class DocumentsService {
     const segments = target.split("/").filter(Boolean);
     const filename = segments.pop();
     if (!filename) fail(403, "资源路径无效");
-    let row = null;
+    let row: Record<string, unknown> | null = null;
     if (segments.length) {
       const nestedFolder = await walkPreviewSubfolders(
         this.db,
@@ -742,7 +905,7 @@ export class DocumentsService {
     }
     if (!row) fail(404, "资源不存在");
     const mime = previewContentType(row.mime, row.filename);
-    const isHtml = /\.html?$/i.test(row.filename) || /\.html?$/i.test(target);
+    const isHtml = /\.html?$/i.test(String(row.filename)) || /\.html?$/i.test(target);
     return {
       content: isHtml
         ? asPreviewHtml(row.content, versionId, target, user.id, ticket, nonce)
@@ -751,7 +914,12 @@ export class DocumentsService {
       filename: row.filename,
     };
   }
-  async updateLinkedOfficialFromSource(db, user, projectId, versionId) {
+  async updateLinkedOfficialFromSource(
+    db: Db,
+    user: DocumentUser,
+    projectId: string,
+    versionId: string,
+  ) {
     const [source] = await query(
       db,
       `SELECT v.*,a.title,a.folder_id,a.source_type,a.saved_official_artifact_id,f.folder_kind
@@ -808,7 +976,7 @@ export class DocumentsService {
       folderId: source.folder_id,
       action: "official_updated_from_source",
       source: user.kind === "agent" ? "agent" : "ui",
-      actorType: user.kind,
+      actorType: actorKind(user),
       actorId: user.id,
       threadId: source.thread_id,
       details: {
@@ -827,15 +995,20 @@ export class DocumentsService {
     };
   }
   async duplicateVersionToOfficial(
-    db,
-    user,
-    projectId,
-    versionId,
+    db: Db,
+    user: DocumentUser,
+    projectId: string,
+    versionId: string,
     {
       threadId = null,
       note = "另存至项目正式文件",
       skipOrganizeCheck = false,
       title: givenTitle,
+    }: {
+      threadId?: string | null;
+      note?: string;
+      skipOrganizeCheck?: boolean;
+      title?: string;
     } = {},
   ) {
     id.parse(versionId);
@@ -937,7 +1110,7 @@ export class DocumentsService {
       folderId: official.id,
       action: "document_saved_to_official",
       source: user.kind === "agent" ? "agent" : "ui",
-      actorType: user.kind,
+      actorType: actorKind(user),
       actorId: user.id,
       threadId,
       details: {
@@ -949,21 +1122,31 @@ export class DocumentsService {
     });
     return { id: copiedVersionId, artifactId, version: 1, title: copiedTitle };
   }
-  async saveVersionToOfficial(user, projectId, versionId, input = {}) {
+  async saveVersionToOfficial(
+    user: DocumentUser,
+    projectId: string,
+    versionId: string,
+    input: unknown,
+  ) {
     if (user.kind !== "session") fail(403, "另存项目正式文件需要人工登录");
     const data = z.object({ title: title.optional() }).parse(input || {});
-    return transaction(this.db, (db) =>
+    return transaction(this.db as Pool, (db) =>
       this.duplicateVersionToOfficial(db, user, projectId, versionId, { title: data.title }),
     );
   }
-  async branchOutputVersion(user, projectId, versionId, input = {}) {
-    if (!["session", "agent"].includes(user.kind)) fail(403, "创建文档新版需要人工登录");
+  async branchOutputVersion(
+    user: DocumentUser,
+    projectId: string,
+    versionId: string,
+    input: unknown,
+  ) {
+    if (!["session", "agent"].includes(String(user.kind))) fail(403, "创建文档新版需要人工登录");
     id.parse(projectId);
     id.parse(versionId);
     const data = z
       .object({ target: z.enum(["current", "new"]), title: title.optional() })
       .parse(input || {});
-    return transaction(this.db, async (db) => {
+    return transaction(this.db as Pool, async (db) => {
       await this.member(user, projectId, true, db);
       const [source] = await query(
         db,
@@ -1031,7 +1214,7 @@ export class DocumentsService {
         folderId: source.folder_id,
         action: "version_branched",
         source: user.kind === "agent" ? "agent" : "ui",
-        actorType: user.kind,
+        actorType: actorKind(user),
         actorId: user.id,
         threadId: source.thread_id || null,
         details: {
@@ -1045,19 +1228,26 @@ export class DocumentsService {
       return { id: nextVersionId, artifactId, version, title: nextTitle, filename: nextFilename };
     });
   }
-  async copyVersionToOfficial(user, threadId, versionId, options = {}) {
+  async copyVersionToOfficial(
+    user: DocumentUser,
+    threadId: string,
+    versionId: string,
+    options: SubmitOptions = {},
+  ) {
     if (user.kind !== "session" && !options.agent) fail(403, "另存项目正式文件需要人工登录");
     id.parse(versionId);
-    const save = async (db) => {
-      const thread = await this.thread(user, threadId, !options.archive, db);
+    const save = async (db: Db) => {
+      const thread = (await this.thread(user, threadId, !options.archive, db)) as {
+        project_id: string;
+      };
       return this.duplicateVersionToOfficial(db, user, thread.project_id, versionId, {
         threadId,
         note: "另存至项目正式文件",
       });
     };
-    return options.db ? save(options.db) : transaction(this.db, save);
+    return options.db ? save(options.db) : transaction(this.db as Pool, save);
   }
-  async review(user, versionId, input) {
+  async review(user: DocumentUser, versionId: string, input: unknown) {
     if (user.kind !== "session") fail(403, "文档审核需要人工登录");
     const data = z
       .object({
@@ -1087,7 +1277,7 @@ export class DocumentsService {
     const thread = await this.thread(user, threadId, true);
     if (thread.project_id !== version.project_id) fail(400, "只能在本项目的迭代中发送审核意见");
     const reviewId = randomUUID();
-    await transaction(this.db, async (db) => {
+    await transaction(this.db as Pool, async (db) => {
       await this.thread(user, threadId, true, db);
       if (isOutputFolderKind(rootKind) && data.decision === "approved") {
         // Serialize confirmation with publication of the next sandbox version.
@@ -1148,10 +1338,15 @@ export class DocumentsService {
     });
     return { id: reviewId, messageId: message.id };
   }
-  async archive(user, threadId, input = {}) {
+  async archive(user: DocumentUser, threadId: string, input: Record<string, unknown> = {}) {
     return this.beginIterationArchive(user, threadId, input);
   }
-  async archivedThread(user, threadId, write = false, db = this.db) {
+  async archivedThread(
+    user: DocumentUser,
+    threadId: string,
+    write = false,
+    db: Db = this.db,
+  ): Promise<Record<string, unknown>> {
     id.parse(threadId);
     const [thread] = await query(
       db,
@@ -1163,9 +1358,9 @@ export class DocumentsService {
     if (thread.status !== "archived") fail(409, "只能操作已归档的迭代");
     return thread;
   }
-  async restoreArchivedThread(user, threadId) {
+  async restoreArchivedThread(user: DocumentUser, threadId: string) {
     if (user.kind !== "session") fail(403, "恢复迭代需要人工登录");
-    return transaction(this.db, async (db) => {
+    return transaction(this.db as Pool, async (db) => {
       await this.archivedThread(user, threadId, true, db);
       await query(db, "UPDATE threads SET status='active', archived_at=NULL WHERE id=?", [
         threadId,
@@ -1176,9 +1371,9 @@ export class DocumentsService {
       return result;
     });
   }
-  async deleteArchivedThread(user, threadId) {
+  async deleteArchivedThread(user: DocumentUser, threadId: string) {
     if (user.kind !== "session") fail(403, "删除迭代需要人工登录");
-    return transaction(this.db, async (db) => {
+    return transaction(this.db as Pool, async (db) => {
       const thread = await this.archivedThread(user, threadId, true, db);
       const [task] = await query(
         db,
@@ -1229,7 +1424,7 @@ export class DocumentsService {
       const versionIds = [...new Set(versionIdRows.map((row) => row.id))];
       if (versionIds.length) {
         // 迭代删除会连带删掉文档版本，指向它们的项目进程信号随之失效。
-        const { dropDocumentVersionSignals } = await import("../project-memory.js");
+        const { dropDocumentVersionSignals } = await import("../project-memory.ts");
         await dropDocumentVersionSignals(db, { versionIds });
         const placeholders = versionIds.map(() => "?").join(",");
         await query(

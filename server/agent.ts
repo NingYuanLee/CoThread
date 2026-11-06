@@ -9,7 +9,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { query } from "./db.ts";
 import { contextInjectionFromEvent } from "../shared/context-injection.js";
 import { Service, HttpError } from "./service.ts";
-import { createAgentTools } from "./agent-tools.js";
+import { createAgentTools } from "./agent-tools.ts";
 import { releaseSandbox } from "./agent-sandbox.ts";
 import { agentSession } from "./agent-session.ts";
 import { deliverTaskUpdates } from "./agent-updates.ts";

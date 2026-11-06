@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { readDocumentContent } from "../server/documents/index.ts";
 import { createMcpServer, mcpReadToolSpecs } from "../server/mcp.ts";
-import { elderDocumentReadText } from "../server/wiki-questions.js";
+import { elderDocumentReadText } from "../server/wiki-questions.ts";
 import { FILE_CHUNK_SIZE } from "../shared/upload-limits.js";
 import { buildLegacyWordFile } from "./legacy-doc-fixture.js";
 

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { updateMemoryEntryMeta } from "../server/project-memory.js";
+import { updateMemoryEntryMeta } from "../server/project-memory.ts";
 
 async function setup() {
   const database = await testDatabase();

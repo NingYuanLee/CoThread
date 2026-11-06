@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { processNextProjectMemory } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.ts";
 import {
   discoverNextFileIndexChange,
   reconcileNextFileIndexArtifact,

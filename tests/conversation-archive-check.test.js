@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scanArchivedConversation } from "../server/conversation-memory-store.js";
+import { scanArchivedConversation } from "../server/conversation-memory-store.ts";
 
 test("归档补查只扫描一次，并先入队再保存扫描标记", async () => {
   let scanned = false;

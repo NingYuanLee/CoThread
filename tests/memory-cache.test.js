@@ -9,7 +9,7 @@ import {
   loadMemberUnderstanding,
   loadProjectSummary,
   loadProjectWikiIndexes,
-} from "../server/project-memory.js";
+} from "../server/project-memory.ts";
 import { upsertMemoryPage } from "../server/memory-pages.ts";
 import { refreshProjectGuideCache } from "../server/memory-cache.ts";
 import { createVersion } from "../server/documents/versions.ts";

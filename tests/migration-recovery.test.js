@@ -415,7 +415,7 @@ test("文件索引迁移在 DDL 完成但回执丢失后可重跑且不改写已
     );
     const { discoverNextFileIndexChange, reconcileNextFileIndexArtifact } =
       await import("../server/file-index-discovery.ts");
-    const { processNextProjectMemory } = await import("../server/project-memory.js");
+    const { processNextProjectMemory } = await import("../server/project-memory.ts");
     while (await discoverNextFileIndexChange(db)) {}
     while (await reconcileNextFileIndexArtifact(db)) {}
     await processNextProjectMemory(db, {

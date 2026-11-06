@@ -1,5 +1,5 @@
 import { query } from "../server/db.ts";
-import { setCloudbaseManagerFactory } from "../server/cloudbase.js";
+import { setCloudbaseManagerFactory } from "../server/cloudbase.ts";
 import { saveProjectMiniProgramSecret } from "../server/miniprogram-config.ts";
 import { publishMiniprogramSourceFile } from "../server/miniprogram-workspace.ts";
 

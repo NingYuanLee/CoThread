@@ -16,7 +16,7 @@ import {
   readCompanyCatalog,
   readOrgShelf,
 } from "../server/org-shelf.ts";
-import { askCompanyQuestion, askOrgQuestion } from "../server/wiki-questions.js";
+import { askCompanyQuestion, askOrgQuestion } from "../server/wiki-questions.ts";
 
 test("hosted projects stay linked, participants only get briefs, and questions cannot cross scopes", async () => {
   const database = await testDatabase();

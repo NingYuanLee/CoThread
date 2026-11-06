@@ -10,7 +10,7 @@ import {
   observeLiveOutput,
 } from "../server/agent-live-output.ts";
 import { documentTool } from "../server/documents/document-tools.ts";
-import { createAgentTools } from "../server/agent-tools.js";
+import { createAgentTools } from "../server/agent-tools.ts";
 import { bindChildAgentExecution, createTask } from "../server/task-pool.ts";
 let database, service, user, project, thread, message, job;
 before(async () => {

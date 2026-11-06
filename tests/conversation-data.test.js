@@ -4,9 +4,9 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { createAgentTools } from "../server/agent-tools.js";
+import { createAgentTools } from "../server/agent-tools.ts";
 import { discussionText } from "../shared/context.js";
-import { dispatchContext } from "../server/coordinator.js";
+import { dispatchContext } from "../server/coordinator.ts";
 let database, service, user, outsider, project, thread, other, a, b, c;
 before(async () => {
   database = await testDatabase();

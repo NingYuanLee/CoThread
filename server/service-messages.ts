@@ -13,7 +13,7 @@ import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
 import * as iterationState from "./iteration-state.ts";
 import { publishWork } from "./work-events.ts";
-import { queueConversationMessage } from "./conversation-memory-store.js";
+import { queueConversationMessage } from "./conversation-memory-store.ts";
 
 import { fail, id, title, body, parseMessageRow } from "./service-support.ts";
 import type { Pool, PoolConnection } from "mysql2/promise";

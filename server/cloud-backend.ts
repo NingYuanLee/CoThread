@@ -38,7 +38,7 @@ export {
   invokeCloudbaseFunction,
   classifyCloudbaseCredential,
   cloudbaseAuthTokenGuidance,
-} from "./cloudbase.js";
+} from "./cloudbase.ts";
 
 export {
   createCloudbaseTimer,

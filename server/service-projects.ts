@@ -311,7 +311,7 @@ export async function projectOperation(
   const libraryVersions = includeLibrary ? service.mapLibraryVersions(versions, folders) : [];
   const knowledgeModel = modelConfig("knowledge");
   const coordinatorModel = modelConfig("coordinator");
-  const { loadProjectSummary } = await import("./project-memory.js");
+  const { loadProjectSummary } = await import("./project-memory.ts");
   const projectSummary = (await loadProjectSummary(service.db, projectId)) as {
     summary?: unknown;
     updatedAt?: unknown;

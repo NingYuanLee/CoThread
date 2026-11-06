@@ -318,7 +318,7 @@ export async function setArtifactFolder(
   );
   if (softDeleteOnConflict) {
     // 同名合并会把冲突副本软删除；它的文档信号同样不可核验，一并清掉。
-    const { dropDocumentVersionSignals } = await import("../project-memory.js");
+    const { dropDocumentVersionSignals } = await import("../project-memory.ts");
     await dropDocumentVersionSignals(db, {
       artifactIds: [artifactId],
     } as unknown as Parameters<typeof dropDocumentVersionSignals>[1]);

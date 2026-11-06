@@ -2,12 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { query, transaction } from "./db.ts";
 import { acquireNamedLock } from "./named-lock.ts";
+import type { NamedLock } from "./named-lock.ts";
 import { HttpError } from "./service.ts";
 import { publishWork } from "./work-events.ts";
 import { DOCUMENT_LIBRARY_FOLDER_SQL } from "./documents/index.ts";
 import { normalizeLaowengTask } from "../shared/agent-label.js";
 import { z } from "zod/v3";
-import { archiveJson, archivePlanDraftSchema, archivePlanSchema } from "./iteration-archive.js";
+import { archiveJson, archivePlanDraftSchema, archivePlanSchema } from "./iteration-archive.ts";
 import { lockIteration } from "./iteration-state.ts";
 import { MEMORY_SUBJECTS } from "../shared/memory-kinds.js";
 import { executorLabel, formatDuration } from "./task-memory.ts";
@@ -21,9 +22,355 @@ import {
 } from "./conversation-memory-integrity.ts";
 import { visibleFileIndexSql } from "./file-index-visibility.ts";
 import { resolveMemoryRetry } from "./memory-retry.ts";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+import type { AccessService, AccessUser } from "./service-access.ts";
 
-export async function loadProjectMembers(db, projectId, throughSequence) {
-  return query(
+/** `loadProjectMembers` 返回的项目成员行。 */
+type ProjectMemberRow = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  motto?: unknown;
+  project_role?: string | null;
+  identity_tag?: unknown;
+  member_understanding?: unknown;
+  statement_summary?: unknown;
+  through_sequence?: string | number | null;
+  pending_through_sequence?: string | number | null;
+  conversation_pending?: string | number | null;
+  message_count?: string | number | null;
+};
+
+/** 老翁 run 在 `agent_laoweng_runs` 里被读取的列。 */
+type LaowengRunRow = {
+  id: string;
+  project_id: string;
+  task: string;
+  thread_id?: string | null;
+  trigger_source?: string | null;
+  status?: string | null;
+  archive_workflow_id?: string | null;
+  archive_phase?: string | null;
+  archive_token?: string | null;
+  requested_by?: string | null;
+};
+
+/** `listLaowengRuns` 的筛选条件。 */
+type LaowengRunsOptions = {
+  projectId: string;
+  task?: string | null;
+  status?: string | null;
+  limit?: number | string | null;
+};
+
+/** `listLaowengDocumentQueue` 的筛选条件。 */
+type LaowengQueueOptions = {
+  projectId: string;
+  limit?: number | string | null;
+  readyOnly?: boolean;
+};
+
+/** `queueLaowengMemoryRun` 的入队参数。 */
+type LaowengQueueRunInput = {
+  projectId: string;
+  task: string;
+  threadId?: string | null;
+};
+
+/** `finishLaowengRun` 的收尾字段。 */
+type LaowengRunFinish = {
+  status: string;
+  agentCalled?: boolean;
+  hadUpdates?: boolean;
+  itemCount?: number | null;
+  error?: string | null;
+  result?: unknown;
+};
+
+/** 成员记忆结算目标：队列行 + 摘要进度。 */
+type MemberMemoryTarget = {
+  id: string;
+  name?: string | null;
+  identityTag?: unknown;
+  signature?: string | null;
+  understanding?: string | null;
+  statementSummary?: string | null;
+  throughSequence: string;
+  latestRelatedSequence: string;
+};
+
+/** 拉取到的成员新发言。 */
+type MemberStatement = {
+  messageId: string;
+  iterationId: string;
+  sequence: string;
+  createdAt: unknown;
+  content: string;
+};
+
+/** 成员记忆小结的输入。 */
+type MemberMemoryContext = {
+  projectId: string;
+  trigger: string;
+  members: {
+    id: string;
+    name?: string | null;
+    identityTag?: unknown;
+    signature: string;
+    understanding: string | null;
+    statementSummary: string | null;
+    newStatements: MemberStatement[];
+  }[];
+};
+
+/** 图片原件的事实（基础索引记录，与归一化预览尺寸不同）。 */
+type ImageFacts = {
+  width: number | null;
+  height: number | null;
+  format: string | null;
+  mime: string;
+  byteSize: number;
+};
+
+/** 文档摘要的输入：正文、图片或候选摘要至少有一项。 */
+type DocumentSummaryContext = {
+  projectId: string;
+  versionId: string;
+  contentFingerprint: { sha256: string; mime: string };
+  task?: string;
+  trigger?: string;
+  image?: { data: string; mimeType: string };
+  imageFacts?: ImageFacts | null;
+  [field: string]: unknown;
+};
+
+/** 待识别文档的队列行。 */
+type DocumentMemoryCandidate = {
+  version_id: string;
+  trigger_origin?: string | null;
+  candidate_summary?: string | null;
+  created_by_message_id?: string | null;
+  operation?: string | null;
+  filename?: string | null;
+  mime?: string | null;
+  version?: number | null;
+  artifact_id?: string | null;
+  title?: string | null;
+  project_id?: string | null;
+};
+
+/** 单份文档在本轮的处理结果。 */
+type DocumentMemoryOutcome = {
+  skipped?: boolean;
+  drained?: boolean;
+  postponed?: boolean;
+  summarized?: boolean;
+  recognitionStatus?: string;
+};
+
+/** 迭代归档快照里被读取的字段。 */
+type ArchiveSnapshotMessage = {
+  id?: unknown;
+  sequence?: unknown;
+  author?: unknown;
+  source?: unknown;
+  body?: unknown;
+  refs?: unknown;
+};
+
+type ArchiveSnapshotTask = {
+  id: string;
+  title?: unknown;
+  goal?: unknown;
+  constraints?: unknown;
+  status: string;
+  progress?: unknown;
+  result_summary?: unknown;
+  document_refs?: unknown;
+};
+
+type ArchiveSnapshot = {
+  messages?: ArchiveSnapshotMessage[] | null;
+  conclusion?: string | null;
+  background?: string | null;
+  goal?: string | null;
+  taskDecisions?: unknown[];
+  notes?: string | null;
+  archivedOutputs?: { title?: string | null }[] | null;
+  tasks?: ArchiveSnapshotTask[] | null;
+  versions?: unknown[];
+};
+
+/** 归档整理时的迭代行。 */
+type ArchiveThread = {
+  id: string;
+  title?: string | null;
+  status?: string | null;
+  project_id?: string | null;
+  archive_snapshot?: unknown;
+};
+
+/** 归档整理（草案 / 长期总结）的输入。 */
+type IterationArchiveContext = {
+  projectId: string;
+  thread: ArchiveThread;
+  snapshot: ArchiveSnapshot;
+  previousSummary?: string;
+  phase: string;
+  trigger: string;
+};
+
+/** 项目记忆候选：队列行 + 核验后的来源正文。 */
+type ProjectMemoryQueueRow = {
+  id: string;
+  sourceKind: string;
+  sourceId: string;
+  hint?: string | null;
+  revision?: string | number;
+  signalRevision?: string | number;
+  retryCount?: string | number;
+};
+
+type ProjectMemoryCandidate = {
+  queueId: string;
+  sourceKind: string;
+  sourceId: string;
+  hint?: string | null;
+  revision: string;
+  retryCount: number;
+  verified: boolean;
+  unavailableReason: string | null;
+  fingerprint: string | null;
+  text?: string | null;
+  aboutUserId: string | null;
+};
+
+/** 现行记忆条目索引行（模型更新条目时的核对快照）。 */
+type ProjectMemoryEntryIndexRow = {
+  id: string;
+  title?: string | null;
+  body?: string | null;
+  bodyDigest?: string | null;
+  status?: string | null;
+  subjectType?: string | null;
+  subtype?: string | null;
+  updatedAt?: unknown;
+};
+
+/** 项目记忆结算的输入。 */
+type ProjectMemoryContext = {
+  projectId: string;
+  projectOwner: string;
+  project?: { name?: unknown; description?: unknown } | null;
+  candidates: ProjectMemoryCandidate[];
+  entries: ProjectMemoryEntryIndexRow[];
+  projectStatus: unknown;
+  trigger: string;
+};
+
+/** 成员记忆的模型结论。 */
+type MemberSummary = z.infer<typeof memoryDecisionSchema>["memberSummaries"][number];
+
+/** 成员记忆小结入口。 */
+type MemberSummarizer = (
+  context: MemberMemoryContext,
+) => Promise<MemberSummary[] | null | undefined>;
+
+/** 单份文档摘要的模型结论。 */
+type DocumentSummaryResult = z.infer<typeof documentSummarySchema>;
+
+/** 单份文档摘要入口；测试替身可以只返回字符串摘要。 */
+type DocumentSummarizer = (
+  context: DocumentSummaryContext,
+) => Promise<DocumentSummaryResult | string>;
+
+/** 迭代归档整理入口：草案返回结构化方案，长期总结返回正文。 */
+type ArchiveSummarizer = (
+  context: IterationArchiveContext,
+) => Promise<z.infer<typeof archivePlanSchema> | string>;
+
+/** 一条项目记忆条目（模型返回）。 */
+type ProjectMemoryEntry = z.infer<typeof projectMemoryEntrySchema>;
+
+/** 一次项目记忆结算（模型返回）。 */
+type ProjectMemoryResult = z.infer<typeof projectMemorySchema>;
+type VerifyVerdictItem = { index: number; supported: boolean; reason?: string };
+type VerifyVerdict = {
+  verdicts?: VerifyVerdictItem[];
+  supported?: boolean;
+  reason?: string;
+};
+
+/** `processNextProjectMemory` 的注入项：测试与调用方可以替换各段模型调用。 */
+type ProjectMemoryProcessOptions = {
+  projectId?: string;
+  task?: string;
+  summarizeDocument?: DocumentSummarizer;
+  summarizeArchive?: ArchiveSummarizer;
+  summarizeMemory?: (context: ProjectMemoryContext) => Promise<unknown>;
+  verifyMemorySupport?: (
+    projectId: string,
+    result: ProjectMemoryResult,
+    candidates: ProjectMemoryCandidate[],
+  ) => Promise<VerifyVerdict>;
+  laowengOptions?: Record<string, unknown>;
+};
+
+/** `applyProjectMemoryResult` 的可选参数。 */
+type ApplyProjectMemoryOptions = {
+  userId?: string | null;
+  candidates?: ProjectMemoryCandidate[];
+  entries?: ProjectMemoryEntryIndexRow[];
+  consumeCandidates?: boolean;
+  phase?: string;
+  settlementId?: string | null;
+  runId?: string | null;
+};
+
+/** 群聊快照行：`candidateTexts` 里只取所属迭代、作者与正文。 */
+type ThreadSnapshotRow = { threadId?: string | null; author?: string | null; body?: unknown };
+
+/** `dropDocumentVersionSignals` 的入参。 */
+type DropDocumentVersionSignalsInput = {
+  projectId?: string | null;
+  versionIds?: string[];
+  artifactIds?: string[];
+};
+
+/** `updateMemoryEntryMeta` 接受的三种可改字段。 */
+type UpdateMemoryEntryInput = {
+  subject?: string | null;
+  subtype?: string | null;
+  aboutUserId?: string | null;
+};
+
+/** 连接池才有的 `getConnection`；事务连接没有。 */
+function isPool(db: Db): db is Pool {
+  return typeof (db as Pool).getConnection === "function";
+}
+
+/** 日志里记录的错误名：与 `error?.name || "Error"` 等价。 */
+function errorName(error: unknown): string {
+  const name = (error as { name?: unknown } | null)?.name;
+  return name ? String(name) : "Error";
+}
+
+/** 日志里记录的错误正文：与 `String(error?.message || error)` 等价。 */
+function errorText(error: unknown): string {
+  const message = (error as { message?: unknown } | null)?.message;
+  return String(message || error);
+}
+
+/** `query()` 对写语句返回的是结果头，`rows` 类型仍声明成数组。 */
+type WriteResultHeader = { affectedRows?: number };
+
+export async function loadProjectMembers(
+  db: Db,
+  projectId: string,
+  throughSequence: string | number,
+): Promise<ProjectMemberRow[]> {
+  return query<ProjectMemberRow>(
     db,
     `SELECT u.id,u.name,COALESCE(u.username,u.email) email,u.motto,pm.role project_role,
     JSON_UNQUOTE(JSON_EXTRACT(u.identity_tags,'$[0]')) identity_tag,
@@ -48,7 +395,12 @@ export async function loadProjectMembers(db, projectId, throughSequence) {
   );
 }
 
-export async function queueMemberMemory(db, projectId, userIds, throughSequence) {
+export async function queueMemberMemory(
+  db: Db,
+  projectId: string,
+  userIds: readonly string[],
+  throughSequence: string | number,
+): Promise<void> {
   for (const userId of new Set(userIds))
     await query(
       db,
@@ -61,11 +413,11 @@ export async function queueMemberMemory(db, projectId, userIds, throughSequence)
 }
 
 export async function queueDocumentMemory(
-  db,
-  versionId,
-  candidateSummary = null,
-  messageId = null,
-) {
+  db: Db,
+  versionId: string,
+  candidateSummary: string | null = null,
+  messageId: string | null = null,
+): Promise<void> {
   await query(
     db,
     `INSERT INTO agent_document_memory_queue(version_id,candidate_summary,created_by_message_id,available_at)
@@ -95,9 +447,14 @@ const LEGACY_DOCUMENT_MEMORY_TASKS = new Set([
 /** 一条文档摘要维护 run 最多合并同项目的文档份数。 */
 const DOCUMENT_MEMORY_BATCH_LIMIT = 50;
 
-async function claimLaowengRun(db, task, projectId, altTasks = []) {
+async function claimLaowengRun(
+  db: Db,
+  task: string,
+  projectId: string | null | undefined,
+  altTasks: string[] = [],
+): Promise<LaowengRunRow | null> {
   const tasks = [...new Set([task, ...altTasks])];
-  return transaction(db, async (conn) => {
+  return transaction<LaowengRunRow | null>(db as Pool, async (conn) => {
     const placeholders = tasks.map(() => "?").join(",");
     const [next] = await query(
       conn,
@@ -116,7 +473,7 @@ async function claimLaowengRun(db, task, projectId, altTasks = []) {
   });
 }
 
-async function insertScheduleRun(db, projectId, task) {
+async function insertScheduleRun(db: Db, projectId: string, task: string): Promise<LaowengRunRow> {
   const id = randomUUID();
   await query(
     db,
@@ -128,8 +485,8 @@ async function insertScheduleRun(db, projectId, task) {
 }
 
 async function finishLaowengRun(
-  db,
-  id,
+  db: Db,
+  id: string,
   {
     status,
     agentCalled = false,
@@ -137,8 +494,8 @@ async function finishLaowengRun(
     itemCount = null,
     error = null,
     result = null,
-  },
-) {
+  }: LaowengRunFinish,
+): Promise<void> {
   await query(
     db,
     `UPDATE agent_laoweng_runs SET status=?,agent_called=?,had_updates=?,item_count=?,error=?,result=?,
@@ -155,11 +512,15 @@ async function finishLaowengRun(
   );
 }
 
-function normalizeDocumentMemoryTask(task) {
+function normalizeDocumentMemoryTask(task: string): string {
   return LEGACY_DOCUMENT_MEMORY_TASKS.has(task) ? DOCUMENT_MEMORY_TASK : task;
 }
 
-export async function getLaowengStatus(service, user, projectId) {
+export async function getLaowengStatus(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+) {
   await service.member(user, projectId);
   const [memberQueue, documentQueue, sessions, recentRuns, failedRuns] = await Promise.all([
     query(
@@ -206,7 +567,7 @@ export async function getLaowengStatus(service, user, projectId) {
   const member = memberQueue[0] || {};
   const document = documentQueue[0] || {};
   const heading = [...sessions].sort((left, right) => {
-    const running = (value) => (value.status === "running" ? 1 : 0);
+    const running = (value: { status?: unknown }) => (value.status === "running" ? 1 : 0);
     if (running(right) !== running(left)) return running(right) - running(left);
     return (
       new Date(right.last_finished_at || right.last_started_at || 0).getTime() -
@@ -248,13 +609,18 @@ export async function getLaowengStatus(service, user, projectId) {
 }
 
 export async function listLaowengRuns(
-  service,
-  user,
-  { projectId, task = null, status = null, limit = 40 } = {},
-) {
+  service: AccessService,
+  user: AccessUser,
+  {
+    projectId,
+    task = null,
+    status = null,
+    limit = 40,
+  }: LaowengRunsOptions = {} as LaowengRunsOptions,
+): Promise<LaowengRunRow[]> {
   await service.member(user, projectId);
   const filters = ["project_id=?"];
-  const params = [projectId];
+  const params: unknown[] = [projectId];
   if (task) {
     const scoped = normalizeLaowengTask(task);
     if (scoped === "document_memory") {
@@ -283,9 +649,9 @@ export async function listLaowengRuns(
 }
 
 export async function listLaowengDocumentQueue(
-  service,
-  user,
-  { projectId, limit = 50, readyOnly = false } = {},
+  service: AccessService,
+  user: AccessUser,
+  { projectId, limit = 50, readyOnly = false }: LaowengQueueOptions = {} as LaowengQueueOptions,
 ) {
   await service.member(user, projectId);
   const capped = Math.min(Math.max(Number(limit) || 50, 1), 200);
@@ -331,13 +697,17 @@ export async function listLaowengDocumentQueue(
   };
 }
 
-export async function queueLaowengMemoryRun(service, user, { projectId, task, threadId = null }) {
+export async function queueLaowengMemoryRun(
+  service: AccessService,
+  user: AccessUser,
+  { projectId, task, threadId = null }: LaowengQueueRunInput,
+) {
   if (user.kind !== "session" && user.kind !== "api")
     throw new HttpError(403, "需要人工登录或账号令牌");
   const queuedTask = normalizeLaowengTask(task);
   if (!["member_memory", "document_memory", "iteration_archive"].includes(queuedTask))
     throw new HttpError(400, "不支持的维护任务");
-  const result = await transaction(service.db, async (db) => {
+  const result = await transaction(service.db as Pool, async (db) => {
     await service.member(user, projectId, true, db);
     if (queuedTask === "iteration_archive") {
       let targetThreadId = threadId;
@@ -374,7 +744,7 @@ export async function queueLaowengMemoryRun(service, user, { projectId, task, th
     }
     if (queuedTask === "member_memory") {
       const { scanProjectArchivedConversations, queueUnwindowedConversationThreads } =
-        await import("./conversation-memory-store.js");
+        await import("./conversation-memory-store.ts");
       await scanProjectArchivedConversations(db, projectId);
       // 功能上线前的历史消息可能没进入任何窗口或队列，手动运行一并补入队。
       await queueUnwindowedConversationThreads(db, projectId);
@@ -412,7 +782,7 @@ export async function queueLaowengMemoryRun(service, user, { projectId, task, th
     }
     return { id, status: "queued" };
   });
-  publishWork(service.db);
+  publishWork(service.db, undefined);
   // Manual / MCP retries run a bounded number of 老翁 batches inline instead of
   // waiting for the wake worker; failures stay on the run row.
   try {
@@ -424,8 +794,8 @@ export async function queueLaowengMemoryRun(service, user, { projectId, task, th
     });
   } catch (error) {
     console.error("老翁 memory kick failed", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: errorName(error),
+      message: errorText(error).slice(0, 300),
     });
   }
   const [run] = await query(
@@ -437,7 +807,11 @@ export async function queueLaowengMemoryRun(service, user, { projectId, task, th
   return run || result;
 }
 
-export async function loadPendingMemberStatements(db, projectId, targets) {
+export async function loadPendingMemberStatements(
+  db: Db,
+  projectId: string,
+  targets: MemberMemoryTarget[],
+): Promise<Map<string, MemberStatement[]>> {
   if (!targets.length) return new Map();
   const minimum = targets.reduce(
     (value, target) =>
@@ -459,8 +833,8 @@ export async function loadPendingMemberStatements(db, projectId, targets) {
     ORDER BY m.sequence`,
     [projectId, ...ids, String(minimum), String(maximum)],
   );
-  const targetMap = new Map(targets.map((target) => [target.id, target]));
-  const grouped = new Map();
+  const targetMap = new Map(targets.map((target) => [target.id, target] as const));
+  const grouped = new Map<string, MemberStatement[]>();
   for (const row of rows) {
     const target = targetMap.get(row.author_id);
     if (
@@ -483,8 +857,13 @@ export async function loadPendingMemberStatements(db, projectId, targets) {
   return grouped;
 }
 
-export async function saveMemberUnderstandings(db, projectId, targets, summaries) {
-  const allowed = new Map(targets.map((target) => [target.id, target]));
+export async function saveMemberUnderstandings(
+  db: Db,
+  projectId: string,
+  targets: MemberMemoryTarget[],
+  summaries: MemberSummary[] | null | undefined,
+): Promise<number> {
+  const allowed = new Map(targets.map((target) => [target.id, target] as const));
   let updated = 0;
   for (const item of summaries || []) {
     const target = allowed.get(item.memberId);
@@ -550,7 +929,7 @@ export async function saveMemberUnderstandings(db, projectId, targets, summaries
   return updated;
 }
 
-export async function loadProjectSummary(db, projectId) {
+export async function loadProjectSummary(db: Db, projectId: string) {
   const [row] = await query(
     db,
     `SELECT s.summary,s.updated_at updatedAt,s.last_thread_id lastThreadId,t.title lastThreadTitle
@@ -563,7 +942,7 @@ export async function loadProjectSummary(db, projectId) {
   const { readProjectStatus } = await import("./project-status.ts");
   const status = await readProjectStatus(db, projectId);
   const body = String(status?.body || "").trim();
-  if (body)
+  if (body && status)
     return {
       summary: memoryExcerpt(body, 2000),
       updatedAt: status.updatedAt,
@@ -574,7 +953,7 @@ export async function loadProjectSummary(db, projectId) {
   return row ? { ...row, summary: `【历史摘要，尚未核实为当前状态】\n${row.summary}` } : null;
 }
 
-export async function loadProjectWikiIndexes(db, projectId) {
+export async function loadProjectWikiIndexes(db: Db, projectId: string) {
   const [documentSummaries, memberUnderstandings, pendingDocuments, projectSummary] =
     await Promise.all([
       query(
@@ -706,7 +1085,7 @@ export async function loadProjectWikiIndexes(db, projectId) {
   };
 }
 
-export async function loadMemberUnderstanding(db, projectId, userId) {
+export async function loadMemberUnderstanding(db: Db, projectId: string, userId: string) {
   const { readMemberUnderstanding } = await import("./memory-cache.ts");
   const memory = await readMemberUnderstanding(db, projectId, userId);
   if (!memory) return null;
@@ -717,12 +1096,12 @@ export async function loadMemberUnderstanding(db, projectId, userId) {
   };
 }
 
-function truncateMemoryText(value, maximum) {
+function truncateMemoryText(value: unknown, maximum: number): string {
   const text = String(value ?? "").trim();
   return Array.from(text).slice(0, maximum).join("");
 }
 
-function boundedMemoryString(maximum) {
+function boundedMemoryString(maximum: number) {
   return z.preprocess(
     (value) => (typeof value === "string" ? truncateMemoryText(value, maximum) : value),
     z.string().trim().max(maximum).optional(),
@@ -750,7 +1129,11 @@ const memoryDecisionSchema = z.object({
     .max(50),
 });
 
-export async function summarizeProjectMembers(db, context, options = {}) {
+export async function summarizeProjectMembers(
+  db: Db,
+  context: MemberMemoryContext,
+  options: Record<string, unknown> = {},
+) {
   const { runLaowengTask } = await import("./laoweng-agent.ts");
   const result = await runLaowengTask(
     db,
@@ -791,16 +1174,20 @@ export const documentSummarySchema = z.object({
   ),
 });
 
-export async function summarizeProjectDocument(db, context, options = {}) {
+export async function summarizeProjectDocument(
+  db: Db,
+  context: DocumentSummaryContext,
+  options: Record<string, unknown> = {},
+) {
   const { image, contentFingerprint, ...textContext } = context;
   const { runLaowengTask } = await import("./laoweng-agent.ts");
   const { startFileIndexSubmissionBridge } = await import("./file-index-submit-tool.ts");
-  const bridge = await startFileIndexSubmissionBridge(db, {
+  const bridge = await startFileIndexSubmissionBridge(db as Pool, {
     projectId: context.projectId,
     versionId: context.versionId,
     sha256: contentFingerprint.sha256,
     mime: contentFingerprint.mime,
-    validate: (value) => documentSummarySchema.parse(value),
+    validate: (value: unknown) => documentSummarySchema.parse(value),
   });
   try {
     return await runLaowengTask(
@@ -836,17 +1223,21 @@ export async function summarizeProjectDocument(db, context, options = {}) {
   }
 }
 
-async function processNextMemberMemory(db, summarize, projectId) {
-  const [queued] = await query(
+async function processNextMemberMemory(
+  db: Db,
+  summarize: MemberSummarizer,
+  projectId: string | null | undefined,
+): Promise<boolean> {
+  const [queued] = await query<{ id: string; project_id: string }>(
     db,
     `SELECT id,project_id FROM agent_laoweng_runs
     WHERE task='member_memory' AND status='queued' ${projectId ? "AND project_id=?" : ""}
     ORDER BY created_at LIMIT 1`,
     projectId ? [projectId] : [],
   );
-  let targetProject = queued?.project_id || null;
+  let targetProject: string | null = queued?.project_id || null;
   if (!targetProject) {
-    const [candidate] = await query(
+    const [candidate] = await query<{ project_id: string }>(
       db,
       `SELECT q.project_id FROM agent_member_memory_queue q
       LEFT JOIN agent_member_summaries s ON s.project_id=q.project_id AND s.user_id=q.user_id
@@ -858,11 +1249,11 @@ async function processNextMemberMemory(db, summarize, projectId) {
     targetProject = candidate.project_id;
   }
   const lockName = `cothread-project-memory:${targetProject}`;
-  let lock;
-  let run = null;
+  let lock: NamedLock | null = null;
+  let run: LaowengRunRow | null = null;
   try {
     // Wait briefly so a concurrent batch can finish; avoid claim→unclaim churn.
-    lock = await acquireNamedLock(db, lockName, 10);
+    lock = await acquireNamedLock(db as Pool, lockName, 10);
     if (!lock) return false;
     run = await claimLaowengRun(db, "member_memory", targetProject);
     if (!run) {
@@ -898,13 +1289,13 @@ async function processNextMemberMemory(db, summarize, projectId) {
       ORDER BY q.available_at LIMIT 50`,
       [targetProject],
     );
-    const targets = rows.map((row) => ({
+    const targets: MemberMemoryTarget[] = rows.map((row) => ({
       ...row,
       throughSequence: String(row.through_sequence),
       latestRelatedSequence: String(row.latestRelatedSequence),
     }));
     const statements = await loadPendingMemberStatements(db, targetProject, targets);
-    const drain = async (target) =>
+    const drain = async (target: MemberMemoryTarget) =>
       query(
         db,
         `DELETE FROM agent_member_memory_queue
@@ -925,7 +1316,7 @@ async function processNextMemberMemory(db, summarize, projectId) {
       });
       return true;
     }
-    const context = {
+    const context: MemberMemoryContext = {
       projectId: targetProject,
       trigger: run?.trigger_source || "schedule",
       members: actionable.map((target) => ({
@@ -959,7 +1350,7 @@ async function processNextMemberMemory(db, summarize, projectId) {
       result: { summarized: completed.size },
     });
   } catch (error) {
-    const message = String(error?.message || error);
+    const message = errorText(error);
     const providerDown =
       /503|too busy|idle timeout|TIMEOUT|SERVICE_UNAVAILABLE|service_unavailable/i.test(message);
     await query(
@@ -968,7 +1359,7 @@ async function processNextMemberMemory(db, summarize, projectId) {
       WHERE project_id=?`,
       [providerDown ? 300 : 60, targetProject],
     );
-    const detail = String(error?.message || error).slice(0, 300);
+    const detail = errorText(error).slice(0, 300);
     if (run?.id)
       await finishLaowengRun(db, run.id, {
         status: "failed",
@@ -977,7 +1368,7 @@ async function processNextMemberMemory(db, summarize, projectId) {
         error: `成员认识整理未完成，可以重试。${detail ? ` (${detail})` : ""}`.slice(0, 255),
       });
     console.error("Project memory refresh failed", {
-      type: error?.name || "Error",
+      type: errorName(error),
       message: detail,
     });
   } finally {
@@ -986,7 +1377,11 @@ async function processNextMemberMemory(db, summarize, projectId) {
   return true;
 }
 
-async function documentVersionStillMatches(conn, versionId, expected) {
+async function documentVersionStillMatches(
+  conn: Db,
+  versionId: string,
+  expected: { sha256?: unknown; mime?: unknown },
+): Promise<boolean> {
   const [row] = await query(
     conn,
     `SELECT v.sha256,v.mime FROM versions v
@@ -1009,16 +1404,24 @@ export function shouldReuseDocumentSummary({
   triggerOrigin,
   hasSummary,
   summaryMatchesContent = true,
-} = {}) {
+}: {
+  triggerOrigin?: string | null;
+  hasSummary?: unknown;
+  summaryMatchesContent?: boolean;
+} = {}): boolean {
   return Boolean(hasSummary) && triggerOrigin !== "manual" && summaryMatchesContent === true;
 }
 
-async function summarizeReadyDocument(db, summarize, candidate) {
+async function summarizeReadyDocument(
+  db: Db,
+  summarize: DocumentSummarizer,
+  candidate: DocumentMemoryCandidate,
+): Promise<DocumentMemoryOutcome> {
   const lockName = `cothread-document-memory:${candidate.version_id}`;
-  let lock;
+  let lock: NamedLock | null = null;
   let claimedByThisRun = false;
   try {
-    lock = await acquireNamedLock(db, lockName);
+    lock = await acquireNamedLock(db as Pool, lockName);
     if (!lock) return { skipped: true };
     const claimedQueue = await query(
       db,
@@ -1027,7 +1430,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
       WHERE version_id=? AND processing_state='queued' AND available_at<=UTC_TIMESTAMP(3)`,
       [candidate.version_id],
     );
-    if (!claimedQueue.affectedRows) return { skipped: true };
+    if (!(claimedQueue as unknown as WriteResultHeader).affectedRows) return { skipped: true };
     claimedByThisRun = true;
     const [current] = await query(
       db,
@@ -1087,7 +1490,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
       current.content.length <= 8 * 1024 * 1024;
     // 模型看到的是 DSH 归一化后的预览图（可能被缩小、转码），与基础索引记录的原图
     // 尺寸不同。把原图事实随任务输入交给模型，摘要才不会写出与索引冲突的像素尺寸。
-    let imageFacts = null;
+    let imageFacts: ImageFacts | null = null;
     if (image) {
       const { describeContent } = await import("./document-memory.ts");
       const described = await describeContent({
@@ -1095,10 +1498,11 @@ async function summarizeReadyDocument(db, summarize, candidate) {
         filename: current.filename,
         content: current.content,
       });
+      const imageListing = described?.type === "image" ? described : null;
       imageFacts = {
-        width: described?.width || null,
-        height: described?.height || null,
-        format: described?.format || null,
+        width: imageListing?.width || null,
+        height: imageListing?.height || null,
+        format: imageListing?.format || null,
         mime: String(current.mime || ""),
         byteSize: current.content.length,
       };
@@ -1138,7 +1542,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
         /^image\//.test(String(current.mime || "")) && current.content?.length > 8 * 1024 * 1024
           ? "图片超过视觉识别大小限制"
           : extraction.reason || "没有可读取的正文或可靠摘要";
-      const postponed = await transaction(db, async (conn) => {
+      const postponed = await transaction(db as Pool, async (conn) => {
         if (!(await documentVersionStillMatches(conn, candidate.version_id, current))) return false;
         await query(
           conn,
@@ -1218,7 +1622,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
       : usedZipListing
         ? "仅分析压缩包目录，未读取包内文件。"
         : extraction.reason || (!body ? "基于候选摘要，未直接读取原件正文。" : "");
-    const committed = await transaction(db, async (conn) => {
+    const committed = await transaction(db as Pool, async (conn) => {
       if (!(await documentVersionStillMatches(conn, candidate.version_id, current))) return false;
       const [queue] = await query(
         conn,
@@ -1330,7 +1734,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
       processing_state='queued',claimed_at=NULL,last_error=? WHERE version_id=? AND processing_state='processing'`,
       [retry.delaySeconds, retry.error.slice(0, 1000), candidate.version_id],
     );
-    if (failedQueue.affectedRows)
+    if ((failedQueue as unknown as WriteResultHeader).affectedRows)
       await query(
         db,
         `UPDATE file_index_entries SET recognition_status='failed',recognition_note=?
@@ -1338,8 +1742,8 @@ async function summarizeReadyDocument(db, summarize, candidate) {
         [retry.error.slice(0, 1000), candidate.version_id],
       );
     console.error("Project document memory refresh failed", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: errorName(error),
+      message: errorText(error).slice(0, 300),
     });
     throw error;
   } finally {
@@ -1347,7 +1751,7 @@ async function summarizeReadyDocument(db, summarize, candidate) {
   }
 }
 
-async function recoverInterruptedDocumentMemory(db) {
+async function recoverInterruptedDocumentMemory(db: Db) {
   const stale = await query(
     db,
     `SELECT version_id FROM agent_document_memory_queue
@@ -1355,7 +1759,7 @@ async function recoverInterruptedDocumentMemory(db) {
     ORDER BY claimed_at LIMIT 20`,
   );
   for (const row of stale) {
-    const lock = await acquireNamedLock(db, `cothread-document-memory:${row.version_id}`);
+    const lock = await acquireNamedLock(db as Pool, `cothread-document-memory:${row.version_id}`);
     if (!lock) continue;
     try {
       await query(
@@ -1372,7 +1776,11 @@ async function recoverInterruptedDocumentMemory(db) {
   }
 }
 
-async function processNextDocumentMemory(db, summarize, projectId) {
+async function processNextDocumentMemory(
+  db: Db,
+  summarize: DocumentSummarizer,
+  projectId: string | null | undefined,
+) {
   await recoverInterruptedDocumentMemory(db);
   const claimed = await claimLaowengRun(db, DOCUMENT_MEMORY_TASK, projectId, [
     "project_document_memory",
@@ -1392,7 +1800,7 @@ async function processNextDocumentMemory(db, summarize, projectId) {
   if (!scopeId) {
     // 定时排空没有可认领的 queued run 行：先认下最旧到期文档所属项目，再把该项目
     // 本批到期文档合并进同一条维护 run，避免每份文档各占一条 run。
-    const [candidate] = await query(
+    const [candidate] = await query<{ project_id: string }>(
       db,
       `${readyDocumentsSql} ${DOCUMENT_LIBRARY_FOLDER_SQL}
       ORDER BY q.queued_at,q.version_id LIMIT 1`,
@@ -1400,7 +1808,7 @@ async function processNextDocumentMemory(db, summarize, projectId) {
     if (!candidate) return false;
     scopeId = candidate.project_id;
   }
-  const pending = await query(
+  const pending: DocumentMemoryCandidate[] = await query(
     db,
     `${readyDocumentsSql} AND a.project_id=? ${DOCUMENT_LIBRARY_FOLDER_SQL}
     ORDER BY q.queued_at,q.version_id LIMIT ${DOCUMENT_MEMORY_BATCH_LIMIT}`,
@@ -1420,7 +1828,7 @@ async function processNextDocumentMemory(db, summarize, projectId) {
       });
       return true;
     }
-    const scopedSummarize = (context) =>
+    const scopedSummarize = (context: DocumentSummaryContext) =>
       summarize({
         ...context,
         task: DOCUMENT_MEMORY_TASK,
@@ -1479,7 +1887,7 @@ async function processNextDocumentMemory(db, summarize, projectId) {
         await query(
           db,
           "UPDATE file_index_run_items SET status='failed',error=? WHERE run_id=? AND version_id=?",
-          [String(error?.message || error).slice(0, 1000), run.id, candidate.version_id],
+          [errorText(error).slice(0, 1000), run.id, candidate.version_id],
         );
       }
     }
@@ -1506,7 +1914,11 @@ const archiveDecisionSchema = z.object({
   summary: z.string().trim().min(1).max(8000),
 });
 
-function archiveMemoryInput(thread, snapshot, previousSummary) {
+function archiveMemoryInput(
+  thread: ArchiveThread,
+  snapshot: ArchiveSnapshot | null | undefined,
+  previousSummary: string | undefined,
+) {
   const messages = (snapshot?.messages || []).slice(-80).map((message) => ({
     author: message.author,
     source: message.source,
@@ -1532,7 +1944,11 @@ function archiveMemoryInput(thread, snapshot, previousSummary) {
   };
 }
 
-export async function summarizeIterationArchive(db, context, options = {}) {
+export async function summarizeIterationArchive(
+  db: Db,
+  context: IterationArchiveContext,
+  options: Record<string, unknown> = {},
+) {
   const { runLaowengTask } = await import("./laoweng-agent.ts");
   if (context.phase === "draft") {
     const snapshot = context.snapshot;
@@ -1602,10 +2018,14 @@ export async function summarizeIterationArchive(db, context, options = {}) {
   return result.summary;
 }
 
-async function runClaimedIterationArchive(db, claimed, summarize) {
-  let thread;
+async function runClaimedIterationArchive(
+  db: Db,
+  claimed: LaowengRunRow,
+  summarize: ArchiveSummarizer,
+) {
+  let thread: ArchiveThread | undefined;
   try {
-    [thread] = await query(
+    [thread] = await query<ArchiveThread>(
       db,
       "SELECT id,project_id,title,status,archive_snapshot FROM threads WHERE id=? AND project_id=?",
       [claimed.thread_id, claimed.project_id],
@@ -1623,13 +2043,15 @@ async function runClaimedIterationArchive(db, claimed, summarize) {
         (workflow &&
           workflow.run_token === claimed.archive_token &&
           workflow.status === (draft ? "preparing" : "completed")));
-    if (!valid) {
+    if (!valid || !thread) {
       await finishLaowengRun(db, claimed.id, {
         status: "completed",
         result: { discarded: true, reason: "归档已撤回或方案已变化" },
       });
       return true;
     }
+    // 收窄后取固定引用：事务回调里不能再依赖 `let thread` 的控制流收窄。
+    const archiveThread = thread;
     if (!draft) {
       await finishLaowengRun(db, claimed.id, {
         status: "completed",
@@ -1637,20 +2059,22 @@ async function runClaimedIterationArchive(db, claimed, summarize) {
       });
       return true;
     }
-    const snapshot = archiveJson(draft ? workflow.snapshot : thread.archive_snapshot) || {};
+    const snapshot = archiveJson(draft ? workflow.snapshot : archiveThread.archive_snapshot) || {};
     const previous = await loadProjectSummary(db, claimed.project_id);
     const result = await summarize({
       projectId: claimed.project_id,
-      thread,
+      thread: archiveThread,
       snapshot,
       previousSummary: previous?.summary || "",
       phase: draft ? "draft" : "memory",
       trigger: claimed.trigger_source || "schedule",
     });
-    let plan;
+    let plan: z.infer<typeof archivePlanSchema> | undefined;
     if (draft) {
       plan = archivePlanSchema.parse(result);
-      const ids = (snapshot.tasks || [])
+      // `archiveJson` 只保证「普通对象」，快照里的任务数组在这里按真实形状收口。
+      const snapshotTasks = snapshot.tasks as ArchiveSnapshotTask[] | undefined;
+      const ids = (snapshotTasks || [])
         .filter(
           (task) =>
             !["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"].includes(
@@ -1662,13 +2086,13 @@ async function runClaimedIterationArchive(db, claimed, summarize) {
       if (
         proposed.size !== plan.taskDecisions.length ||
         proposed.size !== ids.length ||
-        ids.some((id) => !proposed.has(id))
+        ids.some((id: string) => !proposed.has(id))
       )
         throw new Error("归档草案未准确覆盖全部未完成任务，请重新梳理。");
     } else if (typeof result !== "string" || !result.trim())
       throw new Error("老翁未返回项目长期总结");
-    const committed = await transaction(db, async (conn) => {
-      const currentThread = await lockIteration(conn, thread.id);
+    const committed = await transaction(db as Pool, async (conn) => {
+      const currentThread = await lockIteration(conn, archiveThread.id);
       if (currentThread.status !== (draft ? "archiving" : "archived")) return false;
       if (claimed.archive_workflow_id) {
         const [current] = await query(
@@ -1700,7 +2124,7 @@ async function runClaimedIterationArchive(db, claimed, summarize) {
           conn,
           `INSERT INTO agent_project_summaries(project_id,summary,last_thread_id)
         VALUES(?,?,?) ON DUPLICATE KEY UPDATE summary=VALUES(summary),last_thread_id=VALUES(last_thread_id),updated_at=UTC_TIMESTAMP(3)`,
-          [claimed.project_id, result, thread.id],
+          [claimed.project_id, result, archiveThread.id],
         );
       }
       return true;
@@ -1710,13 +2134,18 @@ async function runClaimedIterationArchive(db, claimed, summarize) {
       agentCalled: true,
       hadUpdates: committed,
       itemCount: 1,
-      result: { threadId: thread.id, phase: draft ? "draft" : "memory", discarded: !committed },
+      result: {
+        threadId: archiveThread.id,
+        phase: draft ? "draft" : "memory",
+        discarded: !committed,
+      },
     });
   } catch (error) {
-    const detail = String(error?.message || error).slice(0, 300);
-    if (thread && claimed.archive_phase === "draft")
-      await transaction(db, async (conn) => {
-        const current = await lockIteration(conn, thread.id);
+    const detail = errorText(error).slice(0, 300);
+    if (thread && claimed.archive_phase === "draft") {
+      const failedThreadId = thread.id;
+      await transaction(db as Pool, async (conn) => {
+        const current = await lockIteration(conn, failedThreadId);
         if (current.status === "archiving")
           await query(
             conn,
@@ -1724,6 +2153,7 @@ async function runClaimedIterationArchive(db, claimed, summarize) {
             [detail.slice(0, 1000), claimed.archive_workflow_id, claimed.archive_token],
           );
       });
+    }
     await finishLaowengRun(db, claimed.id, {
       status: "failed",
       agentCalled: true,
@@ -1733,7 +2163,11 @@ async function runClaimedIterationArchive(db, claimed, summarize) {
   return true;
 }
 
-async function processNextIterationArchive(db, summarize, projectId) {
+async function processNextIterationArchive(
+  db: Db,
+  summarize: ArchiveSummarizer,
+  projectId: string | null | undefined,
+) {
   const claimed = await claimLaowengRun(db, "iteration_archive", projectId);
   if (!claimed) return false;
   await runClaimedIterationArchive(db, claimed, summarize);
@@ -1741,15 +2175,15 @@ async function processNextIterationArchive(db, summarize, projectId) {
 }
 
 /** Claim the queued draft and start it without waiting for the model. */
-export async function startIterationArchive(db, projectId) {
+export async function startIterationArchive(db: Db, projectId: string) {
   const claimed = await claimLaowengRun(db, "iteration_archive", projectId);
   if (!claimed) return false;
-  void runClaimedIterationArchive(db, claimed, (context) =>
+  void runClaimedIterationArchive(db, claimed, (context: IterationArchiveContext) =>
     summarizeIterationArchive(db, context),
-  ).catch((error) => {
+  ).catch((error: unknown) => {
     console.error("Archive draft start failed", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: errorName(error),
+      message: errorText(error).slice(0, 300),
     });
   });
   return true;
@@ -1773,7 +2207,7 @@ const PROJECT_MEMORY_BATCH_LIMIT = 40;
  * 项目进程只收项目级的四类信号；文档变更不进入项目进程——文件索引与关联记忆
  * 已经有独立的作业与展示，项目进程再收一份只会重复且证据更弱。
  */
-export const PROJECT_MEMORY_SIGNAL_KINDS = Object.freeze([
+export const PROJECT_MEMORY_SIGNAL_KINDS: readonly string[] = Object.freeze([
   "milestone",
   "iteration_context",
   "archive",
@@ -1785,7 +2219,11 @@ const PROJECT_MEMORY_SIGNAL_MARKS = PROJECT_MEMORY_SIGNAL_KINDS.map(() => "?").j
  * 到点就排一次结算 run：待处理 ≥ 阈值，或最早一条已静默 ≥ 20 分钟。
  * urgent 由任务结束、正式文件新版本这类事件型信号触发，不等阈值。
  */
-export async function maybeQueueProjectMemoryRun(db, projectId, urgent = false) {
+export async function maybeQueueProjectMemoryRun(
+  db: Db,
+  projectId: string | null | undefined,
+  urgent: boolean = false,
+): Promise<boolean> {
   if (!projectId) return false;
   const threshold = PROJECT_MEMORY_BATCH_LIMIT;
   // 旧版本留下的议题页 / 文件索引页 / 文档版本信号：直接清掉，不再为它们调用模型。
@@ -1819,7 +2257,7 @@ export async function maybeQueueProjectMemoryRun(db, projectId, urgent = false) 
     `INSERT INTO agent_laoweng_runs(id,project_id,task,trigger_source) VALUES(?,?,?,'schedule')`,
     [randomUUID(), projectId, PROJECT_MEMORY_TASK],
   );
-  if (typeof db.getConnection === "function") publishWork(db);
+  if (isPool(db)) publishWork(db, undefined);
   return true;
 }
 
@@ -1831,9 +2269,9 @@ export async function maybeQueueProjectMemoryRun(db, projectId, urgent = false) 
  * 通过版本关系清理。
  */
 export async function dropDocumentVersionSignals(
-  db,
-  { projectId = null, versionIds = [], artifactIds = [] } = {},
-) {
+  db: Db,
+  { projectId = null, versionIds = [], artifactIds = [] }: DropDocumentVersionSignalsInput = {},
+): Promise<number> {
   let removed = 0;
   if (versionIds.length) {
     const marks = versionIds.map(() => "?").join(",");
@@ -1843,7 +2281,7 @@ export async function dropDocumentVersionSignals(
        AND source_id IN (${marks})${projectId ? " AND project_id=?" : ""}`,
       projectId ? [...versionIds, projectId] : versionIds,
     );
-    removed += Number(result?.affectedRows || 0);
+    removed += Number((result as unknown as WriteResultHeader).affectedRows || 0);
   }
   if (artifactIds.length) {
     const marks = artifactIds.map(() => "?").join(",");
@@ -1853,7 +2291,7 @@ export async function dropDocumentVersionSignals(
        WHERE q.source_kind='document_version' AND v.artifact_id IN (${marks})${projectId ? " AND q.project_id=?" : ""}`,
       projectId ? [...artifactIds, projectId] : artifactIds,
     );
-    removed += Number(result?.affectedRows || 0);
+    removed += Number((result as unknown as WriteResultHeader).affectedRows || 0);
   }
   return removed;
 }
@@ -1863,7 +2301,10 @@ export async function dropDocumentVersionSignals(
  * 这类信号不会自愈，留着只会让项目记忆结算反复失败并常驻「待处理的项目进程信号」，
  * 因此由维护定时扫描统一丢弃（不区分是否已到重试时间）。
  */
-export async function dropUnavailableDocumentVersionSignals(db, { projectId = null } = {}) {
+export async function dropUnavailableDocumentVersionSignals(
+  db: Db,
+  { projectId = null }: { projectId?: string | null } = {},
+): Promise<number> {
   const result = await query(
     db,
     `DELETE q FROM agent_project_memory_queue q
@@ -1874,18 +2315,18 @@ export async function dropUnavailableDocumentVersionSignals(db, { projectId = nu
      AND (v.id IS NULL OR a.id IS NULL OR a.deleted_at IS NOT NULL OR a.purged_at IS NOT NULL OR vr.version_id IS NOT NULL)${projectId ? " AND q.project_id=?" : ""}`,
     projectId ? [projectId] : [],
   );
-  return Number(result?.affectedRows || 0);
+  return Number((result as unknown as WriteResultHeader).affectedRows || 0);
 }
 
 /** 轻标记：只排队，不调模型。同一来源重复排队时只刷新提示。 */
 export async function noteProjectMemorySignal(
-  db,
-  projectId,
-  sourceKind,
-  sourceId,
-  hint = "",
-  { urgent = false } = {},
-) {
+  db: Db,
+  projectId: string | null | undefined,
+  sourceKind: string,
+  sourceId: string | null | undefined,
+  hint: string | null = "",
+  { urgent = false }: { urgent?: boolean } = {},
+): Promise<void> {
   if (!projectId || !sourceId) return;
   // 不是项目级信号就不入队：议题页 / 文件索引页 / 文档版本由各自作业处理，
   // 让项目记忆结算处理它们只会得到零产出，白调一次模型。
@@ -1903,33 +2344,47 @@ export async function noteProjectMemorySignal(
   await maybeQueueProjectMemoryRun(db, projectId, urgent);
 }
 
-async function candidateTexts(db, rows, projectId) {
-  const byKind = new Map();
+async function candidateTexts(
+  db: Db,
+  rows: ProjectMemoryQueueRow[],
+  projectId: string,
+): Promise<ProjectMemoryCandidate[]> {
+  const byKind = new Map<string, string[]>();
   for (const row of rows) {
-    if (!byKind.has(row.sourceKind)) byKind.set(row.sourceKind, []);
-    byKind.get(row.sourceKind).push(row.sourceId);
+    const ids = byKind.get(row.sourceKind) || [];
+    ids.push(row.sourceId);
+    byKind.set(row.sourceKind, ids);
   }
-  const texts = new Map();
-  const fingerprints = new Map();
-  const fingerprint = (kind, row) =>
+  const texts = new Map<string, string>();
+  const fingerprints = new Map<string, string>();
+  const fingerprint = (kind: string, row: unknown) =>
     fingerprints.set(
-      `${kind}:${row.id}`,
+      `${kind}:${(row as { id?: unknown }).id}`,
       createHash("sha256").update(JSON.stringify(row)).digest("hex"),
     );
-  const aboutByKey = new Map();
-  const marks = (list) => list.map(() => "?").join(",");
+  const aboutByKey = new Map<string, string>();
+  const marks = (list: string[]) => list.map(() => "?").join(",");
   const messages = byKind.get("message") || [];
   if (messages.length) {
-    const found = await query(
+    const found = await query<{
+      id: string;
+      threadId?: string | null;
+      authorId?: string | null;
+      author?: string | null;
+      body?: unknown;
+      threadTitle?: string | null;
+    }>(
       db,
       `SELECT m.id,m.thread_id threadId,m.sequence,m.author_id authorId,u.name author,m.body,t.title threadTitle
        FROM messages m LEFT JOIN users u ON u.id=m.author_id JOIN threads t ON t.id=m.thread_id
        WHERE t.project_id=? AND m.id IN (${marks(messages)})`,
       [projectId, ...messages],
     );
-    const threadIds = [...new Set(found.map((row) => row.threadId).filter(Boolean))];
+    const threadIds = [
+      ...new Set(found.map((row) => row.threadId).filter((id): id is string => Boolean(id))),
+    ];
     const snapshotRows = threadIds.length
-      ? await query(
+      ? await query<ThreadSnapshotRow>(
           db,
           `SELECT m.thread_id threadId,m.sequence,u.name author,m.body
            FROM messages m LEFT JOIN users u ON u.id=m.author_id
@@ -1938,7 +2393,7 @@ async function candidateTexts(db, rows, projectId) {
           threadIds,
         )
       : [];
-    const snapshots = new Map();
+    const snapshots = new Map<string | null | undefined, ThreadSnapshotRow[]>();
     for (const row of snapshotRows) {
       const list = snapshots.get(row.threadId) || [];
       if (list.length < 24) list.push(row);
@@ -2008,7 +2463,7 @@ async function candidateTexts(db, rows, projectId) {
        WHERE t.project_id=? AND c.id IN (${marks(contextChanges)})`,
       [projectId, ...contextChanges],
     );
-    const jsonText = (value) => {
+    const jsonText = (value: unknown) => {
       const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
       return text.slice(0, 8000) + (text.length > 8000 ? "（已截断）" : "");
     };
@@ -2089,7 +2544,7 @@ async function candidateTexts(db, rows, projectId) {
   const versions = byKind.get("document_version") || [];
   // 查不到的文档版本说明来源已删除/永久清除/被回收，属于永久不可用：
   // 调用方直接丢弃这些信号，而不是按临时故障退避重试。
-  const unavailableDocumentVersions = new Set();
+  const unavailableDocumentVersions = new Set<string>();
   if (versions.length) {
     const found = await query(
       db,
@@ -2159,11 +2614,11 @@ async function candidateTexts(db, rows, projectId) {
 }
 
 export async function loadProjectMemoryCandidates(
-  db,
-  projectId,
-  limit = PROJECT_MEMORY_BATCH_LIMIT,
-) {
-  const rows = await query(
+  db: Db,
+  projectId: string,
+  limit: number = PROJECT_MEMORY_BATCH_LIMIT,
+): Promise<ProjectMemoryCandidate[]> {
+  const rows = await query<ProjectMemoryQueueRow>(
     db,
     `SELECT id,source_kind sourceKind,source_id sourceId,hint,signal_revision signalRevision FROM agent_project_memory_queue
      WHERE project_id=? AND source_kind<>'message' ORDER BY created_at,id LIMIT ?`,
@@ -2173,7 +2628,11 @@ export async function loadProjectMemoryCandidates(
 }
 
 /** Read-only, project-scoped source hydration for validating historical revisions. */
-export async function inspectProjectMemorySources(db, projectId, sources) {
+export async function inspectProjectMemorySources(
+  db: Db,
+  projectId: string,
+  sources: { id: string; kind: string; label?: string | null }[] | null | undefined,
+): Promise<ProjectMemoryCandidate[]> {
   return candidateTexts(
     db,
     (sources || []).map((source) => ({
@@ -2186,8 +2645,11 @@ export async function inspectProjectMemorySources(db, projectId, sources) {
   );
 }
 
-export async function loadProjectMemoryEntryIndex(db, projectId) {
-  return query(
+export async function loadProjectMemoryEntryIndex(
+  db: Db,
+  projectId: string,
+): Promise<ProjectMemoryEntryIndexRow[]> {
+  return query<ProjectMemoryEntryIndexRow>(
     db,
     `SELECT p.id,p.title,LEFT(p.body,1500) body,SHA2(p.body,256) bodyDigest,p.status,p.subject_type subjectType,p.memory_subtype subtype,p.updated_at updatedAt FROM wiki_pages p
      WHERE p.project_id=? AND p.status='current' AND ${visibleFileIndexSql("p")}
@@ -2200,7 +2662,7 @@ export async function loadProjectMemoryEntryIndex(db, projectId) {
 const projectMemoryEntrySchema = z.object({
   op: z.enum(["create", "update", "dispute"]),
   entryId: z.string().uuid().optional(),
-  subject: z.enum(MEMORY_SUBJECTS).optional(),
+  subject: z.enum([...MEMORY_SUBJECTS] as [string, ...string[]]).optional(),
   subtype: z.string().trim().max(64).optional(),
   aboutUserId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160).optional(),
@@ -2209,20 +2671,24 @@ const projectMemoryEntrySchema = z.object({
 });
 // 模型对「本次没有内容」的字段常直接写 null，null 与「未返回」等价：
 // 不能因为一个可省字段为 null 就把整份结果判为失败、丢掉落库的条目。
-const emptyWhenNull = (value) => (value === null ? "" : value);
+const emptyWhenNull = (value: unknown) => (value === null ? "" : value);
 const projectMemorySchema = z.object({
   entries: z.array(projectMemoryEntrySchema).max(20),
   summary: z.preprocess(emptyWhenNull, z.string().trim().max(2000).optional().default("")),
   statusMarkdown: z.preprocess(emptyWhenNull, z.string().max(60000).optional().default("")),
 });
 
-export async function summarizeProjectMemory(db, context, options = {}) {
+export async function summarizeProjectMemory(
+  db: Db,
+  context: ProjectMemoryContext,
+  options: Record<string, unknown> = {},
+) {
   const { runLaowengTask } = await import("./laoweng-agent.ts");
   const { startConversationToolBridge } = await import("./conversation-memory-tools.ts");
   const bridge = await startConversationToolBridge(db, {
     window: { projectId: context.projectId, projectOwner: context.projectOwner },
     pages: [],
-  });
+  } as unknown as Parameters<typeof startConversationToolBridge>[1]);
   try {
     return await runLaowengTask(
       db,
@@ -2273,7 +2739,13 @@ const verifyReason = z.preprocess(
  * 返回 {verdicts:[{index,supported,reason}]}；index 是 proposals 的下标。
  * 兼容旧的 {supported,reason} 整体结论（测试替身或旧模型返回）。
  */
-async function verifyProjectMemorySupport(db, projectId, result, candidates, options = {}) {
+async function verifyProjectMemorySupport(
+  db: Db,
+  projectId: string,
+  result: ProjectMemoryResult,
+  candidates: ProjectMemoryCandidate[],
+  options: Record<string, unknown> = {},
+): Promise<VerifyVerdict> {
   const proposals = (result.entries || []).filter((entry) => entry.op !== "dispute");
   const evidence = proposals.map((proposal, index) => ({
     index,
@@ -2319,10 +2791,14 @@ const TASK_SIGNAL_KINDS = new Set(["task"]);
  * 另外落实「任务信号只做任务分布汇总」：只引用一个任务来源的条目丢弃。
  * dispute 不参与核验，保留。
  */
-function filterVerifiedEntries(result, verdict, candidates) {
+function filterVerifiedEntries(
+  result: ProjectMemoryResult,
+  verdict: VerifyVerdict | null | undefined,
+  candidates: ProjectMemoryCandidate[],
+) {
   const entries = result.entries || [];
   const proposals = entries.filter((entry) => entry.op !== "dispute");
-  const byIndex = new Map();
+  const byIndex = new Map<number, VerifyVerdictItem>();
   for (const item of verdict?.verdicts || []) byIndex.set(Number(item.index), item);
   const taskIds = new Set();
   for (const candidate of candidates) {
@@ -2331,8 +2807,8 @@ function filterVerifiedEntries(result, verdict, candidates) {
       taskIds.add(candidate.queueId);
     }
   }
-  const kept = [];
-  const dropped = [];
+  const kept: ProjectMemoryEntry[] = [];
+  const dropped: { title: string; reason: string }[] = [];
   let proposalIndex = -1;
   for (const entry of entries) {
     if (entry.op === "dispute") {
@@ -2369,9 +2845,9 @@ function filterVerifiedEntries(result, verdict, candidates) {
 }
 
 export async function applyProjectMemoryResult(
-  db,
-  projectId,
-  result,
+  db: Db,
+  projectId: string,
+  result: ProjectMemoryResult | null | undefined,
   {
     userId,
     candidates = [],
@@ -2380,17 +2856,17 @@ export async function applyProjectMemoryResult(
     phase = "project_memory",
     settlementId = null,
     runId = null,
-  } = {},
+  }: ApplyProjectMemoryOptions = {},
 ) {
-  const byQueue = new Map(candidates.map((item) => [item.queueId, item]));
-  const bySource = new Map(candidates.map((item) => [item.sourceId, item]));
-  const created = [];
-  const updated = [];
-  const disputed = [];
+  const byQueue = new Map(candidates.map((item) => [item.queueId, item] as const));
+  const bySource = new Map(candidates.map((item) => [item.sourceId, item] as const));
+  const created: string[] = [];
+  const updated: string[] = [];
+  const disputed: string[] = [];
   let statusUpdated = false;
   let alreadyApplied = false;
   if (!userId) return { created, updated, disputed };
-  await transaction(db, async (conn) => {
+  await transaction(db as Pool, async (conn) => {
     if (settlementId) {
       const [checkpoint] = await query(
         conn,
@@ -2417,7 +2893,7 @@ export async function applyProjectMemoryResult(
       for (const candidate of [...candidates].sort((a, b) =>
         a.sourceId.localeCompare(b.sourceId),
       )) {
-        const sql = {
+        const sourceLocks: Record<string, string | undefined> = {
           task: "SELECT id FROM agent_tasks WHERE id=? AND project_id=? FOR UPDATE",
           thread: "SELECT id FROM threads WHERE id=? AND project_id=? FOR UPDATE",
           memory_page: "SELECT id FROM wiki_pages WHERE id=? AND project_id=? FOR UPDATE",
@@ -2428,7 +2904,8 @@ export async function applyProjectMemoryResult(
             "SELECT c.id FROM iteration_context_changes c JOIN threads t ON t.id=c.thread_id WHERE c.id=? AND t.project_id=? FOR UPDATE",
           archive:
             "SELECT w.id FROM iteration_archive_workflows w JOIN threads t ON t.id=w.thread_id WHERE w.id=? AND t.project_id=? FOR UPDATE",
-        }[candidate.sourceKind];
+        };
+        const sql = sourceLocks[candidate.sourceKind];
         if (!sql || !(await query(conn, sql, [candidate.sourceId, projectId])).length)
           throw new Error("候选出处不存在或不可访问");
         if (candidate.sourceKind === "memory_page")
@@ -2480,7 +2957,7 @@ export async function applyProjectMemoryResult(
             `SELECT p.id,p.body FROM wiki_pages p JOIN wiki_page_sources s ON s.page_id=p.id
              WHERE p.project_id=? AND p.subject_type=? AND p.title=? AND p.status<>'superseded'
              AND s.source_kind=? AND s.source_id=? LIMIT 1 FOR UPDATE`,
-            [projectId, subject, item.title, source.sourceKind, source.sourceId],
+            [projectId, subject, item.title, source!.sourceKind, source!.sourceId],
           );
           if (duplicate) throw new Error("发现相同标题和出处的既有记忆，请重新分析并更新原条目");
         }
@@ -2586,7 +3063,7 @@ export async function applyProjectMemoryResult(
           const [existing] = await query(
             conn,
             "SELECT id FROM wiki_page_sources WHERE page_id=? AND source_kind=? AND source_id=? LIMIT 1",
-            [item.entryId, mapped.sourceKind, mapped.sourceId],
+            [item.entryId, mapped!.sourceKind, mapped!.sourceId],
           );
           if (!existing)
             await query(
@@ -2595,17 +3072,17 @@ export async function applyProjectMemoryResult(
               [
                 randomUUID(),
                 item.entryId,
-                mapped.sourceKind,
-                mapped.sourceId,
-                String(mapped.hint || mapped.sourceKind).slice(0, 240),
+                mapped!.sourceKind,
+                mapped!.sourceId,
+                String(mapped!.hint || mapped!.sourceKind).slice(0, 240),
               ],
             );
-          if (mapped.sourceKind === "memory_page") {
+          if (mapped!.sourceKind === "memory_page") {
             const { createMemoryRelation } = await import("./memory-graph.ts");
             await createMemoryRelation(conn, {
               projectId,
               fromPageId: item.entryId,
-              toPageId: mapped.sourceId,
+              toPageId: mapped!.sourceId,
               relation: "relates",
               note: "项目进程依据",
               createdBy: userId,
@@ -2755,13 +3232,13 @@ export async function applyProjectMemoryResult(
     }
   });
   const { refreshMemberSummaryCache, refreshProjectGuideCache } = await import("./memory-cache.ts");
-  const speakers = new Set();
+  const speakers = new Set<string>();
   for (const item of result?.entries || [])
     if (item.subject === "utterance" && item.aboutUserId) speakers.add(item.aboutUserId);
   for (const speakerId of speakers) await refreshMemberSummaryCache(db, projectId, speakerId);
-  await refreshProjectGuideCache(db, projectId).catch((error) => {
+  await refreshProjectGuideCache(db, projectId).catch((error: unknown) => {
     console.error("刷新项目现状缓存失败", {
-      message: String(error?.message || error).slice(0, 200),
+      message: errorText(error).slice(0, 200),
     });
   });
   return { created, updated, disputed, statusUpdated, alreadyApplied };
@@ -2771,7 +3248,15 @@ export async function applyProjectMemoryResult(
  * 项目记忆结算身份：候选内容指纹 + 项目现状。
  * 两者都不变时视为「没有新内容」，可复用上次结论，不再调用模型。
  */
-export function projectMemorySettlementId({ projectId, projectStatus = "", candidates = [] }) {
+export function projectMemorySettlementId({
+  projectId,
+  projectStatus = "",
+  candidates = [],
+}: {
+  projectId: string;
+  projectStatus?: unknown;
+  candidates?: ProjectMemoryCandidate[];
+}): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -2791,10 +3276,19 @@ export function projectMemorySettlementId({ projectId, projectStatus = "", candi
     .digest("hex");
 }
 
-async function processNextMemorySettlement(db, summarize, projectId, verifySupport) {
+async function processNextMemorySettlement(
+  db: Db,
+  summarize: (context: ProjectMemoryContext) => Promise<unknown>,
+  projectId: string | null | undefined,
+  verifySupport: (
+    projectId: string,
+    result: ProjectMemoryResult,
+    candidates: ProjectMemoryCandidate[],
+  ) => Promise<VerifyVerdict>,
+): Promise<boolean> {
   let claimed = await claimLaowengRun(db, PROJECT_MEMORY_TASK, projectId);
   if (!claimed) {
-    const [due] = await query(
+    const [due] = await query<{ projectId: string }>(
       db,
       `SELECT project_id projectId FROM agent_project_memory_queue
        WHERE source_kind<>'message' AND source_kind IN (${PROJECT_MEMORY_SIGNAL_MARKS})
@@ -2811,8 +3305,8 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
     }
   }
   if (!claimed) return false;
-  let candidates = [];
-  let activeSettlementId = null;
+  let candidates: ProjectMemoryCandidate[] = [];
+  let activeSettlementId: string | null = null;
   try {
     const [project] = await query(
       db,
@@ -2842,7 +3336,7 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
       [claimed.project_id],
     );
     if (unfinished) {
-      const keys =
+      const keys: [string, string][] =
         typeof unfinished.candidateKeys === "string"
           ? JSON.parse(unfinished.candidateKeys)
           : unfinished.candidateKeys;
@@ -2940,7 +3434,7 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
           "DELETE FROM agent_project_memory_queue WHERE id=? AND project_id=? AND signal_revision=?",
           [candidate.queueId, claimed.project_id, candidate.revision],
         );
-        consumed += Number(deleted.affectedRows || 0);
+        consumed += Number((deleted as unknown as WriteResultHeader).affectedRows || 0);
       }
       await finishLaowengRun(db, claimed.id, {
         status: "completed",
@@ -2955,7 +3449,7 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
       });
       return true;
     }
-    const parseJson = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+    const parseJson = (value: unknown) => (typeof value === "string" ? JSON.parse(value) : value);
     const summarizeCurrent = async () =>
       projectMemorySchema.parse(
         await summarize({
@@ -2968,7 +3462,7 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
           trigger: claimed.trigger_source || "schedule",
         }),
       );
-    let result;
+    let result: ProjectMemoryResult;
     if (saved) {
       result = projectMemorySchema.parse(parseJson(saved.result));
       entries = parseJson(saved.entrySnapshot);
@@ -2977,7 +3471,7 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
     }
     if (
       (result.entries || []).some((item) =>
-        ["utterance", "discussion", "document"].includes(item.subject),
+        ["utterance", "discussion", "document"].includes(item.subject ?? ""),
       )
     )
       throw new Error("项目结算不能生成发言、议题或文档类记忆，请重试");
@@ -3033,9 +3527,9 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
         droppedEntries: verified.dropped,
       },
     });
-    await maybeQueueProjectMemoryRun(db, claimed.project_id, true).catch((error) => {
+    await maybeQueueProjectMemoryRun(db, claimed.project_id, true).catch((error: unknown) => {
       console.error("后续项目记忆信号调度失败", {
-        message: String(error?.message || error).slice(0, 200),
+        message: errorText(error).slice(0, 200),
       });
     });
   } catch (error) {
@@ -3074,7 +3568,12 @@ async function processNextMemorySettlement(db, summarize, projectId, verifySuppo
 }
 
 /** 人工忽略一条待处理信号：删除队列行并留审计，之后不再自动重试。 */
-export async function ignoreProjectMemorySignal(service, user, projectId, queueId) {
+export async function ignoreProjectMemorySignal(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+  queueId: string,
+) {
   await service.member(user, projectId, true);
   const { projectArchived } = await import("./memory-timeline.ts");
   if (await projectArchived(service.db, projectId))
@@ -3113,7 +3612,12 @@ export async function ignoreProjectMemorySignal(service, user, projectId, queueI
  * 统一的记忆作业重试入口：按作业键分派到对应的排队函数。
  * 任务记忆与讨论记忆随项目记忆结算触发，没有独立队列，不能单独重试。
  */
-export async function retryMemoryJob(service, user, projectId, key) {
+export async function retryMemoryJob(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+  key: string,
+) {
   // 核心议题与关键发言是同一次联合分析，旧键名继续映射到合并后的作业。
   const normalizedKey = key === "discussion_memory" ? "member_memory" : key;
   if (!MEMORY_JOB_KEYS.includes(normalizedKey)) throw new HttpError(400, "没有这个记忆作业");
@@ -3129,7 +3633,13 @@ export async function retryMemoryJob(service, user, projectId, key) {
 }
 
 /** 手动调整记忆条目的对象类型 / 归属成员（管理空间用）。 */
-export async function updateMemoryEntryMeta(service, user, projectId, entryId, input = {}) {
+export async function updateMemoryEntryMeta(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+  entryId: string,
+  input: UpdateMemoryEntryInput = {},
+) {
   await service.member(user, projectId, true);
   const [page] = await query(
     service.db,
@@ -3148,7 +3658,7 @@ export async function updateMemoryEntryMeta(service, user, projectId, entryId, i
   if ("subtype" in input) subtype = input.subtype || null;
   if (subtype && !isMemorySubtype(subject, subtype))
     throw new HttpError(400, "该二级类型不属于当前记忆类型");
-  let aboutUserId = null;
+  let aboutUserId: string | null = null;
   if (subject === "utterance") {
     if ("aboutUserId" in input) aboutUserId = input.aboutUserId || null;
     if (aboutUserId) {
@@ -3173,7 +3683,7 @@ export async function updateMemoryEntryMeta(service, user, projectId, entryId, i
  * 不重置会把历史失败算进新一次重试：自动重试预算早已耗尽，任何一次失败都会立刻
  * 又被写成「已停止自动重试」，人点多少次重试都处理不了。
  */
-export async function resetProjectMemoryRetryBudget(db, projectId) {
+export async function resetProjectMemoryRetryBudget(db: Db, projectId: string) {
   await query(
     db,
     `UPDATE agent_project_memory_queue SET available_at=UTC_TIMESTAMP(3),retry_count=0,last_error=NULL
@@ -3183,7 +3693,11 @@ export async function resetProjectMemoryRetryBudget(db, projectId) {
 }
 
 /** 手动触发一次结算：人点「现在整理」或运维重试。 */
-export async function queueProjectMemoryRun(service, user, projectId) {
+export async function queueProjectMemoryRun(
+  service: AccessService,
+  user: AccessUser,
+  projectId: string,
+) {
   if (user.kind !== "session" && user.kind !== "api")
     throw new HttpError(403, "需要人工登录或账号令牌");
   await service.member(user, projectId, true);
@@ -3202,7 +3716,7 @@ export async function queueProjectMemoryRun(service, user, projectId) {
        VALUES(?,?,?,'user',?)`,
       [id, projectId, PROJECT_MEMORY_TASK, user.id],
     );
-  publishWork(service.db);
+  publishWork(service.db, undefined);
   try {
     const { runMemoryMaintenance } = await import("./memory-maintenance.ts");
     await runMemoryMaintenance(service.db, {
@@ -3212,8 +3726,8 @@ export async function queueProjectMemoryRun(service, user, projectId) {
     });
   } catch (error) {
     console.error("项目记忆结算失败", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: errorName(error),
+      message: errorText(error).slice(0, 300),
     });
   }
   const [run] = await query(
@@ -3225,21 +3739,27 @@ export async function queueProjectMemoryRun(service, user, projectId) {
   return run || { id, status: "queued" };
 }
 
-export async function processNextProjectMemory(db, options = {}) {
+export async function processNextProjectMemory(
+  db: Db,
+  options: ProjectMemoryProcessOptions = {},
+): Promise<boolean> {
   const { projectId, task } = options;
-  const summarizeDocument =
+  const summarizeDocument: DocumentSummarizer =
     options.summarizeDocument ||
-    ((context) => summarizeProjectDocument(db, context, options.laowengOptions));
-  const summarizeArchive =
+    ((context: DocumentSummaryContext) =>
+      summarizeProjectDocument(db, context, options.laowengOptions));
+  const summarizeArchive: ArchiveSummarizer =
     options.summarizeArchive ||
-    ((context) => summarizeIterationArchive(db, context, options.laowengOptions));
-  const summarizeMemory =
+    ((context: IterationArchiveContext) =>
+      summarizeIterationArchive(db, context, options.laowengOptions));
+  const summarizeMemory: (context: ProjectMemoryContext) => Promise<unknown> =
     options.summarizeMemory ||
-    ((context) => summarizeProjectMemory(db, context, options.laowengOptions));
+    ((context: ProjectMemoryContext) =>
+      summarizeProjectMemory(db, context, options.laowengOptions));
   if (!task || task === PROJECT_MEMORY_TASK) {
     const verifySupport =
       options.verifyMemorySupport ||
-      ((id, result, candidates) =>
+      ((id: string, result: ProjectMemoryResult, candidates: ProjectMemoryCandidate[]) =>
         verifyProjectMemorySupport(db, id, result, candidates, options.laowengOptions));
     if (await processNextMemorySettlement(db, summarizeMemory, projectId, verifySupport))
       return true;

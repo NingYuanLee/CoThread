@@ -632,7 +632,7 @@ export async function readProjectMemory(
   const [summaryRows, threadRows, skeleton, tabOpenedAt, totalRows, entryIndex] = await Promise.all(
     [
       (async () => {
-        const { loadProjectSummary } = await import("./project-memory.js");
+        const { loadProjectSummary } = await import("./project-memory.ts");
         const summary = await loadProjectSummary(db, projectId);
         return summary ? [{ ...summary, lastTitle: summary.lastThreadTitle }] : [];
       })(),

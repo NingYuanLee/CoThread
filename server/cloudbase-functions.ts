@@ -3,7 +3,7 @@ import JSZip from "jszip";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
 import type { Db } from "./types.ts";
-import { callProvider, getCloudbaseManager, resolveCloudbaseEnv } from "./cloudbase.js";
+import { callProvider, getCloudbaseManager, resolveCloudbaseEnv } from "./cloudbase.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
 import {
   computeMiniprogramSourceHash,
@@ -274,7 +274,9 @@ async function deployCloudbaseFunctionSource(
     manager: CloudbaseFunctionsManager;
     envId: unknown;
   };
-  const result = await callProvider("部署 CloudBase 云函数", () =>
+  // manager 视图把 createFunction 的返回标成 unknown（SDK 类型不覆盖管理面），
+  // 这里按 Provider 实际返回的两种大小写形态收口，取值逻辑不变。
+  const result = (await callProvider("部署 CloudBase 云函数", () =>
     manager.functions.createFunction({
       func: {
         name: source.name,
@@ -287,7 +289,7 @@ async function deployCloudbaseFunctionSource(
       force: true,
       base64Code,
     }),
-  );
+  )) as { RequestId?: unknown; requestId?: unknown } | null;
   let detail = await callProvider(`读取 CloudBase 云函数 ${source.name}`, () =>
     manager.functions.getFunctionDetail(source.name),
   );

@@ -6,7 +6,7 @@ import { clearPromptState, readPromptState, writePromptState } from "./thread-pr
 import { Service } from "./service.ts";
 import { AGENT_XIAOXIANG_MEMBER, mentionsAgent } from "../shared/agent-member.js";
 import { formatAgentAction } from "../shared/agent-label.js";
-import { loadProjectMembers } from "./project-memory.js";
+import { loadProjectMembers } from "./project-memory.ts";
 import { capturedModelUsage, redactSecrets } from "./model-config.ts";
 import { createUsageMeter, saveReplyUsage, saveTurnUsage } from "./agent-usage.ts";
 import {
@@ -52,28 +52,71 @@ import {
   stablePrefixDigest,
 } from "../shared/prompt-blocks.js";
 import { SYSTEM_PROMPTS } from "../dsh-layer/cothread-plugin-registry.mjs";
+import type { Pool } from "mysql2/promise";
+import type { Db } from "./types.ts";
+import type { UsageStats } from "./agent-usage.ts";
 
-const brief = (value, limit = 1200) => (typeof value === "string" ? value.slice(0, limit) : null);
-const parseRefs = (value) => (typeof value === "string" ? JSON.parse(value) : value || []);
-const escapePattern = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const isMentioned = (body, value) =>
+const brief = (value: unknown, limit = 1200) =>
+  typeof value === "string" ? value.slice(0, limit) : null;
+const parseRefs = (value: unknown): unknown[] =>
+  typeof value === "string" ? JSON.parse(value) : (value as unknown[]) || [];
+const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** 正文里是否 @ 了某个别名；别名两边不能紧挨字母、数字、下划线或 @。 */
+const isMentioned = (body: string, value: string) =>
   new RegExp(`(^|[^\\p{L}\\p{N}_@])@${escapePattern(value)}(?=$|[^\\p{L}\\p{N}_@])`, "u").test(
     body,
   );
 
-function messageRecord(message, members, versions, quoteIds, folders) {
+/** 说话人：成员行 + 小祥自己，`aliases` 是正文里可能出现的 @ 名。 */
+type MentionMember = { id: string; name?: string | null; aliases: string[] };
+
+/** 消息里引用的文档版本（`versions` 行的投影）。 */
+type VersionEntry = {
+  versionId: string;
+  artifactId?: unknown;
+  title?: unknown;
+  filename?: unknown;
+  version?: unknown;
+};
+
+/** 消息里引用的文件夹（`document_folders` 行的投影）。 */
+type FolderEntry = { folderId: string; name?: unknown };
+
+/** 一条讨论消息（`messages` 行 + 解析后的引用）。 */
+type MessageRow = {
+  id: string;
+  sequence: string | number;
+  body: string;
+  refs: unknown;
+  folder_refs: unknown;
+  source: string | null;
+  execution_target: string | null;
+  created_at: unknown;
+  author: string | null;
+  author_id: string | null;
+  author_role: string | null;
+  quotes?: unknown;
+};
+
+function messageRecord(
+  message: MessageRow,
+  members: MentionMember[],
+  versions: Map<string, VersionEntry>,
+  quoteIds: Map<string, string[]>,
+  folders: Map<string, FolderEntry>,
+) {
   const assistant = message.source === "assistant";
   const mentions = members.filter((member) =>
     member.aliases.some((alias) => isMentioned(message.body, alias)),
   );
   // Keep folderRefs as folders only. Expanding them into files made 小祥 re-attach
   // every document under the folder when creating tasks.
-  const seen = new Set();
-  const files = [];
+  const seen = new Set<unknown>();
+  const files: unknown[] = [];
   for (const id of parseRefs(message.refs)) {
     if (seen.has(id)) continue;
     seen.add(id);
-    files.push(versions.get(id) || { versionId: id });
+    files.push(versions.get(id as string) || { versionId: id });
   }
   return {
     messageId: message.id,
@@ -91,14 +134,238 @@ function messageRecord(message, members, versions, quoteIds, folders) {
     content: message.body,
     mentions: mentions.map(({ id, name }) => ({ id, name })),
     quotedMessageIds: quoteIds.get(message.id) || [],
-    folders: parseRefs(message.folder_refs).map((id) => folders.get(id) || { folderId: id }),
+    folders: parseRefs(message.folder_refs).map(
+      (id) => folders.get(id as string) || { folderId: id },
+    ),
     files,
   };
 }
 
+/** 唤醒事件的 JSON 负载；只声明协调者真正读到的两项。 */
+type CoordinatorEventPayload = {
+  sourceMessageId?: string | null;
+  sourceUserId?: string | null;
+  [field: string]: unknown;
+};
+
+/** 一次协调者任务：来自 `agent_requests` 的发言，或 `coordinator_events` 的唤醒事件。 */
+type CoordinatorJob = {
+  thread_id: string;
+  message_id: string | null;
+  sequence: string | number;
+  kind?: string | null;
+  payload?: CoordinatorEventPayload | null;
+  task_id?: string | null;
+  dialogue_mode?: string | null;
+  body?: string | null;
+  participation?: string | null;
+  author_id?: string | null;
+  event_id?: string | null;
+  alreadyHandled?: boolean;
+  [field: string]: unknown;
+};
+
+/** `threads` 的一行（`service.thread()` 的投影）。 */
+type ThreadRow = {
+  id: string;
+  project_id: string;
+  title: string | null;
+  background?: string | null;
+  goal?: string | null;
+  status?: string | null;
+  [field: string]: unknown;
+};
+
+/** 成员上下文：花名册与成员认识共用的一行。 */
+type CoordinatorMemberContext = {
+  id: string;
+  name?: string | null;
+  projectRole?: unknown;
+  identityTag?: unknown;
+  signature?: string;
+  messageCount?: number;
+  understanding?: unknown;
+  statementSummary?: unknown;
+  understandingThroughSequence?: string;
+  understandingRefreshPending?: boolean;
+};
+
+/** 交给模型的增量资料（`promptContext`）。 */
+type CoordinatorPromptContext = {
+  iteration: { title: string | null; background: string; goal: string };
+  event?: Record<string, unknown>;
+  projectSummary?: string | null;
+  history?: { messages: unknown[]; omittedOldest: number };
+  tasks?: unknown[];
+  documentSummaries?: unknown[];
+  latestMessage?: Record<string, unknown> | null;
+  members?: CoordinatorMemberContext[];
+  [field: string]: unknown;
+};
+
+/** 一次协调者 run 的上下文：完整投影，或 idle 唤醒时只带迭代信息。 */
+type CoordinatorContext = {
+  project_id: string;
+  title?: string | null;
+  background?: string | null;
+  goal?: string | null;
+  messages?: unknown[];
+  replies?: unknown[];
+  promptContext?: CoordinatorPromptContext;
+  [field: string]: unknown;
+};
+
+/** 协调者运行时（`acquireCoordinatorRuntime` 的返回值）。 */
+type CoordinatorRuntime = Awaited<ReturnType<typeof acquireCoordinatorRuntime>>;
+
+/** `acquireCoordinatorRuntime` 收的任务形状（`message_id` 不允许为 `null`）。 */
+type KernelJob = NonNullable<Parameters<typeof acquireCoordinatorRuntime>[1]>["job"];
+
+/** 一次协调者 run 的结果；外部执行器接管时由围栏提供。 */
+type CoordinatorRunResult = {
+  finalResponse?: string | null;
+  waiting?: boolean;
+  steeredMessageIds?: string[];
+  mergedMessageIds?: string[];
+  runtime?: CoordinatorRuntime | null;
+};
+
+/** 运行入口：本文件的 `runCoordinatorAgent`，或围栏里的外部执行器。 */
+type CoordinatorRunner = (
+  context: CoordinatorContext,
+  options: RunAgentOptions,
+) => Promise<CoordinatorRunResult>;
+
+/** `runCoordinatorAgent` / 外部执行器收到的选项。 */
+type RunAgentOptions = {
+  db: Pool;
+  job: CoordinatorJob;
+  user: CoordinatorUser;
+  signal?: AbortSignal;
+};
+
+/** 协调者以谁的身份执行；`kind` 固定 session。 */
+type CoordinatorUser = { id: string; kind: string; scope?: string | null };
+
+/** 参与判断的注入点（`composeOpportunisticParticipation` 的 `decide`）。 */
+type ParticipationDecide = NonNullable<
+  Parameters<typeof composeOpportunisticParticipation>[1]["decide"]
+>;
+
+/** `persistOpportunisticParticipationArtifacts` 收的结果形状。 */
+type ParticipationArtifactsDecision = NonNullable<
+  NonNullable<Parameters<typeof persistOpportunisticParticipationArtifacts>[1]>["decision"]
+>;
+
+/** 参与判断结果：compose 的完整结果，或判断崩溃时的保守兜底（缺用量与耗时）。 */
+type ParticipationDecision = {
+  respond: boolean;
+  message?: string | null;
+  deferred?: string | null;
+  revisions?: number | null;
+  burstIds?: readonly string[] | null;
+  usage?: unknown;
+  modelAccounting?: unknown;
+  executionDurationMs?: number;
+  reminded?: boolean;
+};
+
+/** `insertUniqueAssistantMessage` 收的门面视图：`Service` 在运行期满足它。 */
+type AssistantPoster = Parameters<typeof insertUniqueAssistantMessage>[0];
+
+/** 写进 `agent_events` 的一条原生工具事件。 */
+type NativeToolEvent = {
+  id: string;
+  name: string;
+  args: NativeToolArgs;
+  callerSessionId: string | null | undefined;
+};
+
+/** 原生工具（child_agent / send_message / …）的参数。 */
+type NativeToolArgs = {
+  prompt?: unknown;
+  message?: unknown;
+  agent_id?: string | null;
+  scope?: unknown;
+  [field: string]: unknown;
+};
+
+/** 等待绑定的工具任务。 */
+type PendingToolTask = {
+  taskId: string | null;
+  childId: string | null;
+  parentEventId: string | null;
+};
+
+/** 任务进展更新（`agent_task_updates` 的投影）。 */
+type TaskUpdateEntry = {
+  messageId: string;
+  createdAt: unknown;
+  summary: string | null;
+  accepted: boolean;
+};
+
+/** 按版本聚合的文档摘要；`status` 只在「已归档索引」的分支上出现。 */
+type SharedSummary = {
+  versionId: string;
+  artifactId?: unknown;
+  title?: unknown;
+  filename?: unknown;
+  version?: unknown;
+  summary?: string | null;
+  updatedAt?: unknown;
+  relatedTaskIds: string[];
+  status?: string;
+};
+
+/** SDK 通知负载里 `session.event` 的事件形状；只声明协调者读到的字段。 */
+type RuntimeEvent = {
+  type?: string;
+  data: {
+    name?: string;
+    callId?: string;
+    arguments?: string | null;
+    isError?: boolean;
+    message?: {
+      source?: { callId?: string; isError?: boolean };
+      content?: Array<{ type?: unknown; text?: unknown }>;
+    };
+  };
+  [field: string]: unknown;
+};
+
+/** 运行时通知的本地视图：SDK 只给 `Record<string, unknown>` 负载。 */
+type CoordinatorNotification = {
+  method: string;
+  params: {
+    sessionId?: string | null;
+    event?: RuntimeEvent;
+    parentSessionId?: string | null;
+    childSessionId?: string;
+    status?: string | null;
+    stopReason?: string | null;
+    [field: string]: unknown;
+  };
+};
+
+/** 子 Agent 完工通知（`settleChildAgentExecution` 的入参）。 */
+type ChildFinishNotification = Parameters<typeof settleChildAgentExecution>[3];
+
+/** `catch` 拿到的是 `unknown`；诊断日志只读这几项。 */
+const errorDetail = (
+  error: unknown,
+): { name?: string; code?: string; message?: string; stack?: string; status?: number } =>
+  (error ?? {}) as {
+    name?: string;
+    code?: string;
+    message?: string;
+    stack?: string;
+    status?: number;
+  };
+
 // Build the coordinator's five-part projection without quoted-message bodies,
 // document contents, tool transcripts, avatars or profile details.
-export async function dispatchContext(db, thread, job) {
+export async function dispatchContext(db: Db, thread: ThreadRow, job: CoordinatorJob) {
   const [
     messages,
     replies,
@@ -162,16 +429,16 @@ export async function dispatchContext(db, thread, job) {
       [job.thread_id],
     ),
     (async () => {
-      const { loadProjectSummary } = await import("./project-memory.js");
+      const { loadProjectSummary } = await import("./project-memory.ts");
       const summary = await loadProjectSummary(db, thread.project_id);
       return summary ? [{ summary: summary.summary }] : [];
     })(),
   ]);
-  const members = [
+  const members: MentionMember[] = [
     ...memberRows.map((member) => ({
       id: member.id,
       name: member.name,
-      aliases: [...new Set([member.name, member.email].filter(Boolean))],
+      aliases: [...new Set([member.name, member.email].filter(Boolean))] as string[],
     })),
     {
       id: AGENT_XIAOXIANG_MEMBER.id,
@@ -179,7 +446,7 @@ export async function dispatchContext(db, thread, job) {
       aliases: [AGENT_XIAOXIANG_MEMBER.name, "Agent助手"],
     },
   ];
-  const versions = new Map(
+  const versions = new Map<string, VersionEntry>(
     versionRows.map((version) => [
       version.version_id,
       {
@@ -191,7 +458,7 @@ export async function dispatchContext(db, thread, job) {
       },
     ]),
   );
-  const quoteIds = new Map();
+  const quoteIds = new Map<string, string[]>();
   for (const row of quoteRows)
     quoteIds.set(row.message_id, [...(quoteIds.get(row.message_id) || []), row.quoted_message_id]);
   const routedMessages = messages.map((message) => ({
@@ -208,19 +475,19 @@ export async function dispatchContext(db, thread, job) {
         [thread.project_id, ...folderIds],
       )
     : [];
-  const folders = new Map(
+  const folders = new Map<string, FolderEntry>(
     folderRows.map((folder) => [folder.id, { folderId: folder.id, name: folder.name }]),
   );
   const records = routedMessages.map((message) =>
     messageRecord(message, members, versions, quoteIds, folders),
   );
-  const memberContext = [
+  const memberContext: CoordinatorMemberContext[] = [
     ...memberRows.map((member) => ({
       id: member.id,
       name: member.name,
       projectRole: member.project_role,
       identityTag: member.identity_tag,
-      signature: member.motto || "",
+      signature: (member.motto as string) || "",
       messageCount: Number(member.message_count),
       understanding: member.member_understanding || null,
       statementSummary: member.statement_summary || null,
@@ -242,7 +509,7 @@ export async function dispatchContext(db, thread, job) {
       understandingRefreshPending: false,
     },
   ];
-  const updateGroups = new Map();
+  const updateGroups = new Map<string, TaskUpdateEntry[]>();
   for (const update of updates)
     updateGroups.set(update.task_message_id, [
       ...(updateGroups.get(update.task_message_id) || []),
@@ -253,8 +520,8 @@ export async function dispatchContext(db, thread, job) {
         accepted: !!update.approved,
       },
     ]);
-  const documentVersionsByTask = new Map();
-  const sharedSummaries = new Map();
+  const documentVersionsByTask = new Map<string, string[]>();
+  const sharedSummaries = new Map<string, SharedSummary>();
   for (const summary of documentSummaries) {
     documentVersionsByTask.set(summary.message_id, [
       ...(documentVersionsByTask.get(summary.message_id) || []),
@@ -388,7 +655,7 @@ export async function dispatchContext(db, thread, job) {
 const PROMPT_DELTA_MAX_SKIPS = 6;
 
 /** 压缩状态的指纹：压缩过就必须重发全量资料，否则会话历史里可能已经没有它们了。 */
-async function compactionStamp(db, threadId) {
+async function compactionStamp(db: Db, threadId: string) {
   const [row] = await query(
     db,
     "SELECT compact_status,compact_result FROM agent_sessions WHERE thread_id=?",
@@ -401,8 +668,11 @@ async function compactionStamp(db, threadId) {
     .slice(0, 16);
 }
 
-function promptDataForTurn(payload, warmSession) {
-  if (!payload || typeof payload !== "object") return payload ?? {};
+function promptDataForTurn(
+  payload: Record<string, unknown> | null | undefined,
+  warmSession: boolean,
+): Record<string, unknown> {
+  if (!payload || typeof payload !== "object") return (payload ?? {}) as Record<string, unknown>;
   const {
     iteration: _iteration,
     messages: _messages,
@@ -416,8 +686,15 @@ function promptDataForTurn(payload, warmSession) {
   return warmSession ? { ...rest, latestMessage } : { ...rest, latestMessage, history };
 }
 
-export async function runCoordinatorAgent(context, { db, job, user }) {
-  const runtime = await acquireCoordinatorRuntime(context, { db, job, user });
+export async function runCoordinatorAgent(
+  context: CoordinatorContext,
+  { db, job, user, signal: _signal }: RunAgentOptions,
+): Promise<CoordinatorRunResult> {
+  const runtime = await acquireCoordinatorRuntime(context, {
+    db,
+    job: job as unknown as KernelJob,
+    user,
+  });
   // acquire 成功复用会话才算热会话（会话轮换或新开时一定会重建，历史必须随 prompt 发）。
   const warmSession = Boolean(runtime.reused);
   let completed = false;
@@ -432,9 +709,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       );
       lastEventId = Number(maxEvent?.id || 0);
     }
-    const launched = [];
-    const launchFailed = [];
-    let inflightLaunch = null;
+    const launched: Array<{ taskId: string; childId: string }> = [];
+    const launchFailed: string[] = [];
+    let inflightLaunch: { taskId: string } | null = null;
     const launchAwaitingChild = async () => {
       const waiting = await tasksAwaitingChildLaunch(db, runtime.session.session_id);
       for (const row of waiting) {
@@ -442,11 +719,11 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         if (!launch) continue;
         inflightLaunch = { taskId: row.id };
         try {
-          const started = await runtime.request("dispatch-child", {
+          const started = (await runtime.request("dispatch-child", {
             label: launch.label,
             prompt: launch.prompt,
             persona: launch.personaPrompt || undefined,
-          });
+          })) as { childId: string };
           const bound = await bindChildAgentExecution(
             db,
             runtime.session.session_id,
@@ -469,10 +746,10 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           launched.push({ taskId: row.id, childId: started.childId });
         } catch (error) {
           launchFailed.push(row.id);
-          const diagnostic = redactSecrets(error?.message || error).slice(0, 500);
+          const diagnostic = redactSecrets(errorDetail(error).message || error).slice(0, 500);
           console.error("子 Agent launch failed", {
             taskId: row.id,
-            type: error?.name || "Error",
+            type: errorDetail(error).name || "Error",
             diagnostic: diagnostic.slice(-1000),
           });
           // Surface the real failure on the task so acceptance can read it via inspect_task.
@@ -503,7 +780,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         ? job.message_id
         : job.payload?.sourceMessageId || job.message_id || null;
     // 来源请求与最新消息固定放在 prompt 最后一块：前面全是可缓存的资料。
-    const turnData =
+    const turnData: Record<string, unknown> =
       job.kind === "child_idle"
         ? job.payload || {}
         : promptDataForTurn(context.promptContext || context, warmSession);
@@ -524,7 +801,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       previousPromptState.compactStamp === compactStamp &&
       (previousPromptState.skips ?? 0) < PROMPT_DELTA_MAX_SKIPS,
     );
-    const turn = buildDiscussionTurn({
+    // `prompt-blocks` 还是 JS：`members` / `memberMemory` / `sent` 的入参被推成 `never[]` / `null`。
+    // 这里按真实入参形状收口一次，运行期不变。
+    const turnInput = {
       projectId: context.project_id,
       iterationId: job.thread_id,
       iterationTitle: context.promptContext?.iteration?.title || context.title || "",
@@ -557,7 +836,8 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       latestMessage: latestMessageForTurn,
       dataText: turnDataText,
       sent: deltaEligible ? previousPromptState : null,
-    });
+    } as unknown as Parameters<typeof buildDiscussionTurn>[0];
+    const turn = buildDiscussionTurn(turnInput);
     const prompt = turn.prompt;
     // 记住这一轮已经下发过哪些资料，下一轮据此只补变化部分。
     writePromptState(job.thread_id, {
@@ -589,7 +869,9 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             }).slice(0, 4000),
           ],
         ).catch((error) =>
-          console.error("System prompt persistence failed", { type: error?.name || "Error" }),
+          console.error("System prompt persistence failed", {
+            type: errorDetail(error).name || "Error",
+          }),
         );
     }
     // 本轮真实注入模型的上下文：项目资料、迭代资料、对话模式、唤醒原因、请求数据。
@@ -624,17 +906,19 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           }).slice(0, 4000),
         ],
       ).catch((error) =>
-        console.error("Turn context persistence failed", { type: error?.name || "Error" }),
+        console.error("Turn context persistence failed", {
+          type: errorDetail(error).name || "Error",
+        }),
       );
     }
-    const steeredMessageIds = new Set();
-    const mergedMessageIds = new Set();
+    const steeredMessageIds = new Set<string>();
+    const mergedMessageIds = new Set<string>();
     let steeringBusy = false;
     let lastSteeredSequence = BigInt(job.sequence);
     const epochStartedAt = Date.now();
     const maxReplans = 8;
     const maxEpochMs = 90000;
-    const isMeaningfulUpdate = (row) => {
+    const isMeaningfulUpdate = (row: { body?: unknown }) => {
       const text = String(row.body || "").trim();
       if (!text || /^(收到|好的|好|了解|明白|谢谢|感谢|ok|okay)[。！!，, ]*$/i.test(text))
         return false;
@@ -694,7 +978,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             }),
           })),
         });
-        const acceptedIds = new Set(accepted.accepted || []);
+        const acceptedIds = new Set((accepted as { accepted?: string[] }).accepted || []);
         for (const row of compatible) {
           if (meaningful.includes(row) && !acceptedIds.has(row.id)) break;
           mergedMessageIds.add(row.id);
@@ -709,8 +993,8 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           );
       } catch (error) {
         console.error("Coordinator steering failed", {
-          type: error?.name || "Error",
-          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+          type: errorDetail(error).name || "Error",
+          diagnostic: redactSecrets(errorDetail(error).message || error).slice(-1000),
         });
       } finally {
         steeringBusy = false;
@@ -718,15 +1002,19 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     };
     const steeringTimer = setInterval(() => void steerNewMessages(), 350);
     steeringTimer.unref?.();
-    const toolTasks = new Map();
-    const nativeToolEvents = new Map();
-    const childRunEvents = new Map();
-    const childThinking = new Map();
-    const finishedChildren = new Map();
+    const toolTasks = new Map<string, PendingToolTask>();
+    const nativeToolEvents = new Map<string, NativeToolEvent>();
+    const childRunEvents = new Map<string, string>();
+    const childThinking = new Map<string, ReturnType<typeof trackThinking>>();
+    const finishedChildren = new Map<string, ChildFinishNotification>();
     const activeChildren = runtime.activeChildren;
-    let lifecycle = Promise.resolve();
-    let childSettled;
-    const ensureChildThinking = (childId, taskId = null, messageId = job.message_id) => {
+    let lifecycle: Promise<void> = Promise.resolve();
+    let childSettled: (() => void) | undefined;
+    const ensureChildThinking = (
+      childId: string,
+      taskId: string | null = null,
+      messageId: string | null = job.message_id,
+    ) => {
       if (!childId || childThinking.has(childId) || !messageId) return childThinking.get(childId);
       const tracker = trackThinking(db, messageId, childId, {
         updateReplyProgress: false,
@@ -735,17 +1023,21 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       childThinking.set(childId, tracker);
       return tracker;
     };
-    const closeChildThinking = async (childId) => {
+    const closeChildThinking = async (childId: string) => {
       const tracker = childThinking.get(childId);
       if (!tracker) return;
       childThinking.delete(childId);
       await tracker.close("completed").catch(() => {});
     };
-    const taskIdFromPrompt = (value) =>
+    const taskIdFromPrompt = (value: unknown): string | null =>
       String(value || "").match(
         /(?:TASK_ID\s*[:=]|任务ID\s*[:：]|\[task:)\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
       )?.[1] || null;
-    const attachChildTask = async (childId, taskId, parentEventId) => {
+    const attachChildTask = async (
+      childId: string,
+      taskId: string | null | undefined,
+      parentEventId: string | null | undefined,
+    ) => {
       const abandonOrphan = async () => {
         activeChildren.delete(childId);
         runtime.forgetSession?.(childId);
@@ -759,7 +1051,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           await runtime.request("interrupt", { sessionId: childId });
         } catch {}
       };
-      const failBind = async (message) => {
+      const failBind = async (message: unknown) => {
         if (parentEventId) {
           await finishAgentEvent(db, parentEventId, {
             status: "failed",
@@ -804,11 +1096,16 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       try {
         task = await bindChildAgentExecution(db, runtime.session.session_id, childId, bindId);
       } catch (error) {
-        if (error?.status === 409 || error?.status === 404) return failBind(error.message);
+        if (errorDetail(error).status === 409 || errorDetail(error).status === 404)
+          return failBind(errorDetail(error).message);
         throw error;
       }
       if (!task) return failBind("排队任务未能绑定到本次子 Agent");
-      ensureChildThinking(childId, task.id, job.message_id || task.source_message_id);
+      ensureChildThinking(
+        childId,
+        task.id as string,
+        job.message_id || (task.source_message_id as string | null),
+      );
       if (parentEventId) {
         await query(
           db,
@@ -837,12 +1134,12 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
       }
       return task;
     };
-    const notificationText = (blocks = []) =>
+    const notificationText = (blocks: Array<{ type?: unknown; text?: unknown }> = []) =>
       blocks
         .filter((block) => block?.type === "text")
         .map((block) => block.text || "")
         .join("\n");
-    const retainOrForgetChild = async (childId, task) => {
+    const retainOrForgetChild = async (childId: string, task: unknown) => {
       // Sample while the live child is still reachable. Measuring after teardown
       // can create an empty session and persist used:0 over a good mid-run sample.
       try {
@@ -853,8 +1150,8 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         );
       } catch (error) {
         console.error("子 Agent context sample skipped", {
-          type: error?.name || "Error",
-          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+          type: errorDetail(error).name || "Error",
+          diagnostic: redactSecrets(errorDetail(error).message || error).slice(-1000),
         });
       }
       try {
@@ -865,8 +1162,8 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         );
       } catch (error) {
         console.error("子 Agent session snapshot skipped", {
-          type: error?.name || "Error",
-          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+          type: errorDetail(error).name || "Error",
+          diagnostic: redactSecrets(errorDetail(error).message || error).slice(-1000),
         });
       }
       // Keep task children in the durable session tree so a later
@@ -880,13 +1177,13 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         );
       } catch (error) {
         console.error("子 Agent context sample skipped", {
-          type: error?.name || "Error",
-          diagnostic: redactSecrets(error?.message || error).slice(-1000),
+          type: errorDetail(error).name || "Error",
+          diagnostic: redactSecrets(errorDetail(error).message || error).slice(-1000),
         });
       }
     };
     const nativeTools = new Set(["child_agent", "send_message", "interrupt_agent", "list_agents"]);
-    const nativeEventInput = (name, args) =>
+    const nativeEventInput = (name: string, args: NativeToolArgs) =>
       name === "child_agent"
         ? { taskId: taskIdFromPrompt(args.prompt) }
         : name === "send_message"
@@ -896,7 +1193,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             : { scope: args.scope || "children" };
     const usageMeter = createUsageMeter();
     let modelDurationMs = 0;
-    const trackCoordinatorUsage = (notification) => {
+    const trackCoordinatorUsage = (notification: CoordinatorNotification) => {
       if (
         notification.method === "session.event" &&
         notification.params?.sessionId === runtime.session.session_id
@@ -904,7 +1201,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         usageMeter.notify(notification.params.event);
       handleAgentTeamNotification(notification);
     };
-    const runCoordinatorTurn = async (promptText) => {
+    const runCoordinatorTurn = async (promptText: string) => {
       const started = performance.now();
       await runtime.progress("正在调用模型");
       try {
@@ -919,7 +1216,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
     const persistCoordinatorUsage = async () => {
       if (!job.message_id) return;
       try {
-        const usage = {
+        const usage: UsageStats & { steps?: number } = {
           ...(usageMeter.result() || {}),
           ...capturedModelUsage(runtime.modelCapture),
           executionDurationMs: Math.round(modelDurationMs),
@@ -938,7 +1235,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
           );
           usage.steps = countTurnSteps(runTools);
         }
-        const turnId = messageTurnIdForJob(job);
+        const turnId = messageTurnIdForJob(job) as string;
         // 唤醒续报是独立一轮：用量记到这一轮上，不并进原始那一轮。
         if (job.kind === "child_result" || job.kind === "child_idle") {
           await saveTurnUsage(db, job.thread_id, turnId, usage);
@@ -954,10 +1251,10 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             [turnId, job.message_id, lastEventId],
           );
       } catch (error) {
-        console.error("Usage persistence failed", { type: error?.name || "Error" });
+        console.error("Usage persistence failed", { type: errorDetail(error).name || "Error" });
       }
     };
-    const handleAgentTeamNotification = (notification) => {
+    const handleAgentTeamNotification = (notification: CoordinatorNotification) => {
       const callerSessionId =
         notification.method === "session.event" ? notification.params?.sessionId : null;
       if (callerSessionId && callerSessionId !== runtime.session.session_id) {
@@ -969,12 +1266,12 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         .then(async () => {
           if (notification.method === "session.event") {
             const event = notification.params.event;
-            if (event?.type === "tool/call" && nativeTools.has(event.data?.name)) {
-              let args = {};
+            if (event?.type === "tool/call" && nativeTools.has(event.data?.name as string)) {
+              let args: NativeToolArgs = {};
               try {
                 args = JSON.parse(event.data.arguments || "{}");
               } catch {}
-              const details = nativeEventInput(event.data.name, args);
+              const details = nativeEventInput(event.data.name as string, args);
               let agentTaskId = details.taskId || null;
               if (
                 !agentTaskId &&
@@ -998,31 +1295,32 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
                   job.message_id,
                   callerSessionId || runtime.session.session_id,
                   agentTaskId,
-                  event.data.name,
+                  event.data.name as string,
                   JSON.stringify(details),
                 ],
               );
-              nativeToolEvents.set(event.data.callId, {
-                id: inserted.insertId,
-                name: event.data.name,
+              nativeToolEvents.set(event.data.callId as string, {
+                id: (inserted as unknown as { insertId: string }).insertId,
+                name: event.data.name as string,
                 args,
                 callerSessionId,
               });
               if (
                 callerSessionId === runtime.session.session_id &&
-                ["child_agent", "send_message"].includes(event.data.name)
+                ["child_agent", "send_message"].includes(event.data.name as string)
               ) {
-                toolTasks.set(event.data.callId, {
+                toolTasks.set(event.data.callId as string, {
                   taskId: taskIdFromPrompt(
                     event.data.name === "child_agent" ? args.prompt : args.message,
                   ),
-                  childId: event.data.name === "send_message" ? args.agent_id : null,
-                  parentEventId: inserted.insertId,
+                  childId:
+                    event.data.name === "send_message" ? (args.agent_id as string | null) : null,
+                  parentEventId: (inserted as unknown as { insertId: string }).insertId,
                 });
               }
             }
             if (event?.type === "tool/result") {
-              const callId = event.data?.message?.source?.callId;
+              const callId = event.data?.message?.source?.callId as string;
               const nativeEvent = nativeToolEvents.get(callId);
               const output = notificationText(event.data.message?.content);
               if (nativeEvent) {
@@ -1039,7 +1337,11 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
                 toolTasks.delete(callId);
                 const binding = childBindingFromToolResult(pending, event, output);
                 if (binding)
-                  await attachChildTask(binding.childId, binding.taskId, binding.parentEventId);
+                  await attachChildTask(
+                    binding.childId as string,
+                    binding.taskId,
+                    binding.parentEventId as string | null | undefined,
+                  );
               }
               // create_task queues an unbound run; launch 子 Agent in the same turn instead of
               // waiting for finishCoordinatorDispatch → child_idle → another wake.
@@ -1052,7 +1354,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             notification.method === "subagent.started" &&
             notification.params?.parentSessionId === runtime.session.session_id
           ) {
-            const childId = notification.params.childSessionId;
+            const childId = notification.params.childSessionId as string;
             activeChildren.add(childId);
             ensureChildThinking(childId);
             if (!childRunEvents.has(childId)) {
@@ -1062,7 +1364,7 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
               (message_id,agent_session_id,tool,status,input) VALUES(?,?,'agent_run','running','{}')`,
                 [job.message_id, childId],
               );
-              childRunEvents.set(childId, inserted.insertId);
+              childRunEvents.set(childId, (inserted as unknown as { insertId: string }).insertId);
             }
             const [alreadyBound] = await query(
               db,
@@ -1094,14 +1396,14 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
             }
             await attachChildTask(
               childId,
-              pendingTask?.taskId || inflightLaunch?.taskId,
+              pendingTask?.taskId || inflightLaunch?.taskId || null,
               pendingTask?.parentEventId,
             );
           } else if (
             notification.method === "subagent.finished" &&
             notification.params?.parentSessionId === runtime.session.session_id
           ) {
-            const childId = notification.params.childSessionId;
+            const childId = notification.params.childSessionId as string;
             await closeChildThinking(childId);
             const runEventId = childRunEvents.get(childId);
             if (runEventId) {
@@ -1119,7 +1421,8 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
               childId,
               notification.params,
             );
-            if (!settled) finishedChildren.set(childId, notification.params);
+            if (!settled)
+              finishedChildren.set(childId, notification.params as ChildFinishNotification);
             else await retainOrForgetChild(childId, settled);
             activeChildren.delete(childId);
             childSettled?.();
@@ -1133,8 +1436,8 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
         })
         .catch((error) =>
           console.error("AgentTeam task lifecycle sync failed", {
-            type: error?.name || "Error",
-            diagnostic: redactSecrets(error?.message || error).slice(-1000),
+            type: errorDetail(error).name || "Error",
+            diagnostic: redactSecrets(errorDetail(error).message || error).slice(-1000),
           }),
         );
     };
@@ -1189,11 +1492,11 @@ export async function runCoordinatorAgent(context, { db, job, user }) {
 }
 
 export async function processNextCoordinator(
-  db,
-  threadId,
-  runAgent = runCoordinatorAgent,
-  options = {},
-) {
+  db: Pool,
+  threadId: string | null = null,
+  runAgent: CoordinatorRunner = runCoordinatorAgent,
+  options: { decide?: ParticipationDecide } = {},
+): Promise<boolean> {
   const candidates = threadId
     ? [{ thread_id: threadId }]
     : await query(
@@ -1311,7 +1614,7 @@ export async function processNextCoordinator(
   let parkRuntime = null;
   try {
     const started = performance.now();
-    const thread = await service.thread(user, job.thread_id, true);
+    const thread = (await service.thread(user, job.thread_id, true)) as ThreadRow;
     // Unmentioned multi-member turns: compose a draft, revise if new messages arrive, then send or discard.
     if (job.kind === "member_message" && job.participation === "pending") {
       // @别人且没有 @小祥：直接沉默。不能先标成「斟酌」再等模型，否则这条 running 会堵住后面的 @小祥。
@@ -1342,7 +1645,7 @@ export async function processNextCoordinator(
         ["正在斟酌是否参与", job.message_id],
       );
       assertExternalAdmitted();
-      let decision;
+      let decision: ParticipationDecision;
       try {
         decision = await composeOpportunisticParticipation(db, {
           title: thread.title,
@@ -1353,8 +1656,10 @@ export async function processNextCoordinator(
       } catch (error) {
         console.error("Opportunistic participation crashed", {
           messageId: job.message_id,
-          type: error?.name || "Error",
-          diagnostic: redactSecrets(error?.stack || error?.message || error).slice(-2000),
+          type: errorDetail(error).name || "Error",
+          diagnostic: redactSecrets(
+            errorDetail(error).stack || errorDetail(error).message || error,
+          ).slice(-2000),
         });
         decision = {
           respond: false,
@@ -1382,7 +1687,7 @@ export async function processNextCoordinator(
           conn,
           user,
           job.thread_id,
-          decision.message,
+          decision.message as string,
           [],
           "assistant",
           job.message_id,
@@ -1398,7 +1703,7 @@ export async function processNextCoordinator(
       await persistOpportunisticParticipationArtifacts(db, {
         messageId: job.message_id,
         threadId: job.thread_id,
-        decision,
+        decision: decision as ParticipationArtifactsDecision,
         wallDurationMs,
       });
       logParticipationDecision({
@@ -1435,7 +1740,7 @@ export async function processNextCoordinator(
         : await dispatchContext(db, thread, job);
     const loaded = performance.now();
     const fence = assertExternalAdmitted();
-    const invoke = fence?.runExternal || runAgent;
+    const invoke = (fence?.runExternal as CoordinatorRunner | undefined) || runAgent;
     const result = await invoke(context, { db, job, user, signal: fence?.signal });
     assertExternalAdmitted();
     parkRuntime = result?.runtime || null;
@@ -1479,15 +1784,15 @@ export async function processNextCoordinator(
         // Append a follow-up when 小祥 has something new to say. Identical bodies from
         // onVisibleText must not create a second chat bubble.
         if (visible) {
-          const posted = await insertUniqueAssistantMessage(
-            service,
+          const posted = (await insertUniqueAssistantMessage(
+            service as unknown as AssistantPoster,
             conn,
             user,
             job.thread_id,
             visible,
             job.message_id,
             messageTurnIdForJob(job),
-          );
+          )) as { id: string } | null;
           if (posted) responseId = posted.id;
         }
         await query(
@@ -1504,14 +1809,14 @@ export async function processNextCoordinator(
       );
       if (request?.status !== "running") return;
       if (visible) {
-        const posted = await insertUniqueAssistantMessage(
-          service,
+        const posted = (await insertUniqueAssistantMessage(
+          service as unknown as AssistantPoster,
           conn,
           user,
           job.thread_id,
           visible,
           job.message_id,
-        );
+        )) as { id: string } | null;
         if (posted) responseId = responseId || posted.id;
       }
       await query(
@@ -1546,9 +1851,9 @@ export async function processNextCoordinator(
   } catch (error) {
     if (isExecutorEpochLost(error)) throw error;
     const retryableBusy =
-      error?.code === "XIAOXIANG_SESSION_BUSY" ||
-      error?.code === "CHILD_SESSION_BUSY" ||
-      /session is busy/i.test(String(error?.message || ""));
+      errorDetail(error).code === "XIAOXIANG_SESSION_BUSY" ||
+      errorDetail(error).code === "CHILD_SESSION_BUSY" ||
+      /session is busy/i.test(String(errorDetail(error).message || ""));
     await transaction(db, async (conn) => {
       await assertCurrentExecutorEpoch(conn);
       if (job.kind === "child_result" || job.kind === "child_idle") {
@@ -1604,10 +1909,12 @@ export async function processNextCoordinator(
     await clearPromptState(job.thread_id);
     console.error("Coordinator request failed", {
       messageId: job.message_id,
-      type: error?.name || "Error",
-      code: error?.code || null,
+      type: errorDetail(error).name || "Error",
+      code: errorDetail(error).code || null,
       retryableBusy,
-      diagnostic: redactSecrets(error?.stack || error?.message || error).slice(-2500),
+      diagnostic: redactSecrets(
+        errorDetail(error).stack || errorDetail(error).message || error,
+      ).slice(-2500),
     });
   } finally {
     // Finish the request/event first (above), then park. Parking must not keep
@@ -1617,10 +1924,10 @@ export async function processNextCoordinator(
         await parkCoordinatorRuntime(job.thread_id, parkRuntime, true);
       } catch (error) {
         console.error("Coordinator runtime park failed", {
-          type: error?.name || "Error",
-          code: error?.code || null,
-          diagnostic: redactSecrets(error?.message || error).slice(-600),
-          stack: redactSecrets(error?.stack || "")
+          type: errorDetail(error).name || "Error",
+          code: errorDetail(error).code || null,
+          diagnostic: redactSecrets(errorDetail(error).message || error).slice(-600),
+          stack: redactSecrets(errorDetail(error).stack || "")
             .split("\n")
             .slice(0, 6)
             .join(" | "),
@@ -1634,8 +1941,8 @@ export async function processNextCoordinator(
       });
     } catch (error) {
       console.error("Coordinator dispatch follow-up failed", {
-        type: error?.name || "Error",
-        diagnostic: redactSecrets(error?.message || error).slice(-1000),
+        type: errorDetail(error).name || "Error",
+        diagnostic: redactSecrets(errorDetail(error).message || error).slice(-1000),
       });
     }
   }

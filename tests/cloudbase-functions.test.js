@@ -9,7 +9,7 @@ import {
   saveProjectMiniProgramConfig,
   saveProjectMiniProgramSecret,
 } from "../server/miniprogram-config.ts";
-import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.js";
+import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.ts";
 import { miniprogramSnapshot } from "../server/miniprogram-workspace.ts";
 import {
   createCloudbaseTimer,

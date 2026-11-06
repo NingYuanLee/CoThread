@@ -9,7 +9,7 @@ import { Service } from "../server/service.ts";
 import {
   queueConversationMessage,
   createConversationWindow,
-} from "../server/conversation-memory-store.js";
+} from "../server/conversation-memory-store.ts";
 import { processConversationWindow } from "../server/conversation-memory-runner.ts";
 import { loadConversationContext } from "../server/conversation-memory-context.ts";
 import { startConversationToolBridge } from "../server/conversation-memory-tools.ts";
@@ -20,7 +20,7 @@ import {
   retryFileIndexJob,
 } from "../server/file-index-jobs.ts";
 import { listMemoryJobs } from "../server/memory-jobs.ts";
-import { processNextProjectMemory } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.ts";
 
 async function setup() {
   const database = await testDatabase(),

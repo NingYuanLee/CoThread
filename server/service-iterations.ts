@@ -4,7 +4,7 @@ import {
   cancelIterationArchive,
   retryIterationArchive,
   confirmIterationArchive,
-} from "./iteration-archive.js";
+} from "./iteration-archive.ts";
 import { attachMessageQuotes } from "./message-quotes.ts";
 import { threadReadSummary } from "./thread-reads.ts";
 import { projectThreadSideState } from "./thread-side-state.ts";

@@ -15,7 +15,7 @@ import {
   normalizeAppId,
 } from "../server/miniprogram-config.ts";
 import { setWechatCiFactory } from "../server/wechat-ci.ts";
-import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.js";
+import { resetCloudbaseClients, setCloudbaseManagerFactory } from "../server/cloudbase.ts";
 import { TEST_WECHAT_PRIVATE_KEY, seedMinimalMiniprogramApp } from "./miniprogram-ready.js";
 
 const VALID_APP_ID = "wx1234567890abcdef";

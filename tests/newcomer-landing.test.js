@@ -11,7 +11,7 @@ import {
 } from "../server/organizations.ts";
 import { createWikiPage, getWikiPage } from "../server/wiki-pages.ts";
 import { loginLanding, readOrgShelf } from "../server/org-shelf.ts";
-import { askWikiQuestion } from "../server/wiki-questions.js";
+import { askWikiQuestion } from "../server/wiki-questions.ts";
 
 test("newcomers with a primary org and no active iteration land on that org, and outsiders cannot read project pages", async () => {
   const database = await testDatabase();

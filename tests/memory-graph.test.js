@@ -11,7 +11,7 @@ import {
   memoryNeighborhood,
   noteMemoryRecall,
 } from "../server/memory-graph.ts";
-import { applyProjectMemoryResult } from "../server/project-memory.js";
+import { applyProjectMemoryResult } from "../server/project-memory.ts";
 import { memorySubjectLabel } from "../shared/memory-kinds.js";
 
 async function setup() {

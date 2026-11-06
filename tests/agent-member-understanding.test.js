@@ -4,12 +4,12 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { dispatchContext, processNextCoordinator } from "../server/coordinator.js";
+import { dispatchContext, processNextCoordinator } from "../server/coordinator.ts";
 import {
   loadPendingMemberStatements,
   processNextProjectMemory,
   saveMemberUnderstandings,
-} from "../server/project-memory.js";
+} from "../server/project-memory.ts";
 
 let database, db;
 before(async () => {

@@ -16,7 +16,7 @@ import {
   maybeQueueProjectMemoryRun,
   queueProjectMemoryRun,
   retryMemoryJob,
-} from "../server/project-memory.js";
+} from "../server/project-memory.ts";
 import { LAOWENG_MAINTENANCE_TASKS } from "../shared/agent-label.js";
 
 test("消息记忆进度按迭代返回最新序列、已处理与正在处理序列", async () => {

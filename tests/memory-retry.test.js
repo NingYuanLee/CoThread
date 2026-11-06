@@ -15,7 +15,7 @@ import {
   PROJECT_MEMORY_SIGNAL_KINDS,
   projectMemorySettlementId,
   shouldReuseDocumentSummary,
-} from "../server/project-memory.js";
+} from "../server/project-memory.ts";
 
 test("重试退避按次数递增，超过上限后停止自动重试", () => {
   assert.deepEqual(

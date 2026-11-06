@@ -9,7 +9,7 @@ import {
   loadProjectSummary,
   noteProjectMemorySignal,
   processNextProjectMemory,
-} from "../server/project-memory.js";
+} from "../server/project-memory.ts";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 
 async function setup() {

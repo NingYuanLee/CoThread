@@ -10,11 +10,105 @@ import { nativeHistoryFromLiveHome } from "./child-agent-session.ts";
 import { acquireSessionLock } from "./session-lock.ts";
 import { recordArchivePages } from "./wiki-pages.ts";
 import { settleIterationMemory } from "./memory-timeline.ts";
+import type { Pool, PoolConnection } from "mysql2/promise";
+import type { Db } from "./types.ts";
+
+/** 归档动作的调用者：只用到成员判定与身份种类。 */
+type ArchiveUser = { id: string; kind?: string | null; scope?: string | null };
+
+/** `threads` 行：只声明本模块读到的列。 */
+type ArchiveThreadRow = {
+  id: string;
+  project_id: string;
+  title: string;
+  status: string;
+  created_by: string | null;
+  background?: unknown;
+  goal?: unknown;
+  [column: string]: unknown;
+};
+
+/** `agent_tasks` 行：归档只关心标题与状态。 */
+type ArchiveTaskRow = { id: string; title: string; status: string; [column: string]: unknown };
+
+/** 归档方案里的一条任务去向。 */
+type ArchiveTaskDecision = {
+  taskId: string;
+  disposition: "retain" | "handoff" | "background";
+  reason?: string | null;
+  priority?: number | null;
+  suggestion?: "archive" | "background" | "task" | null;
+  assigneeUserId?: string | null;
+};
+
+/** 带「优先级」线索的项；模型漏字段时按默认值兜底。索引签名放宽是为了接受只带其它线索的对象。 */
+type ArchivePriorityFields =
+  | { priority?: unknown; rank?: unknown; level?: unknown; [field: string]: unknown }
+  | null
+  | undefined;
+
+/** 带「去向」线索的项。 */
+type ArchiveDispositionFields = { disposition?: unknown; decision?: unknown } | null | undefined;
+
+/** 带「勾选」线索的项。 */
+type ArchiveChoiceFields = { choice?: unknown; include?: unknown } | null | undefined;
+
+/** 由归档转入背景的一条：标题必填，说明可缺省。 */
+type ArchiveBackgroundEntry = { title: string; detail?: unknown };
+
+/** 原生会话历史消息（`nativeHistoryFromLiveHome` 的返回元素）。 */
+type LiveHistoryMessage = Awaited<ReturnType<typeof nativeHistoryFromLiveHome>>[number];
+
+/** 模型请求函数；`modelResponse` 第二参数的推导结果。 */
+type ModelRequestFn = NonNullable<Parameters<typeof modelResponse>[1]>;
+
+/** 本模块用到的 Service 门面视图；门面在 `service.ts`，这里只声明调用点用到的成员。 */
+type ArchiveService = {
+  db: Db;
+  member(user: ArchiveUser, projectId: string, write?: boolean, db?: Db): Promise<unknown>;
+  thread(user: ArchiveUser, threadId: string): Promise<Record<string, unknown>>;
+};
+
+/**
+ * 归档草案要读迭代上下文。
+ *
+ * `service-iterations.ts` 转发的 `ArchiveService`（= `IterationService`）没声明 `context`，
+ * 但运行期传进来的是真实 `Service`；这里只在用到的那一处显式收窄。
+ */
+type ArchiveContextReader = {
+  context(
+    user: ArchiveUser,
+    threadId: string,
+    db?: Db,
+  ): Promise<{
+    messages: Array<{
+      folder_refs?: string[] | null;
+      refs?: string[] | null;
+      [column: string]: unknown;
+    }>;
+    reviews: unknown[];
+    runs: unknown[];
+  }>;
+};
+
+/** 读取归档草案用到的迭代上下文。调用点经这个函数转一次，`service` 仍是原对象（receiver 不变）。 */
+function archiveContext(
+  service: ArchiveContextReader,
+  user: ArchiveUser,
+  threadId: string,
+  db: Db,
+) {
+  return service.context(user, threadId, db);
+}
 
 const ended = new Set(["completed", "failed", "cancelled", "rejected", "abandoned", "superseded"]);
 
-async function archiveAdmission(db, threadId, operation) {
-  const lock = await acquireSessionLock(db, threadId);
+async function archiveAdmission<T>(
+  db: Db,
+  threadId: string,
+  operation: (conn: PoolConnection) => Promise<T>,
+): Promise<T> {
+  const lock = await acquireSessionLock(db as Pool, threadId);
   if (!lock) throw new HttpError(409, "当前迭代上下文或 Agent 仍在运行，请等待执行结束后再归档");
   const conn = lock.connection;
   let began = false,
@@ -34,7 +128,9 @@ async function archiveAdmission(db, threadId, operation) {
         await conn.rollback();
       } catch (rollbackError) {
         rollbackFailed = true;
-        console.error("Archive rollback failed", { code: rollbackError?.code });
+        console.error("Archive rollback failed", {
+          code: (rollbackError as { code?: unknown } | null)?.code,
+        });
       }
     }
     throw error;
@@ -44,13 +140,16 @@ async function archiveAdmission(db, threadId, operation) {
       await lock.release({ discard: !began || rollbackFailed });
     } catch (releaseError) {
       if (!failed) throw releaseError;
-      console.error("Archive lock release failed", { code: releaseError?.code });
+      console.error("Archive lock release failed", {
+        code: (releaseError as { code?: unknown } | null)?.code,
+      });
     }
   }
 }
-export const archiveJson = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+export const archiveJson = (value: unknown): Record<string, unknown> =>
+  (typeof value === "string" ? JSON.parse(value) : value) as Record<string, unknown>;
 
-function archiveText(value, maximum) {
+function archiveText(value: unknown, maximum: number) {
   const text = Array.isArray(value)
     ? value
         .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
@@ -61,7 +160,7 @@ function archiveText(value, maximum) {
 }
 
 /** 未完成事项：勾选后作为新迭代的任务交接过去。 */
-function archivePriority(value) {
+function archivePriority(value: ArchivePriorityFields) {
   const raw = String(value?.priority ?? value?.rank ?? value?.level ?? "")
     .trim()
     .toLowerCase();
@@ -72,7 +171,7 @@ function archivePriority(value) {
   return 2;
 }
 
-function archiveItems(value) {
+function archiveItems(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => {
@@ -90,7 +189,7 @@ function archiveItems(value) {
     .filter((item) => item.title);
 }
 
-function archiveDisposition(value) {
+function archiveDisposition(value: ArchiveDispositionFields) {
   const raw = String(value?.disposition ?? value?.decision ?? "")
     .trim()
     .toLowerCase();
@@ -103,7 +202,7 @@ function archiveDisposition(value) {
   return "retain";
 }
 
-function itemChoice(item) {
+function itemChoice(item: ArchiveChoiceFields) {
   const raw = String(item?.choice ?? "")
     .trim()
     .toLowerCase();
@@ -115,7 +214,7 @@ function itemChoice(item) {
   return "archive";
 }
 
-function appendBackgroundEntries(background, entries) {
+function appendBackgroundEntries(background: string, entries: ArchiveBackgroundEntry[]) {
   const missing = entries.filter(
     (item) => item.title && !String(background || "").includes(item.title),
   );
@@ -127,13 +226,14 @@ function appendBackgroundEntries(background, entries) {
   return (base ? base + "\n\n" : "") + "由归档转入背景：\n" + block;
 }
 
-export function normalizeArchivePlan(value) {
+export function normalizeArchivePlan(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const next = value.nextIteration;
+  const plan = value as Record<string, unknown>;
+  const next = plan.nextIteration as Record<string, unknown> | null | undefined;
   return {
-    ...value,
-    conclusion: archiveText(value.conclusion, 20000),
-    notes: archiveText(value.notes, 20000),
+    ...plan,
+    conclusion: archiveText(plan.conclusion, 20000),
+    notes: archiveText(plan.notes, 20000),
     nextIteration:
       next && typeof next === "object" && !Array.isArray(next)
         ? {
@@ -143,8 +243,8 @@ export function normalizeArchivePlan(value) {
             items: archiveItems(next.items),
           }
         : next,
-    taskDecisions: Array.isArray(value.taskDecisions)
-      ? value.taskDecisions.map((item) => {
+    taskDecisions: Array.isArray(plan.taskDecisions)
+      ? plan.taskDecisions.map((item) => {
           const disposition = archiveDisposition(item);
           const suggestion =
             itemChoice({ choice: item?.suggestion }) === "archive" && item?.suggestion == null
@@ -164,7 +264,7 @@ export function normalizeArchivePlan(value) {
             suggestion,
           };
         })
-      : value.taskDecisions,
+      : plan.taskDecisions,
   };
 }
 
@@ -204,7 +304,7 @@ export const archivePlanSchema = z.object({
 
 export const archivePlanDraftSchema = z.preprocess(normalizeArchivePlan, archivePlanSchema);
 
-async function canManage(conn, user, thread) {
+async function canManage(conn: Db, user: ArchiveUser, thread: ArchiveThreadRow) {
   if (user.kind !== "session") return false;
   const [member] = await query(
     conn,
@@ -215,7 +315,12 @@ async function canManage(conn, user, thread) {
   return !!member && (thread.created_by === user.id || member.project_leader_id === user.id);
 }
 
-async function authorized(service, conn, user, thread) {
+async function authorized(
+  service: ArchiveService,
+  conn: PoolConnection,
+  user: ArchiveUser,
+  thread: ArchiveThreadRow,
+) {
   await service.member(user, thread.project_id, false, conn);
   // A locking read observes current membership and leadership after concurrent changes.
   const [authority] = await query(
@@ -232,7 +337,7 @@ async function authorized(service, conn, user, thread) {
     throw new HttpError(403, "仅迭代创建人或项目负责人可以操作迭代归档");
 }
 
-export async function archiveBlockers(conn, threadId) {
+export async function archiveBlockers(conn: Db, threadId: string) {
   const checks = [
     [
       "任务",
@@ -273,14 +378,14 @@ export async function archiveBlockers(conn, threadId) {
       "SELECT thread_id id,'上下文压缩' title FROM agent_sessions WHERE thread_id=? AND compact_status='running' LIMIT 1",
     ],
   ];
-  const blockers = [];
+  const blockers: Array<{ kind: string; id: unknown; title: string }> = [];
   for (const [kind, sql] of checks)
     for (const row of await query(conn, sql, [threadId]))
       blockers.push({ kind, id: row.id, title: String(row.title || "").slice(0, 120) });
   return blockers;
 }
 
-async function assertIdle(conn, threadId) {
+async function assertIdle(conn: Db, threadId: string) {
   const blockers = await archiveBlockers(conn, threadId);
   if (blockers.length)
     throw new HttpError(
@@ -289,7 +394,13 @@ async function assertIdle(conn, threadId) {
     );
 }
 
-async function enqueue(conn, thread, workflow, phase, userId) {
+async function enqueue(
+  conn: Db,
+  thread: ArchiveThreadRow,
+  workflow: { id: string; run_token: string },
+  phase: string,
+  userId: string,
+) {
   const id = randomUUID();
   await query(
     conn,
@@ -299,9 +410,16 @@ async function enqueue(conn, thread, workflow, phase, userId) {
   );
 }
 
-function taskChoices(snapshot, plan) {
-  const choices = new Map((plan?.taskDecisions || []).map((item) => [item.taskId, item]));
-  return (snapshot.tasks || [])
+function taskChoices(
+  snapshot: Record<string, unknown>,
+  plan: Record<string, unknown> | null | undefined,
+) {
+  const choices = new Map(
+    ((plan?.taskDecisions || []) as ArchiveTaskDecision[]).map(
+      (item) => [item.taskId, item] as const,
+    ),
+  );
+  return ((snapshot.tasks || []) as ArchiveTaskRow[])
     .filter((task) => !ended.has(task.status))
     .map((task) => ({
       taskId: task.id,
@@ -319,7 +437,7 @@ function taskChoices(snapshot, plan) {
  * 排队中的 run 只在前 5 分钟算「有人接手」——正常情况下请求返回时就该被认领，
  * 排队超过 5 分钟说明唤醒链路卡死了，落到 failed 让「重新梳理」可用。
  */
-async function archiveDraftOrphaned(db, workflowId) {
+async function archiveDraftOrphaned(db: Db, workflowId: string) {
   const [stale] = await query(
     db,
     `SELECT (updated_at < DATE_SUB(NOW(), INTERVAL 45 SECOND)) old FROM iteration_archive_workflows
@@ -341,19 +459,23 @@ async function archiveDraftOrphaned(db, workflowId) {
     WHERE id=? AND status='preparing'`,
     ["归档整理未启动或已中断，请重新梳理。", workflowId],
   );
-  return Number(result?.affectedRows || 0) > 0;
+  return Number((result as unknown as { affectedRows?: number })?.affectedRows || 0) > 0;
 }
 
-export async function readArchiveWorkflow(service, user, threadId) {
-  const thread = await service.thread(user, threadId);
+export async function readArchiveWorkflow(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+) {
+  const thread = (await service.thread(user, threadId)) as unknown as ArchiveThreadRow;
   const [row] = await query(
     service.db,
     "SELECT * FROM iteration_archive_workflows WHERE thread_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
     [threadId],
   );
   if (!row) return null;
-  const plan = archiveJson(row.plan) || {},
-    snapshot = archiveJson(row.snapshot) || {};
+  const plan: Record<string, unknown> = archiveJson(row.plan) || {},
+    snapshot: Record<string, unknown> = archiveJson(row.snapshot) || {};
   // 草案 run 可能丢在重启/认领失败里：没有任何排队或运行中的 run 且已等待过久时，
   // 把工作流落到 failed，让「重新梳理」按钮出现，而不是永远停在「梳理中」。
   if (row.status === "preparing" && (await archiveDraftOrphaned(service.db, row.id))) {
@@ -364,10 +486,14 @@ export async function readArchiveWorkflow(service, user, threadId) {
     id: row.id,
     status: row.status,
     canManage: await canManage(service.db, user, thread),
-    conclusion: plan.conclusion || "",
+    conclusion: (plan.conclusion || "") as string,
     taskDecisions: taskChoices(snapshot, plan),
-    notes: plan.notes || "",
-    nextIteration: plan.nextIteration || { title: "", background: "", goal: "" },
+    notes: (plan.notes || "") as string,
+    nextIteration: (plan.nextIteration || {
+      title: "",
+      background: "",
+      goal: "",
+    }) as Record<string, unknown>,
     error: row.error || null,
     nextThreadId: row.next_thread_id || null,
     session: await archiveSessionView(service.db, thread, row),
@@ -388,7 +514,11 @@ const ARCHIVE_PHASES = {
   save_checkpoint: "正在保存会话",
 };
 
-async function archiveSessionView(db, thread, workflow) {
+async function archiveSessionView(
+  db: Db,
+  thread: ArchiveThreadRow,
+  workflow: { created_at?: unknown },
+) {
   const phases = await query(
     db,
     `SELECT phase,status,error FROM agent_project_events
@@ -401,7 +531,7 @@ async function archiveSessionView(db, thread, workflow) {
     "SELECT session_id FROM agent_project_sessions WHERE project_id=? AND task='iteration_archive' AND scope_id=?",
     [thread.project_id, thread.project_id],
   ).catch(() => []);
-  let messages = [];
+  let messages: LiveHistoryMessage[] = [];
   if (session?.session_id) {
     try {
       messages = await nativeHistoryFromLiveHome(
@@ -414,7 +544,7 @@ async function archiveSessionView(db, thread, workflow) {
   }
   const latest = phases.at(-1);
   return {
-    phase: latest ? ARCHIVE_PHASES[latest.phase] || latest.phase : "",
+    phase: latest ? (ARCHIVE_PHASES as Record<string, string>)[latest.phase] || latest.phase : "",
     messages: messages.slice(-24).map((item) => ({
       role: item.role === "assistant" ? "assistant" : "user",
       text: String(item.text || "").slice(0, 4000),
@@ -422,16 +552,25 @@ async function archiveSessionView(db, thread, workflow) {
   };
 }
 
-export async function beginIterationArchive(service, user, threadId) {
+export async function beginIterationArchive(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+) {
   let projectId = null;
   await archiveAdmission(service.db, threadId, async (conn) => {
-    const thread = await lockIteration(conn, threadId);
+    const thread = (await lockIteration(conn, threadId)) as unknown as ArchiveThreadRow;
     projectId = thread.project_id;
     await authorized(service, conn, user, thread);
     if (thread.status !== "active")
       throw new HttpError(409, "此迭代已进入归档流程，请查看当前归档方案");
     await assertIdle(conn, threadId);
-    const context = await service.context(user, threadId, conn);
+    const context = await archiveContext(
+      service as unknown as ArchiveContextReader,
+      user,
+      threadId,
+      conn,
+    );
     const folderIds = [
       ...new Set(context.messages.flatMap((message) => message.folder_refs || [])),
     ];
@@ -488,21 +627,21 @@ export async function beginIterationArchive(service, user, threadId) {
   });
   publishWork(service.db, threadId);
   const workflow = await readArchiveWorkflow(service, user, threadId);
-  return { ...workflow, workflowId: workflow.id, status: "archiving" };
+  return { ...workflow, workflowId: workflow!.id, status: "archiving" };
 }
 
 /**
  * 请求自己把草案领走并开跑，不等后台车道。
  * 只等认领提交，模型调用在后台继续，HTTP 不会被梳理拖住。
  */
-export async function kickArchiveDraft(service, projectId) {
+export async function kickArchiveDraft(service: ArchiveService, projectId: string) {
   try {
-    const { startIterationArchive } = await import("./project-memory.js");
+    const { startIterationArchive } = await import("./project-memory.ts");
     await startIterationArchive(service.db, projectId);
   } catch (error) {
     console.error("Archive draft kick failed", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: (error as { name?: unknown } | null)?.name || "Error",
+      message: String((error as { message?: unknown } | null)?.message || error).slice(0, 300),
     });
   }
 }
@@ -526,7 +665,7 @@ const continuationSchema = z.object({
     .max(200),
 });
 
-function fallbackContinuation(input) {
+function fallbackContinuation(input: z.infer<typeof continuationSchema>) {
   const backgroundEntries = input.decisions.filter((item) => item.choice === "background");
   return {
     title: input.nextIteration.title,
@@ -535,7 +674,13 @@ function fallbackContinuation(input) {
   };
 }
 
-export async function suggestArchiveContinuation(service, user, threadId, input, request = fetch) {
+export async function suggestArchiveContinuation(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+  input: unknown,
+  request: ModelRequestFn = fetch,
+) {
   const workflow = await readArchiveWorkflow(service, user, threadId);
   if (!workflow?.canManage) throw new HttpError(403, "仅迭代创建人或项目负责人可以操作迭代归档");
   if (workflow.status !== "ready") throw new HttpError(409, "归档方案尚未就绪");
@@ -579,8 +724,8 @@ export async function suggestArchiveContinuation(service, user, threadId, input,
     };
   } catch (error) {
     console.error("Archive continuation suggestion failed", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: (error as { name?: unknown } | null)?.name || "Error",
+      message: String((error as { message?: unknown } | null)?.message || error).slice(0, 300),
     });
     return fallbackContinuation(data);
   }
@@ -600,7 +745,13 @@ const prioritySchema = z.object({
     .max(200),
 });
 
-export async function suggestArchivePriorities(service, user, threadId, input, request = fetch) {
+export async function suggestArchivePriorities(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+  input: unknown,
+  request: ModelRequestFn = fetch,
+) {
   const workflow = await readArchiveWorkflow(service, user, threadId);
   if (!workflow?.canManage) throw new HttpError(403, "仅迭代创建人或项目负责人可以操作迭代归档");
   if (workflow.status !== "ready") throw new HttpError(409, "归档方案尚未就绪");
@@ -636,24 +787,34 @@ export async function suggestArchivePriorities(service, user, threadId, input, r
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
     const parsed = JSON.parse(start >= 0 ? text.slice(start, end + 1) : text);
-    const byKey = new Map((parsed.decisions || []).map((item) => [item.key, item]));
+    const byKey = new Map<string, { key?: string; suggestion?: unknown }>(
+      (parsed.decisions || []).map(
+        (item: { key?: string; suggestion?: unknown }) => [item.key as string, item] as const,
+      ),
+    );
     return {
       decisions: data.decisions.map((item) => {
-        const hit = byKey.get(item.key) || {};
+        const hit: { suggestion?: unknown } = byKey.get(item.key) || {};
         const suggestion = itemChoice({ choice: hit.suggestion });
         return { key: item.key, priority: archivePriority(hit), suggestion };
       }),
     };
   } catch (error) {
     console.error("Archive priority suggestion failed", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: (error as { name?: unknown } | null)?.name || "Error",
+      message: String((error as { message?: unknown } | null)?.message || error).slice(0, 300),
     });
     return { decisions: fallback };
   }
 }
 
-export async function reviseArchiveSummary(service, user, threadId, input, request = fetch) {
+export async function reviseArchiveSummary(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+  input: unknown,
+  request: ModelRequestFn = fetch,
+) {
   const data = z
     .object({
       workflowId: z.string().uuid(),
@@ -693,15 +854,15 @@ export async function reviseArchiveSummary(service, user, threadId, input, reque
     if (text) conclusion = text.slice(0, 20000);
   } catch (error) {
     console.error("Archive summary revise failed", {
-      type: error?.name || "Error",
-      message: String(error?.message || error).slice(0, 300),
+      type: (error as { name?: unknown } | null)?.name || "Error",
+      message: String((error as { message?: unknown } | null)?.message || error).slice(0, 300),
     });
     conclusion = (workflow.conclusion + "\n\n## 修改意见\n" + data.comment).slice(0, 20000);
   }
   const [row] = await query(service.db, "SELECT plan FROM iteration_archive_workflows WHERE id=?", [
     data.workflowId,
   ]);
-  const plan = archiveJson(row?.plan) || {};
+  const plan: Record<string, unknown> = archiveJson(row?.plan) || {};
   plan.conclusion = conclusion;
   await query(service.db, "UPDATE iteration_archive_workflows SET plan=? WHERE id=?", [
     JSON.stringify(plan),
@@ -710,7 +871,7 @@ export async function reviseArchiveSummary(service, user, threadId, input, reque
   return { conclusion };
 }
 
-async function workflowFor(conn, threadId, workflowId) {
+async function workflowFor(conn: Db, threadId: string, workflowId: string) {
   const [workflow] = await query(
     conn,
     "SELECT * FROM iteration_archive_workflows WHERE id=? AND thread_id=? FOR UPDATE",
@@ -720,10 +881,15 @@ async function workflowFor(conn, threadId, workflowId) {
   return workflow;
 }
 
-export async function cancelIterationArchive(service, user, threadId, input) {
+export async function cancelIterationArchive(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+  input: unknown,
+) {
   const { workflowId } = z.object({ workflowId: z.string().uuid() }).parse(input);
-  return transaction(service.db, async (conn) => {
-    const thread = await lockIteration(conn, threadId);
+  return transaction(service.db as Pool, async (conn) => {
+    const thread = (await lockIteration(conn, threadId)) as unknown as ArchiveThreadRow;
     await authorized(service, conn, user, thread);
     const workflow = await workflowFor(conn, threadId, workflowId);
     if (
@@ -749,11 +915,16 @@ export async function cancelIterationArchive(service, user, threadId, input) {
   });
 }
 
-export async function retryIterationArchive(service, user, threadId, input) {
+export async function retryIterationArchive(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+  input: unknown,
+) {
   const { workflowId } = z.object({ workflowId: z.string().uuid() }).parse(input);
   let projectId = null;
-  await transaction(service.db, async (conn) => {
-    const thread = await lockIteration(conn, threadId);
+  await transaction(service.db as Pool, async (conn) => {
+    const thread = (await lockIteration(conn, threadId)) as unknown as ArchiveThreadRow;
     projectId = thread.project_id;
     await authorized(service, conn, user, thread);
     const workflow = await workflowFor(conn, threadId, workflowId);
@@ -771,7 +942,12 @@ export async function retryIterationArchive(service, user, threadId, input) {
   return readArchiveWorkflow(service, user, threadId);
 }
 
-export async function confirmIterationArchive(service, user, threadId, input) {
+export async function confirmIterationArchive(
+  service: ArchiveService,
+  user: ArchiveUser,
+  threadId: string,
+  input: unknown,
+) {
   const data = archivePlanSchema
     .extend({
       workflowId: z.string().uuid(),
@@ -803,8 +979,8 @@ export async function confirmIterationArchive(service, user, threadId, input) {
   const backgroundItems = data.nextIteration.items.filter(
     (item) => itemChoice(item) === "background",
   );
-  const result = await transaction(service.db, async (conn) => {
-    const thread = await lockIteration(conn, threadId);
+  const result = await transaction(service.db as Pool, async (conn) => {
+    const thread = (await lockIteration(conn, threadId)) as unknown as ArchiveThreadRow;
     await authorized(service, conn, user, thread);
     const workflow = await workflowFor(conn, threadId, data.workflowId);
     if (thread.status === "archived" && workflow.status === "completed")
@@ -828,7 +1004,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
       [threadId],
     );
     const open = tasks.filter((task) => !ended.has(task.status));
-    const choices = new Map(data.taskDecisions.map((choice) => [choice.taskId, choice]));
+    const choices = new Map(data.taskDecisions.map((choice) => [choice.taskId, choice] as const));
     if (
       choices.size !== data.taskDecisions.length ||
       choices.size !== open.length ||
@@ -885,7 +1061,7 @@ export async function confirmIterationArchive(service, user, threadId, input) {
     let number = 0,
       xiaoxiangHandoffs = 0;
     for (const task of open) {
-      const choice = choices.get(task.id);
+      const choice = choices.get(task.id)!;
       await query(
         conn,
         "UPDATE agent_task_execution_runs SET status='cancelled',error='迭代归档，未启动的执行已收口',finished_at=UTC_TIMESTAMP(3) WHERE task_id=? AND status='queued'",

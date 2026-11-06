@@ -1,5 +1,5 @@
 import { query } from "../server/db.ts";
-import { processNextProjectMemory } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.ts";
 
 // Legacy integration scenarios exercise the final archived state. Complete both
 // stages explicitly; iteration-archive.test.js tests the individual HTTP stages.

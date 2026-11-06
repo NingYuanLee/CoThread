@@ -21,7 +21,7 @@ afterEach(async () => {
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
 import { runLaowengTask } from "../server/laoweng-agent.ts";
-import { processNextProjectMemory } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.ts";
 import {
   processNextLaowengContextCompression,
   queueLaowengContextCompression,

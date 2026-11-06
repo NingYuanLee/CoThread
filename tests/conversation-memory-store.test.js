@@ -11,7 +11,7 @@ import {
   processConversationWindow,
   processNextConversationMemory,
 } from "../server/conversation-memory-runner.ts";
-import { processNextProjectMemory } from "../server/project-memory.js";
+import { processNextProjectMemory } from "../server/project-memory.ts";
 import { searchProjectMemory } from "../server/memory-search.ts";
 import { readProjectMemory } from "../server/memory-timeline.ts";
 import { readMemberUnderstanding } from "../server/memory-cache.ts";
@@ -25,7 +25,7 @@ import {
   failConversationCandidate,
   queueConversationThread,
   queueConversationRecheck,
-} from "../server/conversation-memory-store.js";
+} from "../server/conversation-memory-store.ts";
 
 test("消息窗口分批、保留新消息并持久化零产出", async () => {
   const database = await testDatabase();

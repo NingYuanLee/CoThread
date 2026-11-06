@@ -137,7 +137,7 @@ test("老翁默认只允许时间工具，联合分析使用受限只读工具�
 });
 
 test("the coordinator has no one-shot reply or execute decision route", async () => {
-  const source = await readFile(new URL("../server/coordinator.js", import.meta.url), "utf8");
+  const source = await readFile(new URL("../server/coordinator.ts", import.meta.url), "utf8");
   const tools = await readFile(new URL("../dsh-layer/cothread-tools.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /decideDispatch|resolveCoordinatorDecision|decisionSchema/);
   assert.match(source, /runCoordinatorAgent/);
@@ -153,7 +153,7 @@ test("the coordinator has no one-shot reply or execute decision route", async ()
 test("stable 小祥 and 子 Agent roles live only in the system prompt plugin", async () => {
   const [{ SYSTEM_PROMPTS }, coordinator, agent] = await Promise.all([
     import("../dsh-layer/cothread-plugin-registry.mjs"),
-    readFile(new URL("../server/coordinator.js", import.meta.url), "utf8"),
+    readFile(new URL("../server/coordinator.ts", import.meta.url), "utf8"),
     readFile(new URL("../server/agent.ts", import.meta.url), "utf8"),
   ]);
   assert.match(SYSTEM_PROMPTS.xiaoxiang.prompt, /你是当前迭代会话的小祥/);

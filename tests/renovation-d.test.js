@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { processNextCoordinator } from "../server/coordinator.js";
+import { processNextCoordinator } from "../server/coordinator.ts";
 import {
   COORDINATOR_LANE_CONCURRENCY,
   EXECUTOR_LOCK_NAME,

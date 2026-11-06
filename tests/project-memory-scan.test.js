@@ -148,7 +148,7 @@ test("正式文件新版本与内容替换不进入项目进程", async () => {
     assert.equal(scanned.inserted, 0, "文档变更不再扫描进项目进程");
     assert.equal((await queueRows(db, project.id)).length, 0);
     /* 即使有旧调用直接写信号，白名单也会忽略文档版本。 */
-    const { noteProjectMemorySignal } = await import("../server/project-memory.js");
+    const { noteProjectMemorySignal } = await import("../server/project-memory.ts");
     await noteProjectMemorySignal(db, project.id, "document_version", versionId, "旧调用", {
       urgent: true,
     });

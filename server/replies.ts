@@ -14,9 +14,9 @@ import { claimReply } from "./reply-dispatch.ts";
 import { pendingTaskUpdates } from "./agent-updates.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { synchronizeNextDiscussion } from "./context-sync.ts";
-import { processNextCoordinator } from "./coordinator.js";
+import { processNextCoordinator } from "./coordinator.ts";
 import { publishWork, subscribeWork, startWakeWorker } from "./work-events.ts";
-import { processNextProjectMemory } from "./project-memory.js";
+import { processNextProjectMemory } from "./project-memory.ts";
 import {
   discoverNextFileIndexChange,
   expandFileIndexProjectReconciliation,

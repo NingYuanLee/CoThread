@@ -19,7 +19,7 @@ import {
   loadMemberUnderstanding,
   queueLaowengMemoryRun,
   queueProjectMemoryRun,
-} from "./project-memory.js";
+} from "./project-memory.ts";
 import { normalizeLaowengTask } from "../shared/agent-label.js";
 import { listDocumentChanges } from "./documents/index.ts";
 import {

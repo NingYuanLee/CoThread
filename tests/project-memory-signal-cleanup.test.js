@@ -9,7 +9,7 @@ import { emptyLibraryRecycle, libraryChange } from "../server/documents/library.
 import {
   dropUnavailableDocumentVersionSignals,
   noteProjectMemorySignal,
-} from "../server/project-memory.js";
+} from "../server/project-memory.ts";
 import { scanProjectMemorySignals } from "../server/project-memory-scan.ts";
 
 async function setup() {

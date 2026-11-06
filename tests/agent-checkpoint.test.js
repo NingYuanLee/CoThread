@@ -10,7 +10,7 @@ import {
   restoreSessionCheckpoint,
 } from "../server/agent-checkpoint.ts";
 import { isCorruptSessionLog } from "../server/agent.ts";
-import { documentSummarySchema } from "../server/project-memory.js";
+import { documentSummarySchema } from "../server/project-memory.ts";
 
 test("document summaries are bounded without splitting surrogate pairs", () => {
   const summary = documentSummarySchema.parse({ summary: "a".repeat(3999) + "😀 extra" }).summary;

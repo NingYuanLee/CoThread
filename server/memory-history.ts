@@ -48,9 +48,10 @@ type MemoryEvidenceInput = {
   note?: string;
 };
 
-/** 原样留档的文档内容；缺省时按当前版本复制。 */
+/** 原样留档的文档内容；缺省时按当前版本复制。`content` 是 `versions.content`（MEDIUMBLOB），
+ * 传进来时会原样落库，所以两种表示都要接受。 */
 type DocumentContentSnapshot = {
-  content?: string | null;
+  content?: Buffer | string | null;
   filename?: string | null;
   mime?: string | null;
   sha256?: string | null;

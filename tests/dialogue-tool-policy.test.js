@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dialogueToolDenyReason } from "../server/agent-tools.js";
+import { dialogueToolDenyReason } from "../server/agent-tools.ts";
 
 test("miniprogram mode rejects every CloudBase tool and still allows miniprogram reads", () => {
   for (const name of [

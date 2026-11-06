@@ -9,17 +9,17 @@ import {
   users as usersDomain,
 } from "./service-admin.ts";
 import { HttpError } from "./http-error.ts";
-import { DocumentsService } from "./documents/service.js";
+import { DocumentsService } from "./documents/service.ts";
 import * as accessDomain from "./service-access.ts";
 import * as membersDomain from "./service-members.ts";
 import * as projectsDomain from "./service-projects.ts";
-import * as monitorDomain from "./service-monitor.js";
+import * as monitorDomain from "./service-monitor.ts";
 import * as iterationsDomain from "./service-iterations.ts";
 import * as messagesDomain from "./service-messages.ts";
 import * as notificationsDomain from "./service-notification-operations.ts";
 import { fail, id, title } from "./service-support.ts";
 import type { Db } from "./types.ts";
-export { officialTitleWithVersion } from "./documents/service.js";
+export { officialTitleWithVersion } from "./documents/service.ts";
 export { HttpError };
 
 /**

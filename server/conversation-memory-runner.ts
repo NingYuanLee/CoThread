@@ -26,7 +26,7 @@ import {
   replaceInvalidConversationWindow,
   readConversationCandidatePayload,
   discardRecoveredConversationCandidate,
-} from "./conversation-memory-store.js";
+} from "./conversation-memory-store.ts";
 
 // Keep item validation independent: a malformed candidate must not discard its
 // valid siblings, and the original result must remain available for repair.

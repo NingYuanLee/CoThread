@@ -10,7 +10,7 @@ import {
   askWikiQuestion,
   listWebQuestions,
   listWikiQuestions,
-} from "../server/wiki-questions.js";
+} from "../server/wiki-questions.ts";
 
 test("project members ask the elder privately and new group messages cannot select chat", async () => {
   const database = await testDatabase();

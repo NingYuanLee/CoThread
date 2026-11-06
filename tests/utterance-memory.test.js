@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { testDatabase } from "./database.js";
 import { query } from "../server/db.ts";
 import { Service } from "../server/service.ts";
-import { saveMemberUnderstandings } from "../server/project-memory.js";
+import { saveMemberUnderstandings } from "../server/project-memory.ts";
 import { upsertUtteranceMemory, utteranceMemoryMarkdown } from "../server/utterance-memory.ts";
 
 async function setup() {

@@ -1,4 +1,4 @@
-import { processNextProjectMemory } from "./project-memory.js";
+import { processNextProjectMemory } from "./project-memory.ts";
 import { processNextLaowengContextCompression } from "./laoweng-context.ts";
 import { processNextChildContextCompression } from "./child-agent-context.ts";
 import { query } from "./db.ts";
@@ -51,7 +51,7 @@ export async function runMemoryMaintenance(
 ): Promise<{ status: string; processed: number }> {
   await recoverStaleLaowengRuns(db);
   // 先清掉来源已删除的文档信号：它们不会自愈，留着会让结算反复失败并常驻面板。
-  const { dropUnavailableDocumentVersionSignals } = await import("./project-memory.js");
+  const { dropUnavailableDocumentVersionSignals } = await import("./project-memory.ts");
   await dropUnavailableDocumentVersionSignals(db, {
     projectId: projectId || null,
   } as unknown as Parameters<typeof dropUnavailableDocumentVersionSignals>[1]);

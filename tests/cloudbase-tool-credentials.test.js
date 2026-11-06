@@ -24,7 +24,7 @@ import {
   setCloudbaseClientFactory,
   setCloudbaseManagerFactory,
   uploadCloudbaseFile,
-} from "../server/cloudbase.js";
+} from "../server/cloudbase.ts";
 
 const APP_ID = "wx1234567890abcdef";
 const SECRET_ID = "AKIDtoolcredtest000001";

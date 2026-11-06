@@ -1,6 +1,6 @@
 # server/ 的 TypeScript 迁移
 
-`server/` 原本是纯 JavaScript 且没有类型检查（`tsconfig.json` 的 `include` 只有 `web`）。这份文档记录把它逐步迁到 TypeScript 的约定、工具和进度。**迁移是进行中的状态，不是已完成状态**；没列在「已转换」里的文件仍是 `.js`。
+`server/` 原本是纯 JavaScript 且没有类型检查（`tsconfig.json` 的 `include` 只有 `web`）。2026-11-06，`server/` 下的 199 个文件全部迁到 TypeScript，`npm run typecheck:server` 成为每批必过的门禁。这份文档记录迁移的约定、工具、批次明细和踩过的坑；**迁移已完成**，只剩少量遗留清理（见文末「迁移完成后的遗留事项」）。
 
 ## 运行方式：没有编译步骤
 
@@ -88,15 +88,16 @@ npm test            # 集成测试需要测试库
 
 ## 进度
 
-### 当前总览（2026-11-06，第四十批之后）
+### 最终状态（2026-11-06，第四十一批之后）
 
 | 指标                 | 数值                                         |
 | -------------------- | -------------------------------------------- |
-| `server/` 已转 `.ts` | 189 个                                       |
-| `server/` 仍为 `.js` | 10 个（原 199 个）                           |
+| `server/` 已转 `.ts` | 199 个（全部）                               |
+| `server/` 仍为 `.js` | 0 个                                         |
 | 类型检查             | 0 错（`npm run typecheck:server`）           |
 | 失效说明符           | 0（`node scripts/server-ts-specifiers.mjs`） |
-| 完整测试             | 1096/1096 通过                               |
+| 调用数审计           | 最后 10 个文件全部 ✓                         |
+| 完整测试             | 1096/1096 通过（`duration_ms` 381607）       |
 
 **已完成的阶段性目标：**
 
@@ -107,25 +108,11 @@ npm test            # 集成测试需要测试库
 - 入口 `server/index.ts` 及部署侧路径（`package.json`、`dev-runtime` 进程识别、现行运维文档）
 - `server/service.ts` 门面（152 处引用），方法签名从域操作推导
 - **200 行以内的文件全部转换完毕**
+- **`server/` 的 199 个文件全部转换完毕，没有剩余 `.js`**
 
-**未完成的 10 个文件**全部在 1000 行以上，都是各领域的中枢：
+**迁移已完成**：`server/` 下 199 个文件全部是 `.ts`，没有剩余 `.js`。最后 10 个 >1000 行的中枢模块（`project-memory` 3262、`coordinator` 1644、`agent-tools` 1450、`routes/project-workspace` 1331、`documents/service` 1276、`conversation-memory-store` 1196、`iteration-archive` 1080、`service-monitor` 1057、`cloudbase` 1018、`wiki-questions` 1011）见批次明细的第四十一批。
 
-| 文件                                  | 行数 | 说明                                   |
-| ------------------------------------- | ---- | -------------------------------------- |
-| `server/project-memory.js`            | 3262 | 项目记忆结算、信号与候选               |
-| `server/coordinator.js`               | 1644 | 小祥协调者的主循环与事件消费           |
-| `server/agent-tools.js`               | 1450 | 子 Agent 工具面                        |
-| `server/routes/project-workspace.js`  | 1331 | 工作区路由（文档/小程序/记忆混在一起） |
-| `server/documents/service.js`         | 1276 | 文档内核的对外域操作                   |
-| `server/conversation-memory-store.js` | 1196 | 联合分析窗口的落库                     |
-| `server/iteration-archive.js`         | 1080 | 迭代归档工作流                         |
-| `server/service-monitor.js`           | 1057 | 监控与老翁日志（`agentLogs` 在此）     |
-| `server/cloudbase.js`                 | 1018 | CloudBase 环境与部署                   |
-| `server/wiki-questions.js`            | 1011 | 老翁私聊问答                           |
-
-`service-monitor`、`project-memory`、`coordinator`、`documents/service` 仍是各自领域的中枢，转完之后能进一步降低其余文件的标注成本——**建议按「先中枢、后外围」继续**。
-
-接手的操作步骤见下文「未完成部分与后续做法」。
+收尾时清掉了两处迁移期临时断言（`routes/project-runtime` 的 `as null`、`task-draft-brief` 的 `config: undefined`），其余可继续简化的地方列在文末「迁移完成后的遗留事项」。
 
 ### 批次明细
 
@@ -488,6 +475,18 @@ member(...args: OperationRest<typeof accessDomain.memberOperation>)
 
 修完这三处后复跑：`npm run lint` exit 0、全量 `npm test` **1096/1096**、0 失败（`duration_ms` 1507190）。
 
+第四十一批（2026-11-06，最后 10 个 >1000 行的中枢）：5 簇并发，全仓 1600 个错清零。`project-memory`(3262→359 错)、`coordinator`(1644→116)、`wiki-questions`(1011→182)、`routes/project-workspace`(1331→272)、`documents/service`(1276→162)、`conversation-memory-store`(1196→67)、`agent-tools`(1450→65)、`iteration-archive`(1080→112)、`service-monitor`(1057→51)、`cloudbase`(1018→212)。
+
+几个值得留下的做法：
+
+- **大文件的「视图过窄」会以连坐的形式出现。** `cloudbase.ts` 把 `service` 从隐式 `any` 收成 `AccessService` 之后，`routes/cloudbase-routes.ts` 立刻冒出 20 个错（`req.params` 全是 `string | string[]`）。修法不是退回 `unknown`，而是把路由依赖类型写成 `{ service: Service }`、再把 20 处 `req.params.x` 收口成 `String(...)`——**类型精确化的代价要一次付清，半途退回去只会让下游一直是 any**。
+- **门面方法要在 `service` 上调用。** 第三十九批的 `agentLogs` 丢 `this` 之后，本批 `coordinator` / `agent-tools` 都按这条写，没有再出现。
+- **抽象类能让内核保留 `this.member(...)` 原写法。** `documents/service.ts` 改成 `abstract class DocumentsService`，把 `member`/`thread`/`insertMessage` 等声明成抽象方法：`abstract` 只在类型层，Node 擦除后没有运行时代码，`Service extends DocumentsService` 的 rest 签名依然兼容。比把门面方法拆成参数传进内核干净得多。
+- **`const fail = () => …` 不能让 TS 做控制流收窄。** `documents/service.ts` 把 `fail` 从箭头常量改成函数声明（返回 `never`）后，`row` / `threadId` 的空值误报才消失。同理：形参 `args: unknown` 之后再 `args = args as X` **不会**收窄参数，要写成 `const args = toolArgs as X`。
+- **递归/互递归导出函数必须写返回类型**，本批在 `agent-tools`、`service-monitor` 又各踩一次。
+
+审计脚本对这 10 个文件全部 ✓。
+
 ## 领域模块的类型策略
 
 `service-*.js` 这类域模块的第一个参数是 `service`（转发门面），而门面本身还没转换。若直接读 `service.js` 的类型，会得到一堆 `(...args: any[]) => any`。
@@ -526,21 +525,33 @@ export type AccessService = {
 
 **每批的行数与错误数要匹配可复核的注意力。** 实践下来的经验值：一批 3 个文件、合计 60–120 个错是可完成的；超过 150 个错时，修改之间开始互相干扰，正确率明显下降。宁可少转几个。
 
-## 未完成部分与后续做法
+## 迁移完成后的遗留事项
 
-本文件记录的是当前进度。若还有 `.js` 未转完，按下面的做法接手即可，不必重新摸索：
+迁移本身已经结束（199/199 个 `.ts`、0 错、全量测试通过）。下面这些是迁移过程中发现、但**不属于迁移范围**的问题，按「会崩 / 会错 / 只是难看」排列；改之前先读对应工程说明。
 
-1. **先跑 `npm run typecheck:server` 与 `node scripts/server-ts-specifiers.mjs`**，确认起点是干净的（0 错、无失效说明符）。
-2. **从行数最小的 `.js` 开始**，但先按「选文件的顺序」那节检查依赖。
-3. 用 `node scripts/server-ts-migrate.mjs <文件…>` 改名并改写说明符；**目标文件已存在同名 `.ts` 时不要再对 `.js` 跑这个工具**，它会覆盖 `.ts`（踩过一次）。
-4. 标类型时优先用「推导」而不是「手抄」：
-   - 门面方法：`OperationRest<typeof domain.fn>` / `ParamAt<typeof fn, N>`
-   - 领域视图：按实际调用点显式声明所需方法，**不要用索引签名**（会让属性类型退化成 `unknown`）
-   - 第三方库：优先用官方类型（`import("vite").ViteDevServer`），没有才写局部形状，且只声明真正调用的方法
-5. 一批做完跑 `npm run lint`（含 typecheck）、`node scripts/server-ts-specifiers.mjs`、`npm test`。**测试数量变少**（例如 1096 → 1087）说明有测试文件加载失败，比测试失败更危险，必须查明。
-6. 改不动就回退：`git checkout HEAD -- <文件>.js` + 删 `.ts`，再用说明符脚本把引用改回 `.js`，确认零残留后继续下一批。**留下半成品比少转几个坏得多。**
+**会崩（迁移按原行为保留，未修）**
 
-几个已知的大件，转换时预期较高成本：`project-memory.js`（3262 行）、`coordinator.js`（1643 行）、`service-monitor.js`（1056 行）、`local-sandbox.js`。它们各自需要专门的轮次，不适合与其他文件同批。
+- `server/wiki-questions.ts` 的 `webAnswer` 调用 `modelResponse(...)`，但文件从未 import 它——运行期 `ReferenceError` 被同一个 `try` 的 `catch` 兜住，所以「全网检索」档在模型可用时也总走兜底文案且**不报错**。迁移只加了一条纯类型声明 `declare const modelResponse`（擦除后不存在，运行期与迁移前一致）；补 import 会真的调用模型，属行为变更，需单独决定。
+- `server/agent-tools.ts` 的 cloudbase 分支原来丢弃了 `requireMiniprogramWorkspace(...)` 的返回值却继续用 `runtime`，该分支必然 `ReferenceError`。迁移把返回值绑定成 `const runtime`——**这是整轮迁移唯一的行为变化**：该分支从抛错变成按原意返回。
+
+**会错（语义可疑，需业务确认）**
+
+- `server/coordinator.ts` 的 `childSettled` 声明后从未赋值，`childSettled?.()` 永远不执行。
+- `server/agent-tools.ts`、`server/child-agent-session.ts`、`server/routes/project-workspace.ts` 把 `job.message_id` 当 `agent_task_id` 传给 `insertMessage`，语义可疑。
+- `server/project-memory.ts`：`queueMemberMemory` / `processNextMemberMemory` / `summarizeProjectMembers` 全仓无调用（`member_memory` 实际由 `processNextConversationMemory` 处理）。
+- `server/miniprogram-config.ts`：`runtime.enabled` 实际只表示「有 AppID」（`isMiniProgramWorkspaceReady` 只读 `appId`），而 `wechat-ci` 把它当「已验证」用，与 `computeConfigStatus` 的 `verified` 是两套判断。
+- `server/iteration-archive.ts`：`settleIterationMemory` 的 `apply` 参数从未被消费，调用点却仍传 `apply: false`。
+
+**只是难看（迁移期收窄，可继续收紧）**
+
+- `miniprogram-build.ts` / `wechat-ci.ts` / `cloudbase-hosting.ts` 里的 `as unknown as MiniProgramRuntime` / `as ResolvedRuntime`：`loadProjectMiniProgramRuntime` 现在有真实返回类型，这些断言可删。
+- `memory-timeline.ts` 为兼容两个互不兼容的页面类型（`file-index-roots.ts` 私有 `IndexPage.body?: string` vs `file-index-path.ts` 导出 `FileIndexPage.body?: unknown`）分了 `EntryRow` / `PageRow` 两型，统一其中一个就能合并。
+- 域视图仍有过窄的 `db: Pool`：`org-shelf.ts` 的 `OrgService`、`wiki-pages.ts` 的 `WikiService`、`documents/document-tools.ts` 的 `DocumentToolService`。按第三十四批的规则（只做查询的视图用 `Db`）可去掉若干 `as unknown as`。
+- `routes/cloudbase-routes.ts` 的 `readAdminProductionUrl` 仍用 `service as never`：`HostingService` 与门面方法的 rest 签名不兼容。
+- `types.ts` 的 `RequestUser` 用索引签名兜底，`user_number` 这类字段在 TS 里是 `unknown`，`/api/me` 处保留了断言。
+- `agent-tools.ts` 的截图分支读 `result.mimeType`，而三个 `capture*` 返回的是 `mime`，所以一直落到默认 `"image/png"`；迁移保留了原读法。
+
+这些都是小改动，逐条删完跑 `npm run typecheck:server` 就能验证是否还有依赖。
 
 ## 几个具体写法
 

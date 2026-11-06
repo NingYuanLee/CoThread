@@ -11,7 +11,7 @@ import {
   upsertDiscussionMemory,
   discussionMemoryMarkdown,
 } from "../server/discussion-memory.ts";
-import { applyProjectMemoryResult } from "../server/project-memory.js";
+import { applyProjectMemoryResult } from "../server/project-memory.ts";
 
 async function setup() {
   const database = await testDatabase();

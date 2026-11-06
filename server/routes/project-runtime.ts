@@ -12,7 +12,7 @@ import {
   reviseArchiveSummary,
   suggestArchiveContinuation,
   suggestArchivePriorities,
-} from "../iteration-archive.js";
+} from "../iteration-archive.ts";
 import { parseStoredImage } from "../project-image.ts";
 import { z } from "zod/v3";
 import { query, transaction } from "../db.ts";
@@ -136,8 +136,7 @@ export function registerProjectRuntimeRoutes(
   app.get("/api/threads/:id/agent-logs", async (req: Request, res: Response) =>
     res.json(
       await service.agentLogs(req.user, "thread", String(req.params.id), {
-        // service-monitor.js 的 `before` 默认值 null 使 TS 推成 `null`；运行时接受游标字符串。
-        before: (req.query.before ? String(req.query.before) : null) as null,
+        before: req.query.before ? String(req.query.before) : null,
         limit: queryNumber(req.query.limit),
       }),
     ),
@@ -285,7 +284,7 @@ export function registerProjectRuntimeRoutes(
   app.post("/api/threads/:id/archive/confirm", async (req: Request, res: Response) => {
     const result = await service.confirmIterationArchive(req.user, String(req.params.id), req.body);
     const thread = await service.thread(req.user, String(req.params.id));
-    const { scanArchivedConversation } = await import("../conversation-memory-store.js");
+    const { scanArchivedConversation } = await import("../conversation-memory-store.ts");
     await scanArchivedConversation(
       service.db,
       String(thread.project_id),
@@ -313,7 +312,7 @@ export function registerProjectRuntimeRoutes(
   app.post("/api/threads/:id/archive", async (req: Request, res: Response) => {
     const result = await service.archive(req.user, String(req.params.id), req.body);
     const thread = await service.thread(req.user, String(req.params.id));
-    const { queueConversationThread } = await import("../conversation-memory-store.js");
+    const { queueConversationThread } = await import("../conversation-memory-store.ts");
     await queueConversationThread(
       service.db,
       String(thread.project_id),

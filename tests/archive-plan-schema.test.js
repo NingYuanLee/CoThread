@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { archivePlanDraftSchema } from "../server/iteration-archive.js";
+import { archivePlanDraftSchema } from "../server/iteration-archive.ts";
 
 test("archive draft accepts decision alias and notes array", () => {
   const plan = archivePlanDraftSchema.parse({

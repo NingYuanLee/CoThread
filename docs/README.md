@@ -43,12 +43,14 @@
 - [26-test-execution.md](engineering/26-test-execution.md)：测试调度策略、固定等待用例的并发化与 DSH runtime 超时
 - [27-frontend-bundle-size.md](engineering/27-frontend-bundle-size.md)：前端文件类型图标的来源、解析规则与包体积实测
 - [28-pagination-limits.md](engineering/28-pagination-limits.md)：分页与条数参数的收口规则（取整、默认值与区间上限）
+- [29-migration-reentry.md](engineering/29-migration-reentry.md)：迁移重入的判定口径、类型演进的容忍边界与整条链重跑的限制
 
 用户能看见的行为变了，同时改 `public/docs.html` 和对应的工程说明。只改内部实现时只改工程说明。表结构以 `migrations/` 为准。长期产品资料放进 `product/`。一次测量、复盘或待办不要留在 `docs/`。
 
 产品资料：
 
 - [knowledge-base-plan.md](product/knowledge-base-plan.md)：知识库总计划。只定范围和顺序，不是已上线行为。
+- [ai-memory-primer.md](product/ai-memory-primer.md)：AI 记忆入门教材（流水线、四个零件、关系与相似之别、召回与治理、路线对比）。教学材料，不是已上线行为。
 - [memory-star-map-plan.md](product/memory-star-map-plan.md)：记忆星图方案。项目记忆的图投影与渲染层计划，只定范围和顺序，不是已上线行为。
 - [memory-star-map-library-evaluation.md](product/memory-star-map-library-evaluation.md)：记忆星图技术选型实测底稿（依赖体积、Worker 基准、无障碍现状）。一次性测量记录。
 - [memory-star-map-oss-research.md](product/memory-star-map-oss-research.md)：记忆星图开源调研底稿（各项目的数据模型、可借鉴做法与许可证红线）。一次性调研记录。

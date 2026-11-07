@@ -31,7 +31,7 @@ import { useAccountSession } from "./use-account-session";
 import { CoThreadLogo, PanelIcon } from "./workspace-chrome";
 import { submitWorkspaceModal } from "./workspace-modal-submit";
 import type { Modal, Project } from "./workspace-types";
-import "./workspace.css";
+import "./shared-workspace.css";
 import "./admin.css";
 
 type Access = {

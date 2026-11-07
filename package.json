@@ -29,7 +29,7 @@
     "test:shards": "node --env-file-if-exists=.env scripts/test-shards.mjs",
     "test:unit": "node scripts/test-unit.js",
     "repair:agent-sessions": "node scripts/repair-agent-sessions.mjs",
-    "lint": "npm run typecheck:server && npm run typecheck:shared && node scripts/lint.js && node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs && node scripts/check-field-usage.mjs && node scripts/check-theme-generated.mjs && node scripts/check-ui-scale.mjs && node scripts/check-shared-declarations.mjs && node scripts/check-migration-numbering.mjs",
+    "lint": "npm run typecheck:server && npm run typecheck:shared && node scripts/lint.js && node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs && node scripts/check-field-usage.mjs && node scripts/check-theme-generated.mjs && node scripts/check-ui-scale.mjs && node scripts/check-shared-declarations.mjs && node scripts/check-migration-numbering.mjs && node scripts/check-css-order.mjs",
     "lint:boundaries": "node scripts/check-boundaries.mjs && node scripts/check-overlays.mjs && node scripts/check-field-resets.mjs",
     "mysql:sync-dev-user": "node --env-file-if-exists=.env scripts/mysql-sync-dev-user.js",
     "app:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/app.ps1 start",

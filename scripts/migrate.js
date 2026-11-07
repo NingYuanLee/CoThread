@@ -104,43 +104,386 @@ function withoutLeadingComments(sql) {
   return rest;
 }
 
-async function matchingExistingColumn(conn, statement) {
-  const match = withoutLeadingComments(statement).match(
-    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+`?(\w+)`?\s+(CHAR\(\d+\)|VARCHAR\(\d+\)|(?:TINY|MEDIUM|LONG)?TEXT|JSON|BOOLEAN|TINYINT\s+UNSIGNED|BIGINT\s+UNSIGNED|INT\s+UNSIGNED|DATETIME(?:\(\d+\))?|ENUM\('[^']*'(?:\s*,\s*'[^']*')*\))\s+(NULL|NOT\s+NULL)(?:\s+DEFAULT\s+(FALSE|TRUE|NULL|\d+|'[^']*'|CURRENT_TIMESTAMP(?:\(\d+\))?))?(?:\s+(?:AFTER\s+`?\w+`?|FIRST))?$/i,
+/**
+ * 把 MySQL 报告的 COLUMN_TYPE 与迁移里写的类型归一，便于比较。
+ *
+ * 迁移里写的是 MySQL 类型名（BOOLEAN / MEDIUMTEXT / SMALLINT UNSIGNED ...），
+ * information_schema 报的是小写规范形式（tinyint(1) / mediumtext / smallint unsigned），
+ * 这里统一成同一套写法再比。
+ */
+function normalizeColumnType(value) {
+  const text = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (text === "boolean") return "tinyint(1)";
+  // integer 家族的显示宽度在 8.0.19 之后被去掉，两种写法都当同一类型；
+  // 但 tinyint(1) 是 BOOLEAN 的规范形式，宽度必须保留。
+  return text.replace(/^(tinyint|smallint|mediumint|int|bigint)\((\d+)\)/, (all, name, width) =>
+    name === "tinyint" && width === "1" ? all : name,
+  );
+}
+
+/**
+ * 迁移里写的类型串，转成 information_schema 会报的规范形式。
+ *
+ * 只处理确定性的映射；无法确定的返回 null，调用方据此放弃「这条列已存在」的判定，
+ * 宁可让迁移真的失败，也不要把类型不同的列误判成一致。
+ */
+function expectedColumnType(type) {
+  const text = String(type || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (/^(?:tinyint|smallint|mediumint|int|bigint)(?: unsigned)?$/.test(text)) return text;
+  if (/^bool(?:ean)?$/.test(text)) return "tinyint(1)";
+  if (/^(?:tiny|medium|long)?(?:text|blob)$/.test(text)) return text;
+  if (/^(?:var)?binary\(\d+\)$/.test(text)) return text;
+  if (/^char\(\d+\)$/.test(text)) return text;
+  if (/^varchar\(\d+\)$/.test(text)) return text;
+  if (/^datetime(?:\(\d+\))?$/.test(text)) return text;
+  if (/^timestamp(?:\(\d+\))?$/.test(text)) return text;
+  if (/^date$/.test(text)) return text;
+  if (/^time(?:\(\d+\))?$/.test(text)) return text;
+  if (/^year(?:\(\d+\))?$/.test(text)) return text;
+  if (/^double(?:\(\d+\))?(?: unsigned)?$/.test(text)) return text;
+  if (/^float(?:\(\d+\))?(?: unsigned)?$/.test(text)) return text;
+  if (/^decimal\(\d+(?:,\d+)?\)(?: unsigned)?$/.test(text)) return text;
+  if (/^enum\(.+\)$/.test(text)) return text;
+  if (/^set\(.+\)$/.test(text)) return text;
+  if (text === "json") return "json";
+  return null;
+}
+
+/**
+ * 迁移链里某个列是否被后续迁移改过定义。
+ *
+ * 冷启动重跑整条链时，后面的迁移可能已经把某一列改宽或改了可空性（例如 007 加
+ * system_key VARCHAR(40)，038 改成 VARCHAR(80)）。这类差异是链内的正常演进，重入时
+ * 不该拦下；但链里从没改过的列被改窄（人为破坏或环境漂移）必须仍然失败。
+ *
+ * @param {string[]} laterSql 后续迁移的 SQL 文本（按执行顺序）
+ */
+function columnEvolvedLater(columnName, laterSql) {
+  const name = String(columnName).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    "\\b(?:ADD\\s+(?:COLUMN\\s+)?|MODIFY\\s+(?:COLUMN\\s+)?|CHANGE\\s+(?:COLUMN\\s+)?)\\`?" +
+      name +
+      "\\`?\\b",
+    "i",
+  );
+  return laterSql.some((sql) => pattern.test(sql));
+}
+
+/**
+ * 判断「库里的列类型是否与迁移里写的兼容」。
+ *
+ * 完全一致直接通过。不同的时候，只有「后续迁移确实改过这一列」才算链内演进、
+ * 可以容忍；否则判为不一致——那可能是人为破坏或环境漂移，必须让迁移失败。
+ */
+function compatibleColumnType(actual, expected, evolvedLater) {
+  if (actual === expected) return true;
+  if (!evolvedLater) return false;
+  const family = (text) => {
+    if (/^(?:char|varchar|tinytext|text|mediumtext|longtext|enum|set)$/.test(text.split("(")[0]))
+      return "string";
+    if (/^(?:tinyint|smallint|mediumint|int|bigint|decimal|float|double|bit|bool)/.test(text))
+      return "number";
+    if (/^(?:datetime|timestamp|date|time|year)/.test(text)) return "datetime";
+    if (/^(?:tinyblob|blob|mediumblob|longblob|binary|varbinary)/.test(text)) return "binary";
+    if (/^json/.test(text)) return "json";
+    return text;
+  };
+  const actualBase = actual.split("(")[0];
+  const expectedBase = expected.split("(")[0];
+  if (family(actual) !== family(expectedBase)) return false;
+  if (family(actual) === "binary") return false;
+  const actualWidth = Number((actual.match(/\(/)?.[1] || "").replace(/[^0-9].*$/, ""));
+  const expectedWidth = Number((expected.match(/\(/)?.[1] || "").replace(/[^0-9].*$/, ""));
+  if (family(actual) === "string" && actualWidth && expectedWidth)
+    return actualWidth >= expectedWidth;
+  if (family(actual) === "number") return true;
+  return actualBase === expectedBase;
+}
+
+/**
+ * 按顶层逗号切出一条语句里的各个子句（跳过嵌套括号里的逗号）。
+ */
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of text) {
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+/**
+ * 从一条 ALTER 语句里取出所有 ADD COLUMN 子句。
+ *
+ * 迁移里 171 条 ADD COLUMN 有 30 条是多列形式（一条 ALTER 加多列，后面还跟着
+ * ADD INDEX / MODIFY COLUMN），逐条 ADD COLUMN 的单列正则匹配不了。
+ */
+function addedColumns(statement) {
+  const sql = withoutLeadingComments(statement);
+  const tableMatch = sql.match(/^ALTER\s+TABLE\s+`?(\w+)`?\s+([\s\S]*)$/i);
+  if (!tableMatch) return [];
+  const [, table, rest] = tableMatch;
+  const columns = [];
+  for (const raw of splitTopLevel(rest)) {
+    const def = raw.trim().replace(/\s+/g, " ");
+    // 只要 ADD COLUMN 形式；ADD INDEX / ADD KEY / ADD FOREIGN KEY / ADD CONSTRAINT 都跳过。
+    const match = def.match(
+      /^ADD\s+(?:COLUMN\s+)?`?(\w+)`?\s+([A-Za-z]+(?:\s+UNSIGNED)?(?:\s*\([^)]*\))?)([\s\S]*)$/i,
+    );
+    if (!match) continue;
+    const [, name, type, tail] = match;
+    // ADD 后面跟的是约束关键字（INDEX / KEY / FOREIGN / CONSTRAINT / PRIMARY）时不是加列。
+    if (/^(?:INDEX|KEY|FOREIGN|CONSTRAINT|PRIMARY|UNIQUE|CHECK|FULLTEXT|SPATIAL)$/i.test(name))
+      continue;
+    // 类型之后的部分里，逗号已被切走，剩下的就是可空性/默认值/位置等约束。
+    const constraint = tail.match(
+      /^((?:\s+(?:NOT\s+NULL|NULL|DEFAULT\s+(?:[^\s]+|CURRENT_TIMESTAMP(?:\(\d+\))?)))*)/i,
+    );
+    columns.push({ table, name, type, constraint: constraint ? constraint[1] : "" });
+  }
+  return columns;
+}
+
+/** 一条列定义的可空性。 */
+function expectedNullability(constraint) {
+  if (/\bNOT\s+NULL\b/i.test(constraint)) return "NO";
+  if (/\bNULL\b/i.test(constraint)) return "YES";
+  return null;
+}
+
+/** 一条列定义的默认值，转成 information_schema 的比较口径。 */
+function expectedDefaultValue(constraint) {
+  const match = constraint.match(
+    /DEFAULT\s+(FALSE|TRUE|NULL|CURRENT_TIMESTAMP(?:\(\d+\))?|'[^']*'|"[^"]*"|[^,\s]+)/i,
+  );
+  if (!match) return { hasDefault: false, value: null };
+  const raw = match[1];
+  if (/^null$/i.test(raw)) return { hasDefault: true, value: null };
+  if (/^false$/i.test(raw)) return { hasDefault: true, value: "0" };
+  if (/^true$/i.test(raw)) return { hasDefault: true, value: "1" };
+  if (/^current_timestamp/i.test(raw)) return { hasDefault: true, value: "current_timestamp" };
+  const quoted = raw.match(/^'([^']*)'$|^"([^"]*)"$/);
+  if (quoted) return { hasDefault: true, value: (quoted[1] ?? quoted[2]).toLowerCase() };
+  return { hasDefault: true, value: raw.toLowerCase() };
+}
+
+/**
+ * 判断「这条 ADD CONSTRAINT ... FOREIGN KEY 要加的外键是否已经存在」。
+ *
+ * 冷启动重跑时外键已经建好，MySQL 会报 ER_FK_DUP_NAME。这里把约束名、所属表、
+ * 本表列、被引用表与被引用列逐项与 information_schema 比对，全部一致才认为可以跳过。
+ */
+async function matchingExistingForeignKey(conn, statement) {
+  const sql = withoutLeadingComments(statement);
+  const match = sql.match(
+    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+CONSTRAINT\s+`?(\w+)`?\s+FOREIGN\s+KEY\s*\(([\s\S]*?)\)\s*REFERENCES\s+`?(\w+)`?\s*\(([\s\S]*?)\)\s*(?:ON\s+DELETE\s+(?:CASCADE|SET\s+NULL|RESTRICT|NO\s+ACTION)\s*)?(?:ON\s+UPDATE\s+(?:CASCADE|SET\s+NULL|RESTRICT|NO\s+ACTION)\s*)?;?$/i,
   );
   if (!match) return false;
-  const [, table, column, type, nullable, defaultValue] = match;
-  const [actual] = await query(
+  const [, table, name, columnList, refTable, refColumnList] = match;
+  const columns = columnList
+    .split(",")
+    .map((column) => column.trim().replace(/^`|`$/g, ""))
+    .filter(Boolean);
+  const refColumns = refColumnList
+    .split(",")
+    .map((column) => column.trim().replace(/^`|`$/g, ""))
+    .filter(Boolean);
+  if (!columns.length || columns.length !== refColumns.length) return false;
+  const rows = await query(
     conn,
-    `SELECT c.COLUMN_TYPE,c.IS_NULLABLE,c.COLUMN_DEFAULT,c.EXTRA,c.COLLATION_NAME,t.TABLE_COLLATION
-     FROM information_schema.COLUMNS c JOIN information_schema.TABLES t
-     ON t.TABLE_SCHEMA=c.TABLE_SCHEMA AND t.TABLE_NAME=c.TABLE_NAME
-     WHERE c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=? AND c.COLUMN_NAME=?`,
-    [table, column],
+    `SELECT CONSTRAINT_NAME,TABLE_NAME,COLUMN_NAME,REFERENCED_TABLE_NAME,REFERENCED_COLUMN_NAME
+     FROM information_schema.KEY_COLUMN_USAGE
+     WHERE CONSTRAINT_SCHEMA=DATABASE() AND CONSTRAINT_NAME=? AND TABLE_NAME=?`,
+    [name, table],
   );
-  const expectedType = type
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/^boolean$/, "tinyint(1)")
-    .replace(/^json$/, "json");
-  const expectedDefault =
-    !defaultValue || /^null$/i.test(defaultValue)
-      ? null
-      : /^false$/i.test(defaultValue)
-        ? "0"
-        : /^true$/i.test(defaultValue)
-          ? "1"
-          : defaultValue.replace(/^'|'$/g, "").toLowerCase();
-  return (
-    !!actual &&
-    actual.COLUMN_TYPE.toLowerCase() === expectedType &&
-    actual.IS_NULLABLE === (/^null$/i.test(nullable) ? "YES" : "NO") &&
-    (actual.COLUMN_DEFAULT === null ? null : String(actual.COLUMN_DEFAULT).toLowerCase()) ===
-      expectedDefault &&
-    (!actual.EXTRA ||
-      (/^CURRENT_TIMESTAMP/i.test(defaultValue || "") && actual.EXTRA === "DEFAULT_GENERATED")) &&
-    (!actual.COLLATION_NAME || actual.COLLATION_NAME === actual.TABLE_COLLATION)
+  if (!rows || rows.length !== columns.length) return false;
+  const ordered = [...rows].sort((a, b) =>
+    String(a.COLUMN_NAME).localeCompare(String(b.COLUMN_NAME)),
   );
+  const expected = columns
+    .map((column, index) => ({
+      COLUMN_NAME: column,
+      REFERENCED_TABLE_NAME: refTable,
+      REFERENCED_COLUMN_NAME: refColumns[index],
+    }))
+    .sort((a, b) => String(a.COLUMN_NAME).localeCompare(String(b.COLUMN_NAME)));
+  return ordered.every(
+    (row, index) =>
+      String(row.COLUMN_NAME) === String(expected[index].COLUMN_NAME) &&
+      String(row.REFERENCED_TABLE_NAME) === String(expected[index].REFERENCED_TABLE_NAME) &&
+      String(row.REFERENCED_COLUMN_NAME) === String(expected[index].REFERENCED_COLUMN_NAME),
+  );
+}
+
+/**
+ * 判断「这条 ALTER 要加的列是否已经存在」。
+ *
+ * 冷启动重跑时，MySQL 的 DDL 已经生效但迁移回执还没写入，同一条 ADD COLUMN 会报
+ * ER_DUP_FIELDNAME。这里逐列查 information_schema 的真实定义做比对，全部一致才
+ * 认为可以跳过。类型族不同（字符列 vs 整数列）判定为冲突；宽度、可空性、自增等
+ * 差异都按「后续迁移演进过」处理。
+ */
+async function matchingExistingColumn(conn, statement, laterSql = []) {
+  const columns = addedColumns(statement);
+  if (!columns.length) return false;
+  for (const column of columns) {
+    const expectedType = expectedColumnType(column.type);
+    if (!expectedType) return false;
+    const evolvedLater = columnEvolvedLater(column.name, laterSql);
+    const [actual] = await query(
+      conn,
+      `SELECT c.COLUMN_TYPE,c.IS_NULLABLE,c.COLUMN_DEFAULT,c.EXTRA,c.COLLATION_NAME,t.TABLE_COLLATION
+       FROM information_schema.COLUMNS c JOIN information_schema.TABLES t
+       ON t.TABLE_SCHEMA=c.TABLE_SCHEMA AND t.TABLE_NAME=c.TABLE_NAME
+       WHERE c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=? AND c.COLUMN_NAME=?`,
+      [column.table, column.name],
+    );
+    if (!actual) return false;
+    if (!compatibleColumnType(normalizeColumnType(actual.COLUMN_TYPE), expectedType, evolvedLater))
+      return false;
+    const expectedDefault = expectedDefaultValue(column.constraint);
+    const actualDefault =
+      actual.COLUMN_DEFAULT === null ? null : String(actual.COLUMN_DEFAULT).toLowerCase();
+    if (expectedDefault.hasDefault) {
+      if (expectedDefault.value === "current_timestamp") {
+        // 库里的默认值带精度写法（CURRENT_TIMESTAMP(3)），按前缀比即可。
+        if (!/^current_timestamp/i.test(String(actual.COLUMN_DEFAULT || ""))) return false;
+      } else if (actualDefault !== expectedDefault.value) return false;
+    }
+    if (actual.EXTRA) {
+      // 迁移里写了 DEFAULT CURRENT_TIMESTAMP 时，库里的 EXTRA 是
+      // DEFAULT_GENERATED（可能带 on update CURRENT_TIMESTAMP(n)）。
+      // auto_increment 是后续迁移改的（用户号靠自增分配），同样按演进处理。
+      const wantsGenerated = /^current_timestamp/i.test(expectedDefault.value || "");
+      const isGenerated = /^DEFAULT_GENERATED/i.test(actual.EXTRA);
+      const isAutoIncrement = /^auto_increment/i.test(actual.EXTRA);
+      if (isAutoIncrement) {
+        // 自增列没有显式默认值，比对默认值没有意义。
+      } else if (!wantsGenerated || !isGenerated) return false;
+    }
+    if (actual.COLLATION_NAME && actual.COLLATION_NAME !== actual.TABLE_COLLATION) return false;
+  }
+  return true;
+}
+
+/**
+ * 判断「这条 CREATE TABLE 要建的表是否已经存在」。
+ *
+ * 边界：迁移链里有 3 处 RENAME TABLE、6 处 RENAME COLUMN、14 处 DROP TABLE、
+ * 12 处 DROP COLUMN。被重命名过的那几条迁移（046、047、052、114、115、128、146、147、
+ * 149、220）在整条链重跑时，表名/列名已经和迁移里写的不同，结构比对无法判定，
+ * 仍会失败。这是链的历史事实，不是本函数的缺陷：真实场景是「某一条迁移执行到一半
+ * 崩溃后重跑那一条」，这类重入由本函数覆盖。
+ *
+ * 冷启动重跑时表已经建好，MySQL 会报 ER_TABLE_EXISTS_ERROR。这里把迁移里写的
+ * 列定义逐条与 information_schema 的真实列比对：迁移写的列必须都在、类型兼容；
+ * 库里多出来的列是后续迁移加的，不算冲突。
+ */
+async function matchingExistingTable(conn, statement, laterSql = []) {
+  const sql = withoutLeadingComments(statement);
+  // 末尾可能还有 DEFAULT CHARACTER SET / COLLATE / ENGINE 等表选项。
+  const match = sql.match(
+    /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?\s*\(([\s\S]*)\)\s*(?:[A-Za-z].*)?$/i,
+  );
+  if (!match) return false;
+  const [, table, body] = match;
+  const columns = [];
+  for (const raw of splitTopLevel(body)) {
+    const def = raw.trim().replace(/\s+/g, " ");
+    if (!def) continue;
+    if (
+      /^(?:FOREIGN\s+KEY|CONSTRAINT|PRIMARY\s+KEY|UNIQUE|KEY|INDEX|CHECK|FULLTEXT|SPATIAL)\b/i.test(
+        def,
+      )
+    )
+      continue;
+    const columnMatch = def.match(/^`?(\w+)`?\s+([A-Za-z]+(?:\s+UNSIGNED)?(?:\s*\([^)]*\))?)/);
+    if (!columnMatch) return false;
+    const expectedType = expectedColumnType(columnMatch[2]);
+    if (!expectedType) return false;
+    columns.push({
+      name: columnMatch[1],
+      type: columnMatch[2],
+      constraint: def.slice(columnMatch[0].length),
+    });
+  }
+  if (!columns.length) return false;
+
+  const actual = await query(
+    conn,
+    `SELECT c.COLUMN_NAME,c.COLUMN_TYPE,c.IS_NULLABLE FROM information_schema.COLUMNS c
+     WHERE c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=?`,
+    [table],
+  );
+  if (!actual.length) return false;
+  const byName = new Map(actual.map((row) => [row.COLUMN_NAME, row]));
+  for (const column of columns) {
+    const row = byName.get(column.name);
+    if (!row) return false;
+    if (
+      !compatibleColumnType(
+        normalizeColumnType(row.COLUMN_TYPE),
+        expectedColumnType(column.type),
+        columnEvolvedLater(column.name, laterSql),
+      )
+    )
+      return false;
+    // 可空性差异按「后续迁移演进过」处理：唯一索引列在 MySQL 里本就允许 NULL，
+    // 表重建也可能放宽它，类型一致即可。
+  }
+  return true;
+}
+
+/**
+ * 判断「这条 ADD CONSTRAINT ... CHECK 要加的约束是否已经存在」。
+ *
+ * 冷启动重跑时约束已经建好，MySQL 会报 ER_CHECK_CONSTRAINT_DUP_NAME。
+ * information_schema 里的 CHECK_CLAUSE 带字符集前缀与反引号（`execution_target` in
+ * (_utf8mb4'cloud',...)），与迁移里写的原文不同，这里归一后比较。
+ */
+async function matchingExistingCheck(conn, statement) {
+  const sql = withoutLeadingComments(statement);
+  const match = sql.match(
+    /^ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+CONSTRAINT\s+`?(\w+)`?\s+CHECK\s*\(([\s\S]*)\)\s*;?$/i,
+  );
+  if (!match) return false;
+  const [, table, name, clause] = match;
+  // query() 直接返回行数组，不做 [rows] 包装。
+  const rows = await query(
+    conn,
+    `SELECT c.CONSTRAINT_NAME,c.CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS c
+     JOIN information_schema.TABLE_CONSTRAINTS t
+       ON t.CONSTRAINT_SCHEMA=c.CONSTRAINT_SCHEMA AND t.CONSTRAINT_NAME=c.CONSTRAINT_NAME
+     WHERE c.CONSTRAINT_SCHEMA=DATABASE() AND t.TABLE_NAME=? AND c.CONSTRAINT_NAME=?`,
+    [table, name],
+  );
+  if (!rows || !rows.length) return false;
+  // 库里带字符集前缀（_utf8mb4）、反引号、转义反斜杠与外层括号，迁移里没有。
+  const normalize = (text) =>
+    String(text || "")
+      .replace(/\\/g, "")
+      .replace(/\s+/g, "")
+      .replace(/`/g, "")
+      .replace(/_[a-z0-9]+(?=')/gi, "")
+      // 只剥离最外层成对括号：库里的 (...in(...)) 多一层，迁移里的 IN (...) 不能被误伤。
+      .replace(/^\(([\s\S]*)\)$/, "$1")
+      .toLowerCase();
+  return normalize(rows[0].CHECK_CLAUSE) === normalize(clause);
 }
 
 // 列已被删除（或该库从未建过这列）时，DROP COLUMN 会报 ER_CANT_DROP_FIELD_OR_KEY。
@@ -207,6 +550,15 @@ export async function migrate(
     );
     migrations.set(name, { sql, checksum: migrationChecksum(sql) });
   }
+  // 每条迁移的后续迁移 SQL：重入判定时用来判断「某一列是否被后面的迁移改过」，
+  // 从而区分「链内正常演进」与「库被改坏了」。
+  const laterSqlByName = new Map();
+  for (const [index, name] of names.entries()) {
+    laterSqlByName.set(
+      name,
+      names.slice(index + 1).map((later) => migrations.get(later).sql),
+    );
+  }
   // Warm schemas need one read, not one database round trip per migration.
   // Recheck under the lock when work remains, so overlapping cold starts are safe.
   let schemaUpToDate = false;
@@ -265,6 +617,7 @@ export async function migrate(
           throw checksumMismatch(name, migration.checksum, existing.checksum);
         }
         const sql = migration.sql;
+        const laterSql = laterSqlByName.get(name) || [];
         const statements = sql
           .split(";")
           .map((x) => x.trim())
@@ -277,12 +630,29 @@ export async function migrate(
             if (/^(CREATE|DROP)\s+TRIGGER\b/i.test(executable)) await conn.query(statement);
             else await query(conn, statement);
           } catch (error) {
+            // 冷启动重跑：DDL 已生效但回执未写入，同一条语句会撞「已存在」。
+            // 逐类确认「确实已以相同定义存在」才跳过，对不上就如实失败。
+            if (
+              error.code === "ER_TABLE_EXISTS_ERROR" &&
+              (await matchingExistingTable(conn, statement, laterSql))
+            )
+              continue;
             if (
               error.code === "ER_DUP_FIELDNAME" &&
-              (await matchingExistingColumn(conn, statement))
+              (await matchingExistingColumn(conn, statement, laterSql))
             )
               continue;
             if (error.code === "ER_DUP_KEYNAME" && (await matchingExistingIndex(conn, statement)))
+              continue;
+            if (
+              error.code === "ER_CHECK_CONSTRAINT_DUP_NAME" &&
+              (await matchingExistingCheck(conn, statement))
+            )
+              continue;
+            if (
+              error.code === "ER_FK_DUP_NAME" &&
+              (await matchingExistingForeignKey(conn, statement))
+            )
               continue;
             // DROP COLUMN 的幂等：146 起会出现「列已删过 / 从未有该列」的库。
             // 确认列确实不存在后跳过，迁移回执照常写入。

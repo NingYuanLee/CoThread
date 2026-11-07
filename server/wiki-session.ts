@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { query } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import { contextBudget, contextUsage } from "../shared/context.js";
 import { COTHREAD_SYSTEM_TEXT } from "../shared/prompt-blocks.js";
 import { compactElderHome, elderInstruction, elderToolNames } from "./elder-kernel.ts";
@@ -480,7 +481,7 @@ export async function elderAgentLogs(
       events: [],
     };
   // 轨迹按页往回取：默认最近一页，before 指向当前最老的事件，继续往前翻历史。
-  const pageSize = Math.min(Math.max(Number(limit) || 60, 10), 200);
+  const pageSize = clampLimit(limit, 60, 10, 200);
   let beforeAt = null;
   if (before) {
     const [anchor] = await query(

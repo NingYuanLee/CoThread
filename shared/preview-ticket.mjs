@@ -8,6 +8,11 @@ function previewSigningKey() {
   return createHash("sha256").update(raw).digest();
 }
 
+/**
+ * @param {any} userId
+ * @param {any} versionId
+ * @param {any} ttlMs
+ */
 export function signPreviewTicket(userId, versionId, ttlMs = 6 * 60 * 60 * 1000) {
   const payload = Buffer.from(
     JSON.stringify({
@@ -21,6 +26,9 @@ export function signPreviewTicket(userId, versionId, ttlMs = 6 * 60 * 60 * 1000)
   return `${PREVIEW_TICKET_PREFIX}${payload}.${sig}`;
 }
 
+/**
+ * @param {any} ticket
+ */
 export function readPreviewTicket(ticket) {
   const text = String(ticket || "");
   if (!text.startsWith(PREVIEW_TICKET_PREFIX)) return null;
@@ -46,6 +54,9 @@ export function readPreviewTicket(ticket) {
   }
 }
 
+/**
+ * @param {any} assetPath
+ */
 export function splitPreviewAssetPath(assetPath) {
   const raw = String(assetPath || "")
     .replace(/\\/g, "/")

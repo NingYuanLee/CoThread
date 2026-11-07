@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, sep, resolve as resolvePath } from "node:path";
 import JSZip from "jszip";
 import { query } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
 import { miniprogramSnapshot, miniprogramWorkspaceFolders } from "./miniprogram-workspace.ts";
@@ -557,7 +558,7 @@ export async function listMiniprogramBuilds(
   { kind = "app_preview", limit = 20 }: { kind?: string; limit?: number } = {},
 ) {
   await service.member(user, projectId, false);
-  const size = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const size = clampLimit(limit, 20, 1, 100);
   const rows = await query<BuildRow>(
     service.db,
     `SELECT b.id,b.kind,b.source_hash,b.status,b.output_folder_id,b.output_version_id,b.runtime_version,b.error_code,

@@ -26,6 +26,7 @@ Desktop.ini
 *.tsbuildinfo
 tmp/
 temp/
+_tmp/
 .dsh-vision-router/
 cloudbase-js-sdk-3.10.1.tgz
 

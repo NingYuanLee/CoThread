@@ -76,7 +76,6 @@ export async function listMyProjects(db: Db, user: MyWorkUser) {
     members: memberships.filter((member) => member.project_id === project.id),
     changes: changes.filter((change) => change.project_id === project.id).slice(0, 50),
     role_migration_issue: null,
-    can_recover_legacy_roles: false,
   }));
 }
 

@@ -51,10 +51,16 @@ export const RIGHT_SIDEBAR_MODE_UI = {
   cloudbase: { icon: "cloud", label: RIGHT_SIDEBAR_MODE_LABELS.cloudbase },
 };
 
+/**
+ * @param {any} value
+ */
 export function normalizeDialogueMode(value) {
   return DIALOGUE_MODES.includes(value) ? value : "default";
 }
 
+/**
+ * @param {any} dialogueMode
+ */
 export function rightSidebarModeFromDialogue(dialogueMode) {
   const mode = normalizeDialogueMode(dialogueMode);
   return mode === "cloudbase" || mode === "miniprogram" ? "cloudbase" : "standard";

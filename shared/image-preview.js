@@ -2,17 +2,27 @@ export const IMAGE_ZOOM_MIN = 0.1;
 export const IMAGE_ZOOM_MAX = 8;
 export const IMAGE_ZOOM_STEP = 1.25;
 
+/**
+ * @param {any} scale
+ */
 export function clampImageZoom(scale) {
   const value = Number(scale);
   if (!Number.isFinite(value)) return 1;
   return Math.min(IMAGE_ZOOM_MAX, Math.max(IMAGE_ZOOM_MIN, value));
 }
 
+/**
+ * @param {any} scale
+ * @param {any} direction
+ */
 export function stepImageZoom(scale, direction) {
   const current = clampImageZoom(scale);
   return clampImageZoom(direction > 0 ? current * IMAGE_ZOOM_STEP : current / IMAGE_ZOOM_STEP);
 }
 
+/**
+ * @param {Record<string, any>} __arg0
+ */
 export function zoomImageAround({ scale, nextScale, offsetX, offsetY, originX, originY }) {
   const current = clampImageZoom(scale);
   const next = clampImageZoom(nextScale);
@@ -24,6 +34,13 @@ export function zoomImageAround({ scale, nextScale, offsetX, offsetY, originX, o
   };
 }
 
+/**
+ * @param {any} naturalWidth
+ * @param {any} naturalHeight
+ * @param {any} viewWidth
+ * @param {any} viewHeight
+ * @param {any} padding
+ */
 export function fitImageScale(naturalWidth, naturalHeight, viewWidth, viewHeight, padding = 24) {
   const width = Number(naturalWidth);
   const height = Number(naturalHeight);

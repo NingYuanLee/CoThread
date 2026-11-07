@@ -29,6 +29,9 @@ export const AGENT_XIAOXIANG_MEMBER = Object.freeze({
   email: "迭代调度与任务分派",
   role: "agent",
 });
+/**
+ * @param {any} text
+ */
 export function mentionsAgent(text) {
   const body = String(text || "").trim();
   if (!body) return false;

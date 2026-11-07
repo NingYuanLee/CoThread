@@ -24,6 +24,9 @@ export const UI_THEMES = [
   },
 ];
 
+/**
+ * @param {any} value
+ */
 export function normalizeUiTheme(value) {
   return UI_THEMES.some((theme) => theme.id === value) ? value : DEFAULT_UI_THEME;
 }

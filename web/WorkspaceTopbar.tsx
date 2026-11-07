@@ -109,8 +109,8 @@ export function WorkspaceTopbar({
   usePoll({
     intervalMs: 15000,
     deps: [projectId],
-    load: (active) => {
-      void api("/notifications?summary=1")
+    load: (active, signal) => {
+      void api("/notifications?summary=1", undefined, undefined, signal)
         .then((page: { projects?: { id: string; chat?: number; task?: number }[] }) => {
           if (!active()) return;
           const next: Record<string, number> = {};

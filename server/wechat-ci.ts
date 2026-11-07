@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
 import { loadProjectMiniProgramRuntime } from "./miniprogram-config.ts";
@@ -574,7 +575,7 @@ export async function listMiniprogramDeployments(
   { limit = 20 }: { limit?: number } = {},
 ) {
   await service.member(user, projectId, false);
-  const size = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const size = clampLimit(limit, 20, 1, 100);
   const rows = await query<DeploymentRow>(
     service.db,
     `SELECT d.id,d.target,d.environment,d.version,d.url,d.source_hash,d.status,d.published_by,d.published_at,d.confirmed_by,d.confirmed_at,d.created_at,u.name AS operator_name

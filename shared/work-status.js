@@ -16,10 +16,17 @@ export const TASK_STATUS_GROUPS = [
   },
 ];
 
+/**
+ * @param {any} status
+ */
 export function taskStatusGroup(status) {
   return TASK_STATUS_GROUPS.find((group) => group.statuses.includes(status)) || null;
 }
 
+/**
+ * @param {any} column
+ * @param {any} value
+ */
 export function taskStatusFilter(column, value) {
   const group = TASK_STATUS_GROUPS.find((item) => item.id === value);
   if (!group) return { sql: `${column}=?`, params: [value] };

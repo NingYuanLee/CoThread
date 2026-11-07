@@ -1,3 +1,6 @@
+/**
+ * @param {any} user
+ */
 function mentionLabels(user) {
   const seen = new Set();
   const labels = [];
@@ -11,11 +14,18 @@ function mentionLabels(user) {
   return labels;
 }
 
+/**
+ * @param {any} value
+ */
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** 拆出正文里的「@当前用户」。较长称呼优先，避免用户名把邮箱截断。 */
+/**
+ * @param {any} text
+ * @param {any} user
+ */
 export function splitSelfMentions(text, user) {
   const source = String(text ?? "");
   const labels = mentionLabels(user);
@@ -37,6 +47,10 @@ export function splitSelfMentions(text, user) {
   return parts.length ? parts : [{ text: source, mention: false }];
 }
 
+/**
+ * @param {any} text
+ * @param {any} user
+ */
 export function mentionsUser(text, user) {
   return splitSelfMentions(text, user).some((part) => part.mention);
 }

@@ -41,7 +41,11 @@ export const MCP_COPY_INSTRUCTION = `先调用 get_connection_guide 读取协议
 
 const COPY_PAYLOAD_FIELDS = ["server", "projectId", "threadId", "taskId"];
 
+/**
+ * @param {any} fields
+ */
 export function formatMcpCopyPayload(fields) {
+  /** @type {Record<string, unknown>} */
   const payload = {};
   for (const key of COPY_PAYLOAD_FIELDS) {
     const value = fields?.[key];
@@ -51,6 +55,9 @@ export function formatMcpCopyPayload(fields) {
   return JSON.stringify(payload, null, 2);
 }
 
+/**
+ * @param {Record<string, any>} __arg0
+ */
 export function createMcpInstallGuide({ url, token, context } = {}) {
   if (!token) throw new Error("请先获取有效账号令牌");
   const config = JSON.stringify(

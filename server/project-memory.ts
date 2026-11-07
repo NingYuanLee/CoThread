@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { query, transaction } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import { acquireNamedLock } from "./named-lock.ts";
 import type { NamedLock } from "./named-lock.ts";
 import { HttpError } from "./service.ts";
@@ -636,7 +637,7 @@ export async function listLaowengRuns(
     filters.push("status=?");
     params.push(String(status).slice(0, 40));
   }
-  const capped = Math.min(Math.max(Number(limit) || 40, 1), 100);
+  const capped = clampLimit(limit, 40, 1, 100);
   params.push(capped);
   return query(
     service.db,
@@ -654,7 +655,7 @@ export async function listLaowengDocumentQueue(
   { projectId, limit = 50, readyOnly = false }: LaowengQueueOptions = {} as LaowengQueueOptions,
 ) {
   await service.member(user, projectId);
-  const capped = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const capped = clampLimit(limit, 50, 1, 200);
   const readyFilter = readyOnly
     ? "AND q.processing_state='queued' AND q.available_at<=UTC_TIMESTAMP(3)"
     : "";

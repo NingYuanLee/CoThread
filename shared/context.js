@@ -16,6 +16,9 @@ export const CONTEXT_LIMITS = Object.freeze({
 /** Compact when used tokens reach this fraction of the session limit. */
 export const AUTO_COMPACT_RATIO = 0.7;
 
+/**
+ * @param {any} scopeOrLevel
+ */
 export function contextBudget(scopeOrLevel = "coordinator") {
   const key =
     scopeOrLevel === "xiaoxiang" || scopeOrLevel === "coordinator"
@@ -33,6 +36,9 @@ export function contextBudget(scopeOrLevel = "coordinator") {
   };
 }
 
+/**
+ * @param {any} env
+ */
 export function contextBudgetFromEnv(env = process.env) {
   return contextBudget(env.COTHREAD_PRIMARY_AGENT_LEVEL || "xiaoxiang");
 }
@@ -52,6 +58,9 @@ export const CONTEXT_CATEGORIES = [
   { key: "pending", label: "待纳入的消息", color: "#b2b9ad" },
 ];
 
+/**
+ * @param {any} message
+ */
 export function discussionText(message) {
   return JSON.stringify({
     id: message.id,
@@ -66,6 +75,11 @@ export function discussionText(message) {
   });
 }
 
+/**
+ * @param {Array<any>} messages
+ * @param {any} seenSequence
+ * @param {Array<any>} replies
+ */
 export function pendingMessages(messages = [], seenSequence, replies = []) {
   const list = Array.isArray(messages) ? messages : [];
   const replyList = Array.isArray(replies) ? replies : [];
@@ -81,6 +95,11 @@ export function pendingMessages(messages = [], seenSequence, replies = []) {
   );
 }
 
+/**
+ * @param {any} session
+ * @param {any} messages
+ * @param {any} replies
+ */
 export function contextUsage(session, messages, replies) {
   const stats =
     typeof session?.context_stats === "string"

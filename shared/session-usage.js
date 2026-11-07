@@ -1,3 +1,6 @@
+/**
+ * @param {any} value
+ */
 function parseUsage(value) {
   if (!value) return null;
   if (typeof value === "string") {
@@ -10,9 +13,16 @@ function parseUsage(value) {
   return value;
 }
 
+/**
+ * @param {any} value
+ */
 const finite = (value) => (Number.isFinite(value) ? value : null);
 
 /** 把本迭代全部助手回复的用量，收成会话统计和 Token 用量。 */
+/**
+ * @param {Array<any>} replies
+ * @param {any} toolDurationMs
+ */
 export function sessionUsage(replies = [], toolDurationMs = null) {
   const totals = {
     rounds: 0,

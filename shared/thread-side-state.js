@@ -10,6 +10,9 @@ export const THREAD_SIDE_COLLECTIONS = Object.freeze([
 // Tokens are usable only with the in-memory snapshot that received them.
 // Immutable local updates that replace a side collection invalidate the token.
 const snapshots = new WeakMap();
+/**
+ * @param {any} thread
+ */
 export function rememberThreadSideState(thread) {
   const state = thread?.sideState;
   if (state?.mode === "snapshot" && /^s1:[A-Za-z0-9_-]{43}$/.test(state.token)) {
@@ -26,6 +29,9 @@ export function rememberThreadSideState(thread) {
   return thread;
 }
 
+/**
+ * @param {any} thread
+ */
 export function threadSideStateToken(thread) {
   const state = thread?.sideState;
   const saved = state && snapshots.get(state);
@@ -41,6 +47,10 @@ export function threadSideStateToken(thread) {
     : undefined;
 }
 
+/**
+ * @param {any} previous
+ * @param {any} incoming
+ */
 export function restoreThreadSideState(previous, incoming) {
   if (incoming?.sideState?.mode !== "unchanged") return incoming;
   if (

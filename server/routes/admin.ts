@@ -196,22 +196,6 @@ export function registerAdminRoutes(app: Express, { db, service }: { db: Db; ser
   app.patch("/api/admin/projects/:id/restore", async (req: Request, res: Response) =>
     res.json(await service.setProjectArchived(req.user, String(req.params.id), false)),
   );
-  app.post("/api/admin/projects/:id/leader-recovery", async (req: Request, res: Response) =>
-    res.json(await service.recoverProjectLeader(req.user, String(req.params.id), req.body)),
-  );
-  app.post("/api/admin/projects/:id/memory/backfill", async (req: Request, res: Response) => {
-    await service.adminPermission(req.user, "projects.update");
-    const { backfillProjectMemory, completeProjectMemoryBackfill } =
-      await import("../memory-backfill.ts");
-    const result = await backfillProjectMemory(service.db, {
-      projectId: String(req.params.id),
-      createdBy: req.user.id,
-    });
-    await completeProjectMemoryBackfill(service.db, String(req.params.id));
-    const { publishWork } = await import("../work-events.ts");
-    publishWork(service.db, undefined);
-    res.json(result);
-  });
   app.get("/api/admin/accounts", async (req: Request, res: Response) =>
     res.json(await service.adminAccounts(req.user)),
   );

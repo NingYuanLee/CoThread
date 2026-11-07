@@ -18,6 +18,9 @@ export const INBOX_KINDS = {
 
 export const ALL_INBOX_KINDS = Object.values(INBOX_KINDS).flat();
 
+/**
+ * @param {any} kind
+ */
 export function inboxCategory(kind) {
   for (const [category, kinds] of Object.entries(INBOX_KINDS)) {
     if (kinds.includes(kind)) return category;
@@ -25,6 +28,9 @@ export function inboxCategory(kind) {
   return null;
 }
 
+/**
+ * @param {any} kind
+ */
 export function inboxNeedsThread(kind) {
   const category = inboxCategory(kind);
   return category === "chat" || category === "task";

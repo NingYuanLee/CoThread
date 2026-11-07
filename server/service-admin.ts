@@ -164,7 +164,7 @@ export async function createUser(
 
 export async function adminProjects(service: AdminService, user: AdminUser) {
   await service.adminPermission(user, "projects");
-  const [projects, memberships, changes, roleMigrationIssues, recoveryAccess] = await Promise.all([
+  const [projects, memberships, changes, roleMigrationIssues] = await Promise.all([
     query<{ id: string; [column: string]: unknown }>(
       service.db,
       `SELECT p.id,p.name,p.description,p.created_at,p.archived_at,p.created_by,p.project_leader_id,
@@ -193,13 +193,6 @@ export async function adminProjects(service: AdminService, user: AdminUser) {
       service.db,
       "SELECT project_id,issue_type,candidate_user_ids FROM project_role_migration_issues",
     ),
-    user.kind === "session"
-      ? query<{ is_super_admin?: unknown }>(
-          service.db,
-          "SELECT is_super_admin FROM users WHERE id=? AND disabled_at IS NULL",
-          [user.id],
-        )
-      : Promise.resolve([] as Array<{ is_super_admin?: unknown }>),
   ]);
   return projects.map((project) => {
     const roleIssue = roleMigrationIssues.find((issue) => issue.project_id === project.id) || null;
@@ -215,7 +208,6 @@ export async function adminProjects(service: AdminService, user: AdminUser) {
       members: memberships.filter((member) => member.project_id === project.id),
       changes: changes.filter((change) => change.project_id === project.id).slice(0, 50),
       role_migration_issue: roleIssue,
-      can_recover_legacy_roles: Number(recoveryAccess[0]?.is_super_admin) === 1,
     };
   });
 }

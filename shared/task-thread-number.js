@@ -1,9 +1,16 @@
+/**
+ * @param {any} threadNumber
+ */
 export function formatTaskThreadNumber(threadNumber) {
   const n = Number(threadNumber);
   if (!Number.isInteger(n) || n < 1 || n > 9999) return "#0000";
   return `#${String(n).padStart(4, "0")}`;
 }
 
+/**
+ * @param {any} task
+ * @param {any} query
+ */
 export function taskThreadNumberSearchMatch(task, query) {
   const raw = String(query || "")
     .trim()

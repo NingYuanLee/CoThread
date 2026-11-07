@@ -14,6 +14,9 @@ export const FILE_CHUNK_MAX = 512 * 1024;
 /** 网页上传用较大分片，避免 20MiB 文件打出三千多次 6KB 请求。Base64 仍低于网关 512KB 拆包线。 */
 export const WEB_FILE_CHUNK_SIZE = 256 * 1024;
 
+/**
+ * @param {any} byteSize
+ */
 export function webFileChunkSize(byteSize) {
   return Number(byteSize) > FILE_CHUNK_SIZE ? WEB_FILE_CHUNK_SIZE : FILE_CHUNK_SIZE;
 }
@@ -23,10 +26,18 @@ export const FILE_UPLOAD_MAX_PENDING_BYTES = 160 * 1024 * 1024;
 
 export const sha256HexPattern = /^[0-9a-f]{64}$/i;
 
+/**
+ * @param {any} byteSize
+ * @param {any} chunkSize
+ */
 export function fileChunkCount(byteSize, chunkSize) {
   return Math.ceil(Number(byteSize) / Number(chunkSize));
 }
 
+/**
+ * @param {any} byteSize
+ * @param {any} chunkSize
+ */
 export function lastChunkSize(byteSize, chunkSize) {
   const rem = Number(byteSize) % Number(chunkSize);
   return rem === 0 ? Number(chunkSize) : rem;

@@ -2,6 +2,9 @@ export const PREVIEW_CONSOLE_MESSAGE = "cothread-preview-console";
 export const PREVIEW_NAVIGATION_MESSAGE = "cothread-preview-navigation";
 export const PREVIEW_NEW_WINDOW_MESSAGE = "cothread-preview-new-window";
 
+/**
+ * @param {any} nonce
+ */
 export function previewConsoleProbeHtml(nonce = "") {
   const nonceAttribute = nonce ? ` nonce="${String(nonce).replace(/[^A-Za-z0-9_-]/g, "")}"` : "";
   return `<script${nonceAttribute} data-cothread-preview-console="1">(function(){
@@ -84,6 +87,9 @@ export function previewConsoleProbeHtml(nonce = "") {
   })();</script>`;
 }
 
+/**
+ * @param {any} ref
+ */
 export function resolvePreviewAssetPath(ref) {
   const trimmed = String(ref || "").trim();
   if (
@@ -108,6 +114,11 @@ export function resolvePreviewAssetPath(ref) {
   return path;
 }
 
+/**
+ * @param {any} html
+ * @param {any} regexp
+ * @param {(match: any) => Promise<string>} replacer
+ */
 async function replaceAllAsync(html, regexp, replacer) {
   const matches = [...html.matchAll(regexp)];
   let out = html;
@@ -119,10 +130,18 @@ async function replaceAllAsync(html, regexp, replacer) {
   return out;
 }
 
+/**
+ * @param {any} text
+ * @param {any} tag
+ */
 function escapeEmbedded(text, tag) {
   return String(text).replace(new RegExp(`</${tag}`, "gi"), `<\\/${tag}`);
 }
 
+/**
+ * @param {any} html
+ * @param {any} loadAsset
+ */
 export async function inlineHtmlPreviewAssets(html, loadAsset) {
   let out = String(html || "").replace(/<base\s[^>]*>/gi, "");
   out = await replaceAllAsync(

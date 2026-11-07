@@ -1,3 +1,4 @@
+/** @type {Record<string, string>} */
 const WEEKDAYS = {
   Sun: "星期日",
   Mon: "星期一",
@@ -8,11 +9,18 @@ const WEEKDAYS = {
   Sat: "星期六",
 };
 
+/**
+ * @param {Array<{type: string, value: string}>} parts
+ * @param {any} type
+ */
 function part(parts, type) {
   return parts.find((item) => item.type === type)?.value ?? "";
 }
 
 /** 把一个时刻格式化成北京时间。服务器在哪个时区都不影响结果。 */
+/**
+ * @param {any} date
+ */
 export function beijingNow(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Shanghai",
@@ -45,6 +53,9 @@ export function beijingNow(date = new Date()) {
   ].join("");
 }
 
+/**
+ * @param {any} date
+ */
 export function beijingClockText(date = new Date()) {
   return (
     "当前时刻：" +

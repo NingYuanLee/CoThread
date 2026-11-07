@@ -1,6 +1,7 @@
 /** 任务域：queries。内部依赖具体领域模块，不依赖 task-pool 兼容入口。 */
 
 import { query } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 
 import { withParsedTask } from "./task-pool-helpers.ts";
 import type { Db } from "./types.ts";
@@ -40,7 +41,7 @@ export async function listTasks(
     filters.push("origin_thread_id=?");
     values.push(originThreadId);
   }
-  values.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
+  values.push(clampLimit(limit, 100, 1, 200));
   return query<Row>(
     db,
     `SELECT t.*,

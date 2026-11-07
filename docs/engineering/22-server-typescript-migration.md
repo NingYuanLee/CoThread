@@ -53,6 +53,10 @@ type Status = (typeof STATUS)[keyof typeof STATUS];
 
 `npm run typecheck:server` 单独跑它；`npm run lint` 已把这条挂到最前面，所以**转过的文件不会退化成无类型**。
 
+2026-11-07 起 `shared/` 也纳入类型检查，由 `tsconfig.shared.json` 单独管（`allowJs` 与 `checkJs` 都是 `true`，覆盖 `shared/` 下的 `.js`/`.mjs`/`.mts` 与 `.d.ts`），`npm run typecheck:shared` 单独跑，已串进 `npm run lint`。接入前 `shared/` 有 314 条类型错误，全部来自 `.js` 内部未被检查；接入后为 0。
+
+需要区分两件事：`shared/` 的 `.js` 内部现在受检查；**没有同名 `.d.ts` 的模块**（10 个）由 TS 从 `.js` 源码推断类型，调用点照常检查，但实现多出的导出无法与声明核对——`scripts/check-shared-declarations.mjs` 对这类只警告不报错。
+
 JS 与 TS 可以任意方向互引：`.ts` 引 `.js`、`.js` 引 `.ts` 都能加载，迁移期间不需要一次性全转。
 
 ## 共享类型
@@ -605,6 +609,13 @@ function isPool(db: Db): db is Pool {
 ```
 
 ## 门禁必须同时支持 .js 与 .ts
+
+2026-11-07 新增两条门禁，都接进 `npm run lint`：
+
+- `scripts/check-server-cycles.mjs`：对 `server/` 全量做静态 import 图的环检测（Tarjan 强连通分量）。口径只算**运行期真的加载**的静态依赖（`import ... from` 与 `export ... from`），`import type` 编译期被擦除不计边，动态 `import()` 不构成模块初始化期的环。它被 `scripts/check-boundaries.mjs` 的规则 8 复用，所以 `npm run lint:boundaries` 一并覆盖。
+- `scripts/check-migration-numbering.mjs`：校验 `migrations/` 的数字前缀唯一。已上线的重复编号（144、155 两组）走白名单放行并打印原因——改名会让已应用迁移的 `name` 失配、部署直接失败。编号跳跃只警告不报错。
+
+`scripts/check-shared-declarations.mjs` 校验 `shared/` 的 `.d.ts` 声明与实现导出是否漂移，见上文「类型检查」。
 
 迁移期间最危险的不是编译错误，而是**门禁静默失效**：`scripts/check-boundaries.mjs` 原来只 walk `.js` 文件，路径比较和 import 正则也都绑死 `.js` 后缀。第一个文件转成 `.ts` 之后，它就不再参与任何架构规则检查，而检查仍然打印「0 处违例」。
 

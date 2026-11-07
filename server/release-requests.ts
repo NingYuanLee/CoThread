@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "mysql2/promise";
 import { z } from "zod/v3";
 import { query, transaction } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import type { Db } from "./types.ts";
 import { HttpError } from "./service.ts";
 import {
@@ -355,7 +356,7 @@ export async function listReleaseRequests(
 ) {
   await service.member(user, projectId, false);
   await sweepReleaseRequests(service.db, projectId);
-  const size = Math.min(Math.max(Number(limit) || 30, 1), 100);
+  const size = clampLimit(limit, 30, 1, 100);
   const rows = await query<ReleaseRequestRow>(
     service.db,
     `SELECT * FROM miniprogram_release_requests WHERE project_id=?
@@ -613,7 +614,7 @@ export async function listReleaseApplications(
 ) {
   await service.member(actor, projectId, false);
   await sweepReleaseRequests(service.db, projectId);
-  const size = Math.min(Math.max(Number(limit) || 30, 1), 100);
+  const size = clampLimit(limit, 30, 1, 100);
   const rows = await query<ReleaseRequestRow>(
     service.db,
     `SELECT * FROM miniprogram_release_requests

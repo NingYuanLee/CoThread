@@ -6,6 +6,9 @@
 const ASSISTANT_TOOLS = new Set(["thinking", "assistant_text", "assistant_final"]);
 
 /** events: 按 id 升序的事件行，需要 tool 字段。 */
+/**
+ * @param {Array<any>} events
+ */
 export function countTurnSteps(events = []) {
   let steps = 0;
   let inAssistant = false;

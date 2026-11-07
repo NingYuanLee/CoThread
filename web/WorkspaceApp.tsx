@@ -11,6 +11,7 @@ import React, {
   Suspense,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useCallback,
@@ -204,6 +205,9 @@ function tabTypesOrOverlays(node: EventTarget | null) {
   return node instanceof HTMLElement && node.isContentEditable;
 }
 
+/** 没有实时输出时的空表：固定引用，避免每轮渲染都换新对象。 */
+const EMPTY_LIVE_OUTPUT: ReturnType<LiveStore["getRows"]> = {};
+
 export function WorkspaceApp() {
   useActionTooltips();
 
@@ -229,7 +233,10 @@ export function WorkspaceApp() {
   useEffect(() => {
     setTabOrder(user?.id ? readProjectTabOrder(user.id) : { pinned: [], open: [] });
   }, [user?.id]);
-  const visibleProjects = sortVisibleProjects(projects, tabOrder, compareProjectTabs);
+  const visibleProjects = useMemo(
+    () => sortVisibleProjects(projects, tabOrder, compareProjectTabs),
+    [projects, tabOrder],
+  );
   const currentProject = projects.find((item) => item.id === projectId);
   const availableProjects = projects
     .filter((p) => !p.tab_visible)
@@ -325,7 +332,9 @@ export function WorkspaceApp() {
   const liveStore = liveStoreRef.current;
   useLiveFeed(liveStore, threadId, pendingWork);
   const livePresence = useLivePresence(liveStore);
-  const liveOutput = livePresence.startsWith(`${threadId}\0`) ? liveStore.getRows() : {};
+  const liveOutput = livePresence.startsWith(`${threadId}\0`)
+    ? liveStore.getRows()
+    : EMPTY_LIVE_OUTPUT;
   const wakeThreadPoll = useRef<(() => void) | null>(null);
   const [error, setError] = useTipError();
   const [modal, setModal] = useState<Modal>(null);
@@ -872,9 +881,9 @@ export function WorkspaceApp() {
     intervalMs: 15000,
     enabled: Boolean(user),
     deps: [user?.id],
-    load: async (active) => {
+    load: async (active, signal) => {
       try {
-        const devices = await api("/local-executors");
+        const devices = await api("/local-executors", undefined, undefined, signal);
         if (!active()) return;
         setConnectors((current) => (sameSnapshot(current, devices) ? current : devices));
         setConnectorsReady(true);
@@ -1394,28 +1403,36 @@ export function WorkspaceApp() {
       .join("\n");
     await sendOptimisticMessage(targetThreadId, body, [versionId]);
   };
-  const hasAgentActivity = (reply: Thread["replies"][number]) => {
-    if (!isExecutorReply(reply)) return reply.status === "failed";
-    return (
-      (!!reply.dispatch_ready && ["queued", "running"].includes(reply.status)) ||
-      reply.status === "running" ||
-      !!liveOutput[reply.message_id]?.reasoning ||
-      (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
-      reply.status === "failed" ||
-      !!thread?.events.some(
-        (event) =>
-          event.message_id === reply.message_id &&
-          (event.tool !== "thinking" || (reply.status === "running" && event.status === "running")),
-      )
-    );
-  };
-  const chatMessages = thread?.messages || [];
+  const hasAgentActivity = useCallback(
+    (reply: Thread["replies"][number]) => {
+      if (!isExecutorReply(reply)) return reply.status === "failed";
+      return (
+        (!!reply.dispatch_ready && ["queued", "running"].includes(reply.status)) ||
+        reply.status === "running" ||
+        !!liveOutput[reply.message_id]?.reasoning ||
+        (!!liveOutput[reply.message_id]?.content && !reply.reply_id) ||
+        reply.status === "failed" ||
+        !!thread?.events.some(
+          (event) =>
+            event.message_id === reply.message_id &&
+            (event.tool !== "thinking" ||
+              (reply.status === "running" && event.status === "running")),
+        )
+      );
+    },
+    [liveOutput, thread],
+  );
+  const chatMessages = useMemo(() => thread?.messages ?? [], [thread]);
   const liveCoordinator = thread?.replies.find(
     (reply) => !isExecutorReply(reply) && ["queued", "running"].includes(reply.status),
   );
-  const timeline = thread
-    ? taskTimeline(chatMessages, thread.replies, thread.requests || [], hasAgentActivity)
-    : [];
+  const timeline = useMemo(
+    () =>
+      thread
+        ? taskTimeline(chatMessages, thread.replies, thread.requests || [], hasAgentActivity)
+        : [],
+    [chatMessages, thread, hasAgentActivity],
+  );
   const coordinatorLogLabel = thread
     ? coordinatorLogButtonLabel({
         replies: thread.replies,

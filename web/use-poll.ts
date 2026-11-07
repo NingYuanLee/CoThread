@@ -12,9 +12,9 @@ export type PollOptions = {
   intervalMs: number;
   /**
    * 拉取函数。`active()` 返回 false 表示组件已卸载或轮询已停止，
-   * 此时不要写状态。
+   * 此时不要写状态。`signal` 在轮询停止时中止，用来取消在途请求。
    */
-  load: (active: () => boolean) => void | Promise<void>;
+  load: (active: () => boolean, signal: AbortSignal) => void | Promise<void>;
   /** 依赖变化时重新开始轮询。 */
   deps?: unknown[];
   /** 是否启用轮询。 */
@@ -28,10 +28,13 @@ export function usePoll({ intervalMs, load, deps = [], enabled = true }: PollOpt
     if (!enabled) return;
     let alive = true;
     let timer: number | undefined;
+    // 整个 effect 生命周期共用一个中止信号：隐藏标签页只停表，不取消在途请求；
+    // effect 卸载（组件销毁或 deps 变化）时 abort，挂起中的请求随之作废。
+    const controller = new AbortController();
     const active = () => alive;
     const run = () => {
       if (!alive || document.hidden) return;
-      void loadRef.current(active);
+      void loadRef.current(active, controller.signal);
     };
     const stop = () => {
       if (timer !== undefined) {
@@ -59,6 +62,7 @@ export function usePoll({ intervalMs, load, deps = [], enabled = true }: PollOpt
     return () => {
       alive = false;
       stop();
+      controller.abort();
       document.removeEventListener("visibilitychange", onVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

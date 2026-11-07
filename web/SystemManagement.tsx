@@ -27,7 +27,6 @@ type AdminProject = {
   creator_avatar: string | null;
   image?: string | null;
   role_migration_issue: { issue_type: string; candidate_user_ids: string[] } | null;
-  can_recover_legacy_roles: boolean;
   members: {
     id: string;
     username: string;
@@ -380,14 +379,10 @@ function RecordDetails({
   item,
   isProject,
   section,
-  api,
-  onProjectRolesRecovered,
 }: {
   item: AdminProject | AdminAccount;
   isProject: boolean;
   section: "details" | "related" | "changes";
-  api: Api;
-  onProjectRolesRecovered: () => Promise<void>;
 }) {
   const [listPage, setListPage] = useState(1);
   const [keyword, setKeyword] = useState("");
@@ -496,13 +491,6 @@ function RecordDetails({
                           .join("、")}
                       </small>
                     ) : null}
-                    {project.can_recover_legacy_roles && (
-                      <LegacyProjectLeaderRecovery
-                        project={project}
-                        api={api}
-                        onRecovered={onProjectRolesRecovered}
-                      />
-                    )}
                   </dd>
                 </>
               )}
@@ -684,62 +672,6 @@ function RecordDetails({
         </>
       )}
     </>
-  );
-}
-
-function LegacyProjectLeaderRecovery({
-  project,
-  api,
-  onRecovered,
-}: {
-  project: AdminProject;
-  api: Api;
-  onRecovered: () => Promise<void>;
-}) {
-  const [userId, setUserId] = useState("");
-  const [saving, setSaving] = useState(false);
-  const candidates = project.members.filter((member) => {
-    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(member.id)) return false;
-    return (
-      project.role_migration_issue?.issue_type !== "multiple_legacy_owners" ||
-      project.role_migration_issue.candidate_user_ids.includes(member.id)
-    );
-  });
-  useEffect(() => {
-    setUserId(candidates[0]?.id || "");
-  }, [project.id, project.role_migration_issue?.issue_type]);
-  if (!candidates.length) return <p>没有可用于恢复负责人的人类成员。</p>;
-  return (
-    <div className="admin-table-actions">
-      <SelectField
-        allOption={false}
-        label="初始负责人"
-        value={userId}
-        onChange={setUserId}
-        options={candidates.map((member) => ({ value: member.id, label: member.name }))}
-      />
-      <button
-        disabled={saving || !userId}
-        onClick={() => {
-          if (
-            !window.confirm(
-              `将 ${candidates.find((member) => member.id === userId)?.name} 设为该项目的初始负责人？`,
-            )
-          )
-            return;
-          setSaving(true);
-          void api(`/admin/projects/${project.id}/leader-recovery`, { userId }, "POST")
-            .then(async () => {
-              await onRecovered();
-              showTip("历史项目主已核定");
-            })
-            .catch((error) => showTip((error as Error).message, "error"))
-            .finally(() => setSaving(false));
-        }}
-      >
-        {saving ? "保存中…" : "核定负责人"}
-      </button>
-    </div>
   );
 }
 
@@ -1337,29 +1269,6 @@ export function SystemManagement({
                             编辑
                           </button>
                         )}
-                        {isProject && can("projects.update") && (
-                          <button
-                            disabled={busy}
-                            onClick={() =>
-                              setConfirmation({
-                                title: "回填项目历史记忆",
-                                message: `确定为项目「${project.name}」补齐历史记忆吗？已有记忆不会重复创建。`,
-                                confirm: async () => {
-                                  const result = await api(
-                                    `/admin/projects/${project.id}/memory/backfill`,
-                                    {},
-                                    "POST",
-                                  );
-                                  showTip(
-                                    `回填完成：发言 ${result?.utterancePages || 0}、文档 ${result?.documentPages || 0}、任务 ${result?.taskPages || 0}；讨论待分析 ${result?.discussionQueuedThreads || 0} 个迭代`,
-                                  );
-                                },
-                              })
-                            }
-                          >
-                            回填历史
-                          </button>
-                        )}
                         <button onClick={() => openDetail(item.id, "details")}>详情</button>
                         <button onClick={() => openDetail(item.id, "related")}>
                           {isProject ? "成员" : "项目"}
@@ -1505,15 +1414,7 @@ export function SystemManagement({
           title={`${detailItem.name} · ${detailSection === "details" ? (isProject ? "项目详情" : "成员详情") : detailSection === "related" ? (isProject ? "项目成员" : "加入的项目") : "变更记录"}`}
           onClose={() => setExpanded("")}
         >
-          <RecordDetails
-            item={detailItem}
-            isProject={isProject}
-            section={detailSection}
-            api={api}
-            onProjectRolesRecovered={async () => {
-              await load();
-            }}
-          />
+          <RecordDetails item={detailItem} isProject={isProject} section={detailSection} />
         </AdminDialog>
       )}
       {editingProject && (

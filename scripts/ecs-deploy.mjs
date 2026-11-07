@@ -2,6 +2,8 @@
  * 本地 ECS 发布：读 .env.deploy.local（npm 脚本用 --env-file-if-exists 注入），build + pack，写 last-deploy 清单。
  * 用法：npm run deploy:ecs
  *       npm run deploy:ecs -- --pack-only   # 跳过 build，仅打包
+ *
+ * 清单只由本脚本写；打包脚本只负责产物与它的摘要（提交号 / SHA-256），两者不各写一份 manifest。
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -53,7 +55,20 @@ if (!packOnly) {
 
 console.log("node scripts/ecs-pack.mjs …");
 const packed = run("node", ["scripts/ecs-pack.mjs"], { capture: true });
-const tgz = packed.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+const packedLines = packed.stdout
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean);
+const metaLine = packedLines.find((line) => line.startsWith("PACK_META "));
+let packMeta = null;
+if (metaLine) {
+  try {
+    packMeta = JSON.parse(metaLine.slice("PACK_META ".length));
+  } catch {
+    packMeta = null;
+  }
+}
+const tgz = packedLines.filter((line) => line.endsWith(".tgz")).at(-1);
 if (!tgz) {
   console.error("打包未返回产物路径");
   process.exit(1);
@@ -71,6 +86,11 @@ const manifest = {
   applicationGroupName: process.env.COTHREAD_CODE_DEPLOY_GROUP,
   releaseTgz: tgz,
   objectName: basename(tgz),
+  // 产物身份：提交号与摘要取自打包那一刻的仓库状态，不含任何密钥或临时签名链接。
+  commit: packMeta?.commit ?? null,
+  commitDirty: packMeta?.commitDirty ?? null,
+  sha256: packMeta?.sha256 ?? null,
+  bytes: packMeta?.bytes ?? null,
   port: Number(process.env.COTHREAD_PORT ?? "3100"),
   deployLanguage: "nodejs",
   applicationStart,
@@ -82,6 +102,8 @@ const manifestPath = join(root, ".code_deploy", "last-deploy.json");
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
 console.log(`\n产物：${tgz}`);
+console.log(`提交号：${manifest.commit ?? "未知（非 git 仓库或 git 不可用）"}`);
+console.log(`产物 SHA-256：${manifest.sha256 ?? "未知"}`);
 console.log(`清单：${manifestPath}`);
 console.log(
   "上传：在 Cursor 让 Agent 按 last-deploy.json 调 OOS_CodeDeploy，或自行 scp + ecs-promote。",

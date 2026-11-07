@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePoll } from "./use-poll";
 import { api } from "./workspace-api";
 import type { TaskStatusStats } from "./workspace-types";
 
@@ -11,33 +12,31 @@ const POLL_INTERVAL_MS = 15000;
 export function useThreadTaskStats(projectId: string, threadId: string): TaskStatusStats | null {
   const [stats, setStats] = useState<TaskStatusStats | null>(null);
   const latestRequest = useRef(0);
+  const enabled = Boolean(projectId && threadId);
+  // 切换迭代时清空上一份统计，避免把旧迭代的数字挂在新迭代上。
   useEffect(() => {
-    if (!projectId || !threadId) {
-      setStats(null);
-      return;
-    }
-    const request = ++latestRequest.current;
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    latestRequest.current += 1;
     setStats(null);
-    const load = async () => {
-      if (!alive) return;
+  }, [projectId, threadId]);
+  usePoll({
+    intervalMs: POLL_INTERVAL_MS,
+    enabled,
+    deps: [projectId, threadId],
+    load: async (isActive, signal) => {
+      const request = ++latestRequest.current;
       try {
         const next: TaskStatusStats = await api(
           `/projects/${projectId}/task-stats?threadId=${encodeURIComponent(threadId)}`,
+          undefined,
+          undefined,
+          signal,
         );
-        if (alive && request === latestRequest.current && next) setStats(next);
+        if (!isActive() || request !== latestRequest.current || !next) return;
+        setStats(next);
       } catch {
         // 统计是辅助信息：失败时保留上一份数字，不打断会话。
-      } finally {
-        if (alive) timer = setTimeout(load, POLL_INTERVAL_MS);
       }
-    };
-    void load();
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [projectId, threadId]);
+    },
+  });
   return stats;
 }

@@ -1,4 +1,5 @@
 import { query, transaction } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import { memoryNeighborhood, noteMemoryRecall } from "./memory-graph.ts";
 import { MEMORY_SUBJECT_LABELS, isMemorySubject } from "../shared/memory-kinds.js";
 import { MEMORY_SUBTYPE_LABELS } from "../shared/memory-taxonomy.js";
@@ -128,7 +129,7 @@ export async function searchProjectMemory(
       limit,
       purpose,
     });
-  const cap = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const cap = clampLimit(limit, 20, 1, 50);
   const selected = (Array.isArray(subjects) ? subjects : []).filter(isMemorySubject);
   const where = [
     "p.project_id=?",
@@ -295,7 +296,7 @@ async function searchHistoricalRevisions(
   projectId: string,
   { keyword, subjects, aboutUserId, asOf, limit, purpose }: MemorySearchOptions,
 ): Promise<MemorySearchResult> {
-  const cap = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const cap = clampLimit(limit, 20, 1, 50);
   const selected = (Array.isArray(subjects) ? subjects : []).filter(isMemorySubject);
   const kw = String(keyword || "")
     .trim()

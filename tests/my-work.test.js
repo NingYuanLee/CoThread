@@ -72,7 +72,6 @@ test("my work is implicit, read-only, and limited to joined related records", as
       true,
     );
     assert.ok(projects[0].changes.some((change) => change.action === "member_added"));
-    assert.equal(projects[0].can_recover_legacy_roles, false);
     const iterations = await listMyWork(db, member, "iterations", { projectId: hidden.id });
     assert.equal(iterations.total, 0);
     assert.deepEqual(

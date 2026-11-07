@@ -1,4 +1,5 @@
 /** 受控的二级记忆类型；一级 subject 仍是稳定的产品导航。 */
+/** @type {Record<string, readonly string[]>} */
 export const MEMORY_SUBTYPES = Object.freeze({
   project: Object.freeze([
     "project_origin",
@@ -89,6 +90,10 @@ export const DEFAULT_MEMORY_SUBTYPES = Object.freeze({
   document: "reference_material",
 });
 
+/**
+ * @param {string} subject
+ * @param {string} subtype
+ */
 export function isMemorySubtype(subject, subtype) {
   return typeof subtype === "string" && (MEMORY_SUBTYPES[subject] || []).includes(subtype);
 }

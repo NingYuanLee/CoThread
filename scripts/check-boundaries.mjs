@@ -14,6 +14,8 @@
  * 7. 数据库通用层不依赖业务：db.js 的本地依赖只允许数据库配置与查询计时，
  *    禁止通过静态或动态 import 引入业务写入副作用。
  * 8. 拆分后的 Service/任务领域模块不得反向依赖兼容门面；领域模块之间必须无循环依赖。
+ *    循环依赖检测覆盖 server/ 全量（见 scripts/check-server-cycles.mjs）：兼容门面
+ *    server/service.ts 与领域模块之间的环原先不在领域子图里，一直漏检。
  * 9. MySQL 命名锁只由 named-lock.js 获取/释放，统一不确定连接的销毁与释放去重。
  * 10. CloudBase 适配层只允许被 cloud-backend.js 和适配层内部引用。
  *     业务代码走 cloud-backend.js；`@cloudbase/*` 只允许在 cloudbase.js 加载。
@@ -27,6 +29,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import { detectServerCycles } from "./check-server-cycles.mjs";
 
 const root = resolve(".");
 const serverDir = join(root, "server");
@@ -64,6 +67,18 @@ const DEEP_KERNEL_RE = new RegExp(
  */
 const DEEP_KERNEL_ALLOWED = new Set(["server/service"]);
 
+/**
+ * 规则 8 的领域模块集合。
+ *
+ * 拆分后的 Service/任务领域模块之外，还纳入直接被它们依赖、且历史上反向依赖过
+ * 兼容门面的模块（iteration-archive、child-agent-session、wiki-pages、
+ * memory-timeline、file-index-groups、memory-graph）。这些模块与 server/service.ts
+ * 之间的环原先不在领域子图里，循环检测查不到。
+ */
+const DOMAIN_MODULE_RE = new RegExp(
+  String.raw`^server/(?:service-(?:access|members|projects|monitor|iterations|messages|support|notification-operations)|task-(?:policy|access|documents|queries|dispatch|commands|assignments|resolution|child-execution)|iteration-archive|child-agent-session|wiki-pages|memory-timeline|file-index-groups|memory-graph)${EXT}$`,
+);
+
 function walk(dir) {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -82,17 +97,27 @@ for (const file of walk(serverDir)) {
   const isKernel = file.startsWith(kernelDir + sep);
   const source = readFileSync(file, "utf8");
   const lines = source.split(/\r?\n/);
-  if (
-    /^server\/(?:service-(?:access|members|projects|monitor|iterations|messages|support|notification-operations)|task-(?:policy|access|documents|queries|dispatch|commands|assignments|resolution|child-execution))\.(?:js|ts)$/.test(
-      rel(file),
-    )
-  ) {
+  if (DOMAIN_MODULE_RE.test(rel(file))) {
     domainSources.set(stem(rel(file)), source);
+    // `import type` 在编译期被完全擦除，领域模块对兼容门面的类型引用不算反向依赖。
     const forbidden = new RegExp(
-      String.raw`(?:from\s*|import\s*\(\s*)["']\.\/(service|task-pool)${EXT}["']`,
+      String.raw`(^|\n)\s*import\s+(?!type\b)[^;]*?from\s*["']\.\/(service|task-pool)${EXT}["']`,
       "g",
     );
     for (const match of source.matchAll(forbidden)) {
+      const at = source.slice(0, match.index + match[0].indexOf("from")).split("\n").length;
+      violations.push([
+        8,
+        `${rel(file)}:${at}`,
+        "领域模块反向依赖兼容门面，应依赖具体领域模块或通过参数注入协作者",
+      ]);
+    }
+    // 动态 import 同样是运行期依赖，领域模块不得借它绕回兼容门面。
+    const forbiddenDynamic = new RegExp(
+      String.raw`import\s*\(\s*["']\.\/(service|task-pool)${EXT}["']`,
+      "g",
+    );
+    for (const match of source.matchAll(forbiddenDynamic)) {
       violations.push([
         8,
         `${rel(file)}:${source.slice(0, match.index).split("\n").length}`,
@@ -195,6 +220,14 @@ function visitDomain(file, trail = []) {
   for (const target of domainEdges.get(file) || []) visitDomain(target, [...trail, file]);
 }
 for (const file of domainEdges.keys()) visitDomain(file);
+
+// 规则 8（循环依赖）：server/ 全量的静态 import 图。
+// 领域子图查不到「兼容门面 ↔ 领域模块」的环，这里用全量图兜底。
+const serverCycles = detectServerCycles({ root });
+for (const cycle of serverCycles.cycles) {
+  const group = cycle.modules;
+  violations.push([8, cycle.at, `server 模块循环依赖：${group.join(" → ")} → ${group[0]}`]);
+}
 
 // 规则 5 / 6：迁移文件必须 LF 且编码健康。
 // checksum 已做行尾归一，但工作树混入 CRLF 仍会制造噪声 diff；编码破坏会把中文

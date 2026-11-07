@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query } from "../db.ts";
+import { clampLimit } from "../limits.ts";
 import type { Db } from "../types.ts";
 
 /** 变更日志的筛选条件。 */
@@ -183,8 +184,9 @@ export async function listDocumentChanges(
   }: DocumentChangeFilters & { limit?: number; page?: number } = {},
 ) {
   const { values, where } = changeFilters(projectId, filters);
-  const pageSize = Math.min(Math.max(Number(limit) || 100, 1), 200);
-  const requestedPage = Math.max(Number(page) || 1, 1);
+  const pageSize = clampLimit(limit, 100, 1, 200);
+  // OFFSET 同样只接受整数：页码向下取整，避免小数页码算出小数偏移。
+  const requestedPage = Math.max(Math.trunc(Number(page) || 1), 1);
   const offset = (requestedPage - 1) * pageSize;
   const rows = await query<Record<string, unknown>>(
     db,

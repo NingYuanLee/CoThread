@@ -10,6 +10,7 @@ export const MEMORY_SUBJECTS = Object.freeze([
   "project",
 ]);
 
+/** @type {Record<string, string>} */
 export const MEMORY_SUBJECT_LABELS = Object.freeze({
   utterance: "关键发言",
   document: "文件索引",
@@ -41,6 +42,7 @@ export const MEMORY_DIRECTED_RELATIONS = Object.freeze(["derives", "supersedes",
  * 发言记忆只记「他说过什么」，不做人格评价：
  * 要点、立场与主张、承诺与待办、引用提示。骨架是写作提示，不是字段校验。
  */
+/** @type {Record<string, string[]>} */
 export const MEMORY_SKELETONS = Object.freeze({
   utterance: ["发言背景", "要点", "立场与主张", "承诺与待办", "引用提示"],
   document: ["是什么", "关键版本", "变更要点", "共享摘要", "何时该看"],
@@ -57,20 +59,32 @@ export const MEMORY_SKELETONS = Object.freeze({
   project: ["项目进程", "发生时间", "背景与影响", "相关成员与迭代", "依据与来源"],
 });
 
+/**
+ * @param {any} value
+ */
 export function isMemorySubject(value) {
   return MEMORY_SUBJECTS.includes(value);
 }
 
+/**
+ * @param {string} subject
+ */
 export function memorySubjectLabel(subject) {
   return MEMORY_SUBJECT_LABELS[subject] || "";
 }
 
 /** 只有发言记忆需要 about_user_id。 */
+/**
+ * @param {any} subject
+ */
 export function subjectNeedsAboutUser(subject) {
   return MEMORY_ABOUT_SUBJECTS.includes(subject);
 }
 
 /** 生成一条空骨架的 Markdown 正文，供老翁在无既有内容时起步。 */
+/**
+ * @param {string} subject
+ */
 export function memorySkeleton(subject) {
   const sections = MEMORY_SKELETONS[subject] || [];
   return sections.map((name) => `## ${name}\n`).join("\n");

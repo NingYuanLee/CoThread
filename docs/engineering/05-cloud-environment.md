@@ -103,7 +103,7 @@
    2026-11-06 补充：桌面插件 `dsh-real-ip` 已不在本机，本机连公网 RDS 仍会因 TUN 假 IP 报 `PROTOCOL_CONNECTION_LOST`。**只读核对正式库**的可用途径是先用 DoH（`https://dns.alidns.com/resolve?name=<域名>&type=A`）拿到真实 IP，再按该 IP 建连：`.env` 未启用 `DATABASE_SSL`，MySQL 连接不需要 SNI，用 IP 直连即可。实测 `rm-bp1ms41b96tgs544puo.rwlb.rds.aliyuncs.com` 的系统解析是 `198.18.116.142`（假 IP），DoH 解析得到真实地址后可正常连上正式库并读到 `VERSION()`。这条路径**只用于只读核对**；写操作仍走 ECS 上的应用，不从本机直连。
 
 7. 完成最终构建后再打包。推荐 `npm run deploy:ecs`；只有确认 `dist/` 对应最终前端源码时，才用 `npm run deploy:ecs -- --pack-only`。不要并行构建和打包；源码、锁文件或发布钩子改动后都应重打包。清单由[打包入口](../../scripts/ecs-deploy.mjs)生成，不手改 `.code_deploy/last-deploy.json`，发布期间也不要继续修改待上传源码。
-8. 提交并推送待发布修改，确认远端分支 HEAD 与本地一致；记录提交号、产物文件名及 SHA-256，再进入上传步骤。
+8. 提交并推送待发布修改，确认远端分支 HEAD 与本地一致；记录提交号、产物文件名及 SHA-256，再进入上传步骤。清单已由打包入口写入 `commit`（打包时的 HEAD 提交号）、`commitDirty`（打包时工作区存在未提交改动）、`sha256` 与 `bytes`（产物摘要与字节数），人工记录以清单为准；`commitDirty` 为真时先确认未提交改动是否属于本轮发布。
 
 ### Alibaba MCP 调用与失败重试
 

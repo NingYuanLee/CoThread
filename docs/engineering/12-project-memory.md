@@ -83,7 +83,7 @@ MCP 与 DSH 提供 search_memory、read_memory_history、read_memory_revision、
   - 文档摘要：正式版本同步文档记忆后按 `变更要点` 刷新该版本缓存；
   - 回填结束统一 `refreshAllCaches`。
     已切换：`loadMemberUnderstanding`、`loadProjectWikiIndexes`（成员认识；文档摘要缓存缺失时用文档记忆补最新版本）、`loadProjectSummary`（协调器 prompt、项目列表/详情导读）、结算时补建项目整体页。仍以缓存为读来源的只有「旧版本文档摘要」与成员队列 `through_sequence` 语义，属缓存自身数据。
-- 存量回填：`backfillProjectMemory` / `POST /memory/backfill`（幂等）：按出处把 `subject_type IS NULL` 的旧条目归类；`agent_member_summaries` → 发言记忆；`agent_document_summaries` → 文档记忆「变更要点」；归档迭代补讨论记忆；再补任务分布与项目整体页。后台 `POST /api/memory-maintenance` 会为尚未完成回填的活跃项目自动领取一次回填任务，状态写入 `project_memory_backfills`，失败后续轮次重试；管理空间项目列表的操作列保留 `POST /api/admin/projects/:id/memory/backfill` 手动补跑入口，项目记忆弹窗不再放置该按钮。
+- 存量回填：`backfillProjectMemory` / `POST /memory/backfill`（幂等）：按出处把 `subject_type IS NULL` 的旧条目归类；`agent_member_summaries` → 发言记忆；`agent_document_summaries` → 文档记忆「变更要点」；归档迭代补讨论记忆；再补任务分布与项目整体页。后台 `POST /api/memory-maintenance` 会为尚未完成回填的活跃项目自动领取一次回填任务，状态写入 `project_memory_backfills`，失败后续轮次重试。项目侧 `POST /api/projects/:id/memory/backfill`（需项目写权限）供手动补跑。管理空间的手动补跑入口已于 2026-11-07 下线：该入口自 2026-11-03 加入起就被管理空间的权限表挡住，从未成功执行过，后端路由与前端按钮一并移除；后台自动回填与项目侧接口不受影响。
 - 召回入口：老翁经 MCP `search_memory`，小祥与子 Agent 经 `server/agent-tools.js` 的 `search_memory` 分发（能力键 `project_memory_recall`，工具参数 query/subjects/aboutUserId/status/depth/limit）。
 - 统一重试：`retryMemoryJob` 按作业键分派（`project_memory` → 手动结算，`member_memory`/`document_memory`/`iteration_archive` → 排队并内联跑一批；任务/讨论记忆随结算，返回 409）。
 - 可用性评估结论与限制见 `14-project-memory-usability.md`。

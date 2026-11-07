@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { expandAdminPermissions, adminPermissionForRequest } from "../shared/admin-permissions.js";
 
 test("functions imply page and menu but read permissions never grant write access", () => {
@@ -74,4 +75,21 @@ test("admin request permissions fail closed and separate read and action access"
   assert.deepEqual(expandAdminPermissions(["orgs"]), ["work", "orgs"]);
   assert.deepEqual(expandAdminPermissions(["orgs.update"]), ["work", "orgs", "orgs.update"]);
   assert.deepEqual(expandAdminPermissions(["orgs.link"]), ["work", "orgs", "orgs.link"]);
+});
+
+test("已下线的管理入口保持拒绝且不再注册路由", () => {
+  // 这两个入口从未进过权限映射，管理空间守卫对它们一律 403；路由已随之下线。
+  assert.equal(adminPermissionForRequest("POST", "/projects/example/leader-recovery"), false);
+  assert.equal(adminPermissionForRequest("POST", "/projects/example/memory/backfill"), false);
+  const routes = readFileSync(new URL("../server/routes/admin.ts", import.meta.url), "utf8");
+  assert.equal(routes.includes("/leader-recovery"), false);
+  assert.equal(routes.includes("/memory/backfill"), false);
+});
+
+test("管理空间界面不再调用已下线的入口", () => {
+  const page = readFileSync(new URL("../web/SystemManagement.tsx", import.meta.url), "utf8");
+  assert.equal(page.includes("/leader-recovery"), false);
+  assert.equal(page.includes("/memory/backfill"), false);
+  assert.equal(page.includes("核定负责人"), false);
+  assert.equal(page.includes("回填历史"), false);
 });

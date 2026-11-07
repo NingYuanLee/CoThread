@@ -19,26 +19,41 @@ export const AGENT_PERSONAS = [
 
 export const DEFAULT_PERSONA_KEY = "p1";
 
+/**
+ * @param {any} key
+ */
 export function personaByKey(key) {
   if (!key) return null;
   return AGENT_PERSONAS.find((persona) => persona.key === key) || null;
 }
 
+/**
+ * @param {any} key
+ */
 export function personaIndex(key) {
   return AGENT_PERSONAS.findIndex((persona) => persona.key === key);
 }
 
 /** 人设顺序固定：按数组下标取 key，旧数据回填槽位时用。 */
+/**
+ * @param {any} index
+ */
 export function personaKeyForIndex(index) {
   const persona = AGENT_PERSONAS[index];
   return persona ? persona.key : null;
 }
 
+/**
+ * @param {any} key
+ */
 export function personaLabel(key) {
   return personaByKey(key)?.name || "子 Agent";
 }
 
 /** 注入到子会话系统提示的人设段落：只有名字，不做任何功能性人设内容。 */
+/**
+ * @param {any} key
+ */
 export function personaPrompt(key) {
   const persona = personaByKey(key);
   if (!persona) return "";

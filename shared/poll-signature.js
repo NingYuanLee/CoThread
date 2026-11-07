@@ -1,5 +1,12 @@
+/**
+ * @param {Array<any>} rows
+ * @param {(item: any) => string} pick
+ */
 const join = (rows, pick) => (rows || []).map(pick).join("\n");
 
+/**
+ * @param {any} thread
+ */
 export function threadPollKey(thread) {
   if (!thread) return "";
   const usage = thread.contextUsage;
@@ -22,7 +29,7 @@ export function threadPollKey(thread) {
         message.body,
         (message.refs || []).join(","),
         (message.folder_refs || []).join(","),
-        (message.quotes || []).map((quote) => quote.id).join(","),
+        /** @type {Array<any>} */ (message.quotes || []).map((quote) => quote.id).join(","),
       ].join("\t"),
     ),
     join(thread.replies, (reply) =>
@@ -56,13 +63,18 @@ export function threadPollKey(thread) {
           usage.compactStatus,
           usage.automaticCompacting,
           usage.compactError,
-          (usage.categories || []).map((category) => category.tokens).join(","),
+          /** @type {Array<any>} */ (usage.categories || [])
+            .map((category) => category.tokens)
+            .join(","),
         ].join("\t")
       : "",
     thread.page ? [thread.page.hasMore, thread.page.before, thread.page.after].join("\t") : "",
   ].join("\n");
 }
 
+/**
+ * @param {any} detail
+ */
 export function projectActivityKey(detail) {
   if (!detail) return "";
   return [
@@ -102,6 +114,10 @@ export function projectActivityKey(detail) {
   ].join("\n");
 }
 
+/**
+ * @param {any} left
+ * @param {any} right
+ */
 export function sameSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }

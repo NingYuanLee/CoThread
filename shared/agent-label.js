@@ -1,3 +1,6 @@
+/**
+ * @param {any} value
+ */
 const clean = (value) =>
   typeof value === "string"
     ? value
@@ -5,8 +8,14 @@ const clean = (value) =>
         .replace(/\s+/g, " ")
         .trim()
     : "";
+/**
+ * @param {any} value
+ */
 const compact = (value) =>
   value.length > 85 ? value.slice(0, 40) + "…" + value.slice(-40) : value;
+/**
+ * @param {any} value
+ */
 function pathLabel(value) {
   const path = clean(value);
   const filename = path.split(/[\\/]/).pop() || path;
@@ -14,12 +23,17 @@ function pathLabel(value) {
 }
 // Only classify an unambiguous script invocation. Shell pipelines, inline code,
 // modules and compound commands remain commands; never infer a web tool here.
+/**
+ * @param {any} command
+ */
 function scriptPath(command) {
   if (/[\r\n;&|<>`$]/.test(command)) return null;
+  /** @type {string[]} */
   const tokens = command.match(/"[^"\n]*"|'[^'\n]*'|[^\s"']+/g) || [];
   if (tokens.join(" ") !== command.trim().replace(/\s+/g, " ")) return null;
   const words = tokens.map((x) => x.replace(/^(?:"(.*)"|'(.*)')$/, "$1$2"));
   const runner = (words[0] || "").split(/[\\/]/).pop();
+  /** @type {Record<string, RegExp>} */
   const extensions = {
     python: /\.pyw?$/i,
     python3: /\.pyw?$/i,
@@ -31,7 +45,7 @@ function scriptPath(command) {
     ruby: /\.rb$/i,
     perl: /\.pl$/i,
   };
-  if (extensions[runner]) {
+  if (runner && extensions[runner]) {
     let index = 1;
     if (/^python/.test(runner) && words[index] === "-u") index++;
     return extensions[runner].test(words[index] || "") ? words[index] : null;
@@ -40,6 +54,11 @@ function scriptPath(command) {
     ? words[0]
     : null;
 }
+/**
+ * @param {any} tool
+ * @param {Record<string, any>} args
+ * @param {Record<string, any>} result
+ */
 export function describeAgentAction(tool, args = {}, result = {}) {
   const version = result.version ? " · v" + result.version : "";
   const file =
@@ -56,19 +75,22 @@ export function describeAgentAction(tool, args = {}, result = {}) {
       break;
     case "manage_document":
       action =
-        {
+        /** @type {Record<string, string>} */ ({
           rename: "重命名文档",
           move: "移动文档",
           delete: args.scope === "version" ? "删除指定版本" : "删除全部版本",
           restore: args.scope === "version" ? "恢复指定版本" : "恢复文档",
-        }[args.action] || "整理文档";
+        })[args.action] || "整理文档";
       object = args.name || args.versionId || args.artifactId;
       break;
     case "manage_folder":
       action =
-        { create: "新建文件夹", rename: "重命名文件夹", move: "移动文件夹", delete: "删除文件夹" }[
-          args.action
-        ] || "整理文件夹";
+        /** @type {Record<string, string>} */ ({
+          create: "新建文件夹",
+          rename: "重命名文件夹",
+          move: "移动文件夹",
+          delete: "删除文件夹",
+        })[args.action] || "整理文件夹";
       object = args.name || args.folderId;
       break;
     case "list_messages":
@@ -245,11 +267,17 @@ export function describeAgentAction(tool, args = {}, result = {}) {
     full: full || object + suffix,
   };
 }
+/**
+ * @param {any} tool
+ * @param {Record<string, any>} args
+ * @param {Record<string, any>} result
+ */
 export function formatAgentAction(tool, args = {}, result = {}) {
   const label = describeAgentAction(tool, args, result);
   return label.action + (label.target ? " " + label.target : "");
 }
 
+/** @type {Record<string, string>} */
 export const LAOWENG_TASK_LABELS = {
   member_memory: "成员发言",
   document_memory: "文档摘要",
@@ -269,6 +297,9 @@ export const LAOWENG_MAINTENANCE_TASKS = [
   "project_memory",
 ];
 
+/**
+ * @param {any} task
+ */
 export function normalizeLaowengTask(task) {
   if (["document_memory", "project_document_memory", "iteration_document_memory"].includes(task))
     return "document_memory";
@@ -276,6 +307,9 @@ export function normalizeLaowengTask(task) {
   return task || "";
 }
 
+/**
+ * @param {any} task
+ */
 export function laowengTaskLabel(task) {
   return LAOWENG_TASK_LABELS[task] || (task ? String(task) : "");
 }
@@ -308,6 +342,9 @@ const VISIBLE_AGENT_TEXT = [
 ];
 
 /** 管理页展示用。现行键是 laoweng、xiaoxiang、child_agent；这里只把历史文本翻成成员名。 */
+/**
+ * @param {any} value
+ */
 export function visibleAgentText(value) {
   let text = String(value ?? "");
   for (const [from, to] of VISIBLE_AGENT_TEXT) text = text.split(from).join(to);

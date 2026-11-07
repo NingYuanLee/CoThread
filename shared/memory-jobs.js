@@ -79,6 +79,9 @@ export const MEMORY_JOBS = Object.freeze(
 
 export const MEMORY_JOB_KEYS = Object.freeze(MEMORY_JOBS.map((job) => job.key));
 
+/**
+ * @param {any} key
+ */
 export function memoryJobSpec(key) {
   return MEMORY_JOBS.find((job) => job.key === key) || null;
 }

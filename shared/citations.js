@@ -1,3 +1,4 @@
+/** @type {Record<string, string>} */
 const GROUP_LABEL = {
   wiki: "项目记忆",
   document: "项目文档",
@@ -37,6 +38,10 @@ const TITLE_SUFFIXES = [
   " · 参与简报",
 ];
 
+/**
+ * @param {any} label
+ * @param {any} pageId
+ */
 export function inferCitationKind(label, pageId) {
   const text = String(label || "");
   if (text.endsWith(" · 公开网页")) return "web";
@@ -56,6 +61,9 @@ export function inferCitationKind(label, pageId) {
   return "other";
 }
 
+/**
+ * @param {any} label
+ */
 export function citationTitle(label) {
   let text = String(label || "").trim();
   for (const suffix of TITLE_SUFFIXES) {
@@ -67,12 +75,18 @@ export function citationTitle(label) {
   return text.replace(/ · \d+条相关$/, "").trim() || String(label || "").trim();
 }
 
+/**
+ * @param {any} kind
+ */
 export function citeGroupId(kind) {
   if (kind === "message" || kind === "thread") return "thread";
   if (!kind || kind === "other") return "";
   return kind;
 }
 
+/**
+ * @param {any} label
+ */
 function typeSuffix(label) {
   const text = String(label || "").trim();
   const parts = text.split(" · ");
@@ -82,6 +96,9 @@ function typeSuffix(label) {
   return suffix;
 }
 
+/**
+ * @param {any} item
+ */
 function groupKey(item) {
   const kind = citeGroupId(item.kind) || citeGroupId(inferCitationKind(item.label, item.pageId));
   if (PRIMARY_GROUPS.has(kind)) return kind;
@@ -91,6 +108,9 @@ function groupKey(item) {
   return "other";
 }
 
+/**
+ * @param {any} items
+ */
 export function groupCitations(items) {
   const groups = new Map();
   for (const item of items || []) {
@@ -106,10 +126,16 @@ export function groupCitations(items) {
   }));
 }
 
+/**
+ * @param {any} value
+ */
 function cleanUrl(value) {
   return String(value || "").replace(/[.,;:!?）】》>"']+$/g, "");
 }
 
+/**
+ * @param {any} value
+ */
 export function isPublicWebUrl(value) {
   try {
     const url = new URL(value);
@@ -123,6 +149,9 @@ export function isPublicWebUrl(value) {
   }
 }
 
+/**
+ * @param {any} body
+ */
 export function webCitationsInBody(body) {
   const text = String(body || "");
   const seen = new Set();
@@ -160,6 +189,12 @@ export function webCitationsInBody(body) {
   return items;
 }
 
+/**
+ * @param {any} text
+ * @param {any} title
+ * @param {any} target
+ * @param {any} mark
+ */
 function insertMark(text, title, target, mark) {
   if (title && title !== target) {
     const at = text.indexOf(title);
@@ -179,6 +214,10 @@ function insertMark(text, title, target, mark) {
   return text.slice(0, end) + mark + text.slice(end);
 }
 
+/**
+ * @param {any} body
+ * @param {any} items
+ */
 export function annotateWebCitations(body, items) {
   let next = String(body || "");
   let number = 0;
@@ -198,6 +237,10 @@ export function annotateWebCitations(body, items) {
   return next;
 }
 
+/**
+ * @param {any} items
+ * @param {any} item
+ */
 export function webMarkNumber(items, item) {
   let number = 0;
   for (const current of items || []) {

@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { query } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import { searchProjectMemory } from "./memory-search.ts";
 import { isMemorySubject } from "../shared/memory-kinds.js";
 import {
@@ -207,7 +208,7 @@ export async function startConversationToolBridge(db: Db, context: ConversationC
       const text = String(args.query || "")
         .trim()
         .slice(0, 200);
-      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const limit = clampLimit(args.limit, 10, 1, 20);
       const result = await searchProjectMemory(db, projectId, {
         query: text,
         subjects: ["discussion"],
@@ -230,7 +231,7 @@ export async function startConversationToolBridge(db: Db, context: ConversationC
       const text = String(args.query || "")
         .trim()
         .slice(0, 200);
-      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const limit = clampLimit(args.limit, 10, 1, 20);
       const where = [
         "p.project_id=?",
         "p.status='current'",
@@ -278,7 +279,7 @@ export async function startConversationToolBridge(db: Db, context: ConversationC
       const text = String(args.query || "")
         .trim()
         .slice(0, 200);
-      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const limit = clampLimit(args.limit, 10, 1, 20);
       const where = ["t.project_id=?", "m.source<>'system'", "m.body<>''"];
       const params: (string | number)[] = [projectId];
       if (threadId) {
@@ -315,7 +316,7 @@ export async function startConversationToolBridge(db: Db, context: ConversationC
         .trim()
         .slice(0, 200);
       const status = String(args.recognitionStatus || "").trim();
-      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const limit = clampLimit(args.limit, 10, 1, 20);
       const where = [
         "p.project_id=?",
         "p.status='current'",
@@ -468,7 +469,7 @@ export async function startConversationToolBridge(db: Db, context: ConversationC
       };
     }
     if (name === "list_iterations") {
-      const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 20);
+      const limit = clampLimit(args.limit, 10, 1, 20);
       const rows = await query(
         db,
         `SELECT id,title,status,created_at createdAt,archived_at archivedAt,

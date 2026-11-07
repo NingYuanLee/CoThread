@@ -2,6 +2,7 @@ import { contextUsage } from "../shared/context.js";
 import { modelConfig } from "./model-config.ts";
 import { z } from "zod/v3";
 import { query } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import { taskExecutionSnapshot } from "./task-pool-activity.ts";
 import {
   describeAgentAction,
@@ -704,7 +705,7 @@ export async function agentLogsOperation(
   }: { task?: string | null; before?: string | null; limit?: number | string } = {},
 ) {
   // 轨迹分页：默认最近一页；before 是最老一条事件的 id，继续往前取历史。
-  const pageSize = Math.min(Math.max(Number(limit) || 60, 10), 200);
+  const pageSize = clampLimit(limit, 60, 10, 200);
   const cursor = before ? Number(before) : null;
   const hasCursor = typeof cursor === "number" && Number.isSafeInteger(cursor) && cursor > 0;
   let hasMore = false;

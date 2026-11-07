@@ -1,5 +1,9 @@
 // Remove profile payloads even when an old tool encoded JSON inside text blocks.
 // Real image content blocks and attachment references remain intact.
+/**
+ * @param {any} value
+ * @returns {any}
+ */
 export function cleanLegacyContext(value) {
   if (typeof value === "string") {
     if (!/"(?:avatar|author_avatar|members)"\s*:/.test(value)) return value;

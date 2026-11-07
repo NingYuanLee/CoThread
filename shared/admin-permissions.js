@@ -1,3 +1,9 @@
+/**
+ * @param {any} key
+ * @param {any} label
+ * @param {any} icon
+ * @param {Array<any>} actions
+ */
 const page = (key, label, icon, actions) => ({
   key,
   label,
@@ -10,6 +16,7 @@ const page = (key, label, icon, actions) => ({
   })),
 });
 
+/** @type {Array<{key: string, label: string, icon: string, type: string, children: Array<any>}>} */
 export const ADMIN_PERMISSION_TREE = [
   {
     key: "work",
@@ -67,7 +74,10 @@ export const ADMIN_PERMISSION_TREE = [
 
 export const ADMIN_PERMISSION_KEYS = ADMIN_PERMISSION_TREE.flatMap((menu) => [
   menu.key,
-  ...menu.children.flatMap((item) => [item.key, ...item.children.map((action) => action.key)]),
+  ...menu.children.flatMap((item) => [
+    item.key,
+    .../** @type {Array<any>} */ (item.children).map((action) => action.key),
+  ]),
 ]);
 
 // Personal pages are implicit for every member account and are not role-assignable.
@@ -93,17 +103,25 @@ export const IMPLICIT_ADMIN_PERMISSIONS = [
 ];
 
 // A function always carries its page and menu. A menu/page alone never grants functions.
+/**
+ * @param {any} keys
+ */
 export function expandAdminPermissions(keys) {
   const selected = new Set(keys);
   for (const menu of ADMIN_PERMISSION_TREE) {
     for (const item of menu.children) {
-      if (item.children.some((action) => selected.has(action.key))) selected.add(item.key);
+      if (/** @type {Array<any>} */ (item.children).some((action) => selected.has(action.key)))
+        selected.add(item.key);
       if (selected.has(item.key)) selected.add(menu.key);
     }
   }
   return ADMIN_PERMISSION_KEYS.filter((key) => selected.has(key));
 }
 
+/**
+ * @param {any} method
+ * @param {any} path
+ */
 export function adminPermissionForRequest(method, path) {
   if (method === "GET" && path === "/access") return null;
   if (

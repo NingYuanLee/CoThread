@@ -16,24 +16,37 @@ export const UI_SCALES = [
   { id: "300", name: "300%", hint: "系统 300%" },
 ];
 
+/**
+ * @param {any} value
+ */
 export function normalizeUiScale(value) {
   if (value === "high" || value === "standard") return null;
   return UI_SCALES.some((item) => item.id === value) ? value : null;
 }
 
 /** 所选档是除数。电脑 125% 且选 125% 时，125÷125＝1。 */
+/**
+ * @param {any} selected
+ * @param {any} devicePixelRatio
+ */
 export function uiScaleFactor(selected, devicePixelRatio) {
   const selectedId = normalizeUiScale(selected) ?? defaultUiScale(devicePixelRatio);
   const deviceId = defaultUiScale(devicePixelRatio);
   return Number(deviceId) / Number(selectedId);
 }
 
+/**
+ * @param {any} value
+ */
 export function uiScaleDefinition(value) {
   const id = normalizeUiScale(value);
   return UI_SCALES.find((item) => item.id === id) ?? null;
 }
 
 /** 读不到有效像素比时返回 null。读到了就取最接近的系统缩放档。 */
+/**
+ * @param {any} devicePixelRatio
+ */
 export function detectedUiScale(devicePixelRatio) {
   const ratio = Number(devicePixelRatio);
   if (!Number.isFinite(ratio) || ratio <= 0) return null;
@@ -52,10 +65,17 @@ export function detectedUiScale(devicePixelRatio) {
 }
 
 /** 没自定义过时的选中档：读得到用推荐档，读不到用 100%。 */
+/**
+ * @param {any} devicePixelRatio
+ */
 export function defaultUiScale(devicePixelRatio) {
   return detectedUiScale(devicePixelRatio) ?? "100";
 }
 
+/**
+ * @param {any} value
+ * @param {any} digits
+ */
 function trimFixed(value, digits) {
   return value
     .toFixed(digits)
@@ -65,6 +85,9 @@ function trimFixed(value, digits) {
 }
 
 /** 把设计像素换成 rem。14 → 1rem；0 → 0。 */
+/**
+ * @param {any} px
+ */
 export function designPxToRem(px) {
   const value = Number(px);
   if (!Number.isFinite(value)) throw new Error("designPxToRem 需要有限数字");

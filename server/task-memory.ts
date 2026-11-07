@@ -1,4 +1,5 @@
 import { query } from "./db.ts";
+import { clampLimit } from "./limits.ts";
 import { upsertMemoryPage } from "./memory-pages.ts";
 import type { Db } from "./types.ts";
 
@@ -112,7 +113,7 @@ export async function loadTaskMemoryStats(
     limit = null,
   }: { threadId?: string | null; limit?: number | string | null } = {},
 ): Promise<TaskMemoryStats[]> {
-  const cap = limit == null ? null : Math.min(Math.max(Number(limit) || 200, 1), 500);
+  const cap = limit == null ? null : clampLimit(limit, 200, 1, 500);
   const params: unknown[] = [projectId];
   let where = "t.project_id=?";
   if (threadId) {

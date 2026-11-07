@@ -1,7 +1,15 @@
 // Wakeups carry no user command; durable server task records determine work.
+/**
+ * @param {any} invoke
+ * @param {any} now
+ */
 export function createWakeGate(invoke, now = Date.now) {
   const states = new Map();
-  return function wake(id, onError = () => {}, newWork = false) {
+  return /** @type {(id: string, onError?: (message: string) => void, newWork?: boolean) => Promise<void> | undefined} */ function wake(
+    id,
+    onError = () => {},
+    newWork = false,
+  ) {
     const state = states.get(id) || { active: false, failures: 0, next: 0 };
     if (state.active || (now() < state.next && (!newWork || state.failures))) return;
     if (!states.has(id) && states.size >= 64) {

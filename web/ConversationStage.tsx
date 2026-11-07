@@ -17,6 +17,7 @@ import type { ConversationSelection } from "./use-conversation-selection";
  */
 import React, {
   lazy,
+  memo,
   Suspense,
   useEffect,
   useRef,
@@ -283,7 +284,7 @@ function taskStatsSummary(stats: TaskStatusStats | null): string {
   return `打开本迭代任务：来源 ${part("来源", stats.source)}；指派 ${part("指派", stats.target)}`;
 }
 
-export function ConversationStage({
+function ConversationStageInner({
   selection,
   onOpenTasks,
   onCreateTask,
@@ -1007,3 +1008,13 @@ export function ConversationStage({
     </>
   );
 }
+
+/**
+ * 会话舞台的对外组件。
+ *
+ * 消息区是工作台里最重的一块，父组件每轮渲染都会新建一批回调与选择集合。
+ * 上游已把关键回调与选择集合固定成稳定引用（见 WorkspaceApp 的 useStableCallbacks），
+ * 这里再包一层 memo，让与消息无关的状态变化（项目切换、侧栏开合、通知计数）
+ * 不再连带重渲整段消息列表。
+ */
+export const ConversationStage = memo(ConversationStageInner);

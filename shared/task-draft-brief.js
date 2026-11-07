@@ -26,6 +26,9 @@ export const DEFAULT_TASK_DRAFT_PROMPT = [
   "材料里写明的限制放进约束；没有就留空。",
 ].join("\n");
 
+/**
+ * @param {any} value
+ */
 export function taskDraftPromptText(value) {
   const text = String(value || "").trim();
   return (text || DEFAULT_TASK_DRAFT_PROMPT).slice(0, 8000);

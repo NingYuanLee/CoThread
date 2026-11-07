@@ -1,3 +1,7 @@
+/**
+ * @param {any} response
+ * @param {any} path
+ */
 export async function readJsonResponse(response, path = "接口") {
   const endpoint = path.split("?")[0];
   const type = response.headers.get("content-type") || "";
@@ -33,13 +37,17 @@ export async function readJsonResponse(response, path = "接口") {
 // 写请求永不自动重放——失败响应可能已经提交过工作。
 const READ_RETRY_DELAYS_MS = [500, 1500];
 
+/**
+ * @param {any} ms
+ * @param {any} signal
+ */
 function delay(ms, signal) {
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason ?? new Error("Aborted"));
     if (signal?.aborted) return abort();
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", abort);
-      resolve();
+      resolve(undefined);
     }, ms);
     signal?.addEventListener(
       "abort",
@@ -52,6 +60,11 @@ function delay(ms, signal) {
   });
 }
 
+/**
+ * @param {any} path
+ * @param {Record<string, any>} options
+ * @param {any} fetcher
+ */
 export async function requestJson(path, options = {}, fetcher = fetch) {
   const read = !options.method || options.method === "GET";
   const attempts = read ? READ_RETRY_DELAYS_MS.length + 1 : 1;
@@ -63,8 +76,9 @@ export async function requestJson(path, options = {}, fetcher = fetch) {
     ]);
     try {
       return await readJsonResponse(await fetcher(path, { ...options, signal }), path);
-    } catch (error) {
-      if (options.signal?.aborted) throw error;
+    } catch (caught) {
+      const error = /** @type {Error & {transient?: boolean}} */ (caught);
+      if (options.signal?.aborted) throw caught;
       if (
         attempt + 1 < attempts &&
         (error.transient || error.name === "TypeError" || error.name === "TimeoutError")

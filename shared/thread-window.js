@@ -2,14 +2,24 @@ import { rememberThreadSideState, restoreThreadSideState } from "./thread-side-s
 
 // Only fetched server pages advance the poll cursor. Local sends may already
 // have higher sequences while a concurrent member's message remains unseen.
+/**
+ * @param {any} thread
+ */
 export function threadPollCursor(thread) {
   return thread?.page?.after || undefined;
 }
 
+/**
+ * @param {any} previous
+ * @param {any} incoming
+ * @param {any} older
+ */
 export function mergeThread(previous, incoming, older = false) {
   incoming = restoreThreadSideState(previous, incoming);
   if (!previous) return rememberThreadSideState(incoming);
-  const messageMap = new Map(previous.messages.map((item) => [item.id, item]));
+  const messageMap = new Map(
+    /** @type {Array<any>} */ (previous.messages).map((item) => [item.id, item]),
+  );
   for (const item of incoming.messages) {
     const optimisticKey = `optimistic:${item.id}`;
     const optimistic = messageMap.get(optimisticKey);

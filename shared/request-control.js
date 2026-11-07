@@ -7,12 +7,15 @@ export const UNKNOWN_MODE = "unknown";
  * 一次请求的不可变控制信息。dialogueMode 只接受已保存的四种模式；
  * 缺失、空串或无法识别都是 unknown，不会静默回退到 default。
  */
+/**
+ * @param {{sourceRequestId?: string | null, dialogueMode?: import("./dialogue-mode.js").DialogueMode | null, wakeKind?: string}} [__arg0]
+ */
 export function captureRequestControl({
   sourceRequestId = null,
   dialogueMode = null,
   wakeKind = "member_message",
 } = {}) {
-  const mode = DIALOGUE_MODES.includes(dialogueMode) ? dialogueMode : UNKNOWN_MODE;
+  const mode = dialogueMode && DIALOGUE_MODES.includes(dialogueMode) ? dialogueMode : UNKNOWN_MODE;
   return Object.freeze({
     sourceRequestId: sourceRequestId || null,
     dialogueMode: mode,
@@ -20,6 +23,9 @@ export function captureRequestControl({
   });
 }
 
+/**
+ * @param {any} dialogueMode
+ */
 export function writeDeniedReason(dialogueMode) {
   if (dialogueMode === "chat") return "当前为 Chat 只读对话模式，不能执行写入或任务类操作";
   if (dialogueMode === UNKNOWN_MODE) return "无法确定来源请求的对话模式，已阻止写入";
@@ -27,6 +33,9 @@ export function writeDeniedReason(dialogueMode) {
 }
 
 /** 父回合未带模式时不猜测。显式 unknown 与 chat 禁止写入。 */
+/**
+ * @param {any} job
+ */
 export function parentDialogueMode(job) {
   const mode = job?.dialogue_mode;
   if (mode == null || mode === "") return null;
@@ -38,6 +47,9 @@ export function parentDialogueMode(job) {
  * 子 Agent 只读执行记录上钉住的模式，不读可变的 job。
  * 没有执行记录，或有来源消息但没有模式：unknown，禁止写入。
  * 任务本身没有来源消息：不受对话模式约束。
+ */
+/**
+ * @param {any} run
  */
 export function controlFromExecutionRun(run) {
   if (!run) return captureRequestControl({ wakeKind: "executor" });
@@ -58,6 +70,10 @@ export function controlFromExecutionRun(run) {
 }
 
 /** 来源请求和模式都相同才可以并进同一次唤醒。未知来源不能并。 */
+/**
+ * @param {any} left
+ * @param {any} right
+ */
 export function controlsMergeable(left, right) {
   if (!left?.sourceRequestId || !right?.sourceRequestId) return false;
   if (left.dialogueMode === UNKNOWN_MODE || right.dialogueMode === UNKNOWN_MODE) return false;

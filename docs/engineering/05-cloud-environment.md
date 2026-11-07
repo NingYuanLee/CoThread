@@ -72,6 +72,10 @@
 
    `npm run lint`、`npm run test:unit` 和 `npm run build` 这三项在 push 与 PR 上由 CI 强制执行（[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)，Node 24.x，另有 MySQL 8.4.9 容器内跑 `npm test`）。本地先跑是为了在上传前发现问题，不是唯一闸门；**CI 通过不代替发布前的完整集成测试、迁移链核对和上线验收**。
 
+   2026-11-07 补充：本地跑完整集成测试时，`.env` 的 `TEST_DATABASE_HOST_PUBLIC` 指向公网 RDS 会因 TUN 假 IP 连不上，表现为大批用例报「集成测试需要测试库配置」——那是连接失败，不是断言失败，不能记成回归。本机 `127.0.0.1:3307` 有 `cothread_test` 时，用环境变量覆盖即可（不改 `.env`）：`$env:TEST_DATABASE_HOST_PUBLIC='127.0.0.1:3307/cothread_test'`、同设 `TEST_DATABASE_HOST_INTERNAL`、`$env:TEST_DATABASE_AUTH` 取本机账号，再跑 `npm test`。2026-11-07 本轮即用此法跑通 1136/1136。
+
+   2026-11-07 补充：打包入口 `scripts/ecs-pack.mjs` 的路径清单目前不含 `tsconfig.shared.json`，发布包里因此没有这个文件。运行期不受影响（Node 原生擦除类型不读 tsconfig），但线上实例无法执行 `npm run typecheck:shared`。要在 ECS 上跑门禁需把它加进 paths。
+
 3. 单独验证生产依赖锁文件。开发机已有 `node_modules` 时构建通过，不能证明 ECS 能执行 `npm ci`。锁文件不同步时，在本地同步后提交，避免在 ECS 上改成 `npm install` 绕过锁定：
 
    ```powershell
@@ -255,3 +259,4 @@ bash -n scripts/ecs-codedeploy-start.sh
 | 2026-11-04 | 13  | 小祥监控任务会话时间线与轨迹用量                                             | `eab4a0f`、`9d2a2c7`、`cafd752`、`7b2bd6a`、`1294784` | 上线                       | [记录](releases/2026-11-04.md#r13) |
 | 2026-11-06 | 1   | server/ 全量迁 TypeScript 等（首次发布中止：部署脚本仍指向 server/index.js） | `d8a67dd`                                             | 中止（未切换版本）         | [记录](releases/2026-11-06.md#r1)  |
 | 2026-11-06 | 2   | 修复部署路径后重新发布上线                                                   | `5a9ee4b`                                             | 上线                       | [记录](releases/2026-11-06.md#r2)  |
+| 2026-11-07 | 1   | 分页取整、循环依赖门禁、shared 类型检查、前端首屏包体缩减                    | `5983262`                                             | 上线                       | [记录](releases/2026-11-07.md#r1)  |

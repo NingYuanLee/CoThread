@@ -17,7 +17,7 @@
 - [03-admin-platform.md](engineering/03-admin-platform.md)：管理空间页面和权限
 - [04-miniprogram-release-approval.md](engineering/04-miniprogram-release-approval.md)：小程序生产发布审批
 - [05-cloud-environment.md](engineering/05-cloud-environment.md)：云端环境变量、ECS 发布流程、故障恢复与验收要求
-- [releases/](engineering/releases/)：逐次发布记录，按发布日期一个文件，只放当轮事实，不回流成流程
+- [releases/](engineering/releases/)：逐次发布记录，按发布日期一个文件，只放当轮事实，不回流成流程（含 2026-11-07 的分页取整、门禁与前端包体缩减）
 - [06-chat-side-state-protocol.md](engineering/06-chat-side-state-protocol.md)：聊天侧表快照指纹
 - [07-request-timing.md](engineering/07-request-timing.md)：接口耗时怎么读
 - [08-security-dependencies.md](engineering/08-security-dependencies.md)：有意保留的依赖风险
